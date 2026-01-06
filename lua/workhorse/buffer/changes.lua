@@ -7,6 +7,20 @@ M.ChangeType = {
   DELETED = "deleted",
 }
 
+-- Normalize title for comparison (trim whitespace, normalize internal spaces)
+local function normalize_title(title)
+  if not title then
+    return ""
+  end
+  -- Trim leading/trailing whitespace and normalize internal whitespace
+  return vim.trim(title):gsub("%s+", " ")
+end
+
+-- Check if two titles are equal (after normalization)
+local function titles_equal(a, b)
+  return normalize_title(a) == normalize_title(b)
+end
+
 -- Detect changes between original work items and current buffer state
 -- Returns array of change records:
 -- { type, id, title, old_title, work_item }
@@ -25,12 +39,15 @@ function M.detect(original_items, current_items)
     if item.id then
       current_by_id[item.id] = item
     else
-      -- New item (no ID)
-      table.insert(changes, {
-        type = M.ChangeType.CREATED,
-        title = item.title,
-        line_number = item.line_number,
-      })
+      -- New item (no ID) - only if title is not empty
+      local title = normalize_title(item.title)
+      if title ~= "" then
+        table.insert(changes, {
+          type = M.ChangeType.CREATED,
+          title = title,
+          line_number = item.line_number,
+        })
+      end
     end
   end
 
@@ -45,12 +62,12 @@ function M.detect(original_items, current_items)
         title = orig.title,
         work_item = orig,
       })
-    elseif current.title ~= orig.title then
-      -- Title was changed
+    elseif not titles_equal(current.title, orig.title) then
+      -- Title was actually changed (after normalization)
       table.insert(changes, {
         type = M.ChangeType.UPDATED,
         id = orig.id,
-        title = current.title,
+        title = normalize_title(current.title),
         old_title = orig.title,
         line_number = current.line_number,
         work_item = orig,

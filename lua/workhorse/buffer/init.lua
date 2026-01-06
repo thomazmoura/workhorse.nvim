@@ -29,7 +29,7 @@ function M.create(opts)
   vim.api.nvim_buf_set_name(bufnr, final_name)
 
   -- Set buffer options
-  vim.bo[bufnr].buftype = "acwrite"
+  vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].filetype = "workhorse"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].bufhidden = "hide"
@@ -71,15 +71,6 @@ end
 function M.setup_autocmds(bufnr)
   local group = vim.api.nvim_create_augroup("workhorse_buffer_" .. bufnr, { clear = true })
 
-  -- Handle buffer write
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      M.on_write(bufnr)
-    end,
-  })
-
   -- Handle buffer unload
   vim.api.nvim_create_autocmd("BufUnload", {
     group = group,
@@ -94,18 +85,23 @@ end
 function M.setup_keymaps(bufnr)
   local opts = { buffer = bufnr, silent = true }
 
+  -- Leader-Leader to apply changes (overrides global :wa mapping)
+  vim.keymap.set("n", "<leader><leader>", function()
+    require("workhorse").apply()
+  end, opts)
+
   -- Enter to change state
   vim.keymap.set("n", "<CR>", function()
     require("workhorse").change_state()
   end, opts)
 
   -- Ctrl-r to refresh
-  vim.keymap.set("n", "<C-r>", function()
+  vim.keymap.set("n", "<leader>R", function()
     require("workhorse").refresh()
   end, opts)
 
   -- gx to open in browser
-  vim.keymap.set("n", "gx", function()
+  vim.keymap.set("n", "gw", function()
     M.open_in_browser(bufnr)
   end, opts)
 end

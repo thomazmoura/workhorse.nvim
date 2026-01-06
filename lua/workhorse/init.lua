@@ -173,13 +173,15 @@ function M.change_state()
   })
 end
 
--- Save changes in current buffer
-function M.save()
+-- Apply changes in current buffer to Azure DevOps
+function M.apply()
   local buffer = require("workhorse.buffer")
   local bufnr = buffer.get_current()
-  if bufnr then
-    buffer.on_write(bufnr)
+  if not bufnr then
+    vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
+    return
   end
+  buffer.on_write(bufnr)
 end
 
 return M
