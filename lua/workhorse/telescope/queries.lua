@@ -7,7 +7,10 @@ function M.pick(opts)
   -- Check if Telescope is available
   local ok, _ = pcall(require, "telescope")
   if not ok then
-    vim.notify("Workhorse: Telescope is required for query picker", vim.log.levels.ERROR)
+    vim.notify(
+      "Workhorse: Telescope is required for query picker. Use :Workhorse query <id> instead.",
+      vim.log.levels.WARN
+    )
     return
   end
 
@@ -64,9 +67,14 @@ function M.pick(opts)
   end)
 end
 
--- Register as a Telescope extension
-return require("telescope").register_extension({
-  exports = {
-    queries = M.pick,
-  },
-})
+-- Register as a Telescope extension (if Telescope is available)
+local telescope_ok, telescope = pcall(require, "telescope")
+if telescope_ok then
+  telescope.register_extension({
+    exports = {
+      queries = M.pick,
+    },
+  })
+end
+
+return M

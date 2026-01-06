@@ -37,7 +37,7 @@ function M.execute(query_id, callback)
             table.insert(ids, item.id)
           end
         end
-        callback(ids, data.queryType)
+        callback(ids)
       end
     end,
     on_error = function(err)

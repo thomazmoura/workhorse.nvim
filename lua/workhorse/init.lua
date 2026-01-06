@@ -2,6 +2,18 @@ local M = {}
 
 local config = require("workhorse.config")
 
+-- Check if plugin is configured, show warning if not
+local function check_config()
+  if not config.is_valid() then
+    vim.notify(
+      "Workhorse: Plugin not configured. Please call require('workhorse').setup() with server_url, pat, and project.",
+      vim.log.levels.WARN
+    )
+    return false
+  end
+  return true
+end
+
 -- Setup the plugin
 function M.setup(opts)
   config.setup(opts)
@@ -9,6 +21,9 @@ end
 
 -- Open work items from a saved query
 function M.open_query(query_id)
+  if not check_config() then
+    return
+  end
   local queries = require("workhorse.api.queries")
   local workitems = require("workhorse.api.workitems")
   local buffer = require("workhorse.buffer")
@@ -50,9 +65,16 @@ end
 
 -- Open Telescope picker for saved queries
 function M.pick_query()
+  if not check_config() then
+    return
+  end
+
   local ok, telescope_ext = pcall(require, "workhorse.telescope.queries")
   if not ok then
-    vim.notify("Workhorse: Telescope extension not available", vim.log.levels.ERROR)
+    vim.notify(
+      "Workhorse: Telescope extension not available. Use :Workhorse query <id> instead.",
+      vim.log.levels.WARN
+    )
     return
   end
   telescope_ext.pick()

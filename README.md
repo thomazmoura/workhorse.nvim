@@ -24,7 +24,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 
 ```lua
 {
-  "your-username/workhorse.nvim",
+  "thomazmoura/workhorse.nvim",
   dependencies = {
     "nvim-lua/plenary.nvim",
     "nvim-telescope/telescope.nvim",
@@ -41,7 +41,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 
 ```lua
 use {
-  "your-username/workhorse.nvim",
+  "thomazmoura/workhorse.nvim",
   requires = {
     "nvim-lua/plenary.nvim",
     "nvim-telescope/telescope.nvim",
@@ -59,7 +59,7 @@ use {
 ```vim
 Plug 'nvim-lua/plenary.nvim'
 Plug 'nvim-telescope/telescope.nvim'
-Plug 'your-username/workhorse.nvim'
+Plug 'thomazmoura/workhorse.nvim'
 
 " In your init.lua or after/plugin:
 lua require("workhorse").setup({ project = "YourProject" })

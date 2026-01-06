@@ -48,23 +48,36 @@ function M.setup(opts)
 end
 
 function M.validate()
-  local errors = {}
+  local warnings = {}
 
   if not config.server_url then
-    table.insert(errors, "server_url not set (use setup() or AZURE_DEVOPS_URL env var)")
+    table.insert(warnings, "server_url not set (use setup() or AZURE_DEVOPS_URL env var)")
   end
 
   if not config.pat then
-    table.insert(errors, "pat not set (use setup() or AZURE_DEVOPS_PAT env var)")
+    table.insert(warnings, "pat not set (use setup() or AZURE_DEVOPS_PAT env var)")
   end
 
   if not config.project then
-    table.insert(errors, "project is required in setup()")
+    table.insert(warnings, "project is required in setup()")
   end
 
-  if #errors > 0 then
-    error("Workhorse configuration errors:\n  - " .. table.concat(errors, "\n  - "))
+  if #warnings > 0 then
+    vim.schedule(function()
+      vim.notify(
+        "Workhorse configuration incomplete:\n  - " .. table.concat(warnings, "\n  - "),
+        vim.log.levels.WARN
+      )
+    end)
+    return false
   end
+
+  return true
+end
+
+-- Check if config is valid (can be called before API operations)
+function M.is_valid()
+  return config.server_url ~= nil and config.pat ~= nil and config.project ~= nil
 end
 
 function M.get()

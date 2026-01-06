@@ -3,10 +3,25 @@ local M = {}
 local curl = require("plenary.curl")
 local config = require("workhorse.config")
 
+-- Base64 encode (fallback for Neovim < 0.10)
+local function base64_encode(str)
+  if vim.base64 and vim.base64.encode then
+    return vim.base64.encode(str)
+  end
+  -- Fallback using base64 command
+  local handle = io.popen("echo -n " .. vim.fn.shellescape(str) .. " | base64 -w0 2>/dev/null || echo -n " .. vim.fn.shellescape(str) .. " | base64")
+  if handle then
+    local result = handle:read("*a"):gsub("%s+$", "")
+    handle:close()
+    return result
+  end
+  error("Failed to base64 encode - neither vim.base64 nor base64 command available")
+end
+
 local function get_auth_header()
   local cfg = config.get()
   -- PAT auth uses Basic with empty username
-  return "Basic " .. vim.base64.encode(":" .. cfg.pat)
+  return "Basic " .. base64_encode(":" .. cfg.pat)
 end
 
 local function get_base_url()
@@ -62,10 +77,12 @@ end
 
 function M.request(opts)
   local url = get_base_url() .. opts.path
+  local auth = get_auth_header()
+
   local headers = {
-    ["Authorization"] = get_auth_header(),
-    ["Content-Type"] = opts.content_type or "application/json",
-    ["Accept"] = "application/json",
+    authorization = auth,
+    content_type = opts.content_type or "application/json",
+    accept = "application/json",
   }
 
   local request_opts = {
@@ -109,6 +126,39 @@ function M.patch(path, body, opts)
   -- JSON Patch requires specific content type
   opts.content_type = "application/json-patch+json"
   M.request(opts)
+end
+
+-- Test connection and show debug info
+function M.test()
+  local cfg = config.get()
+  local base_url = get_base_url()
+  local test_path = "/" .. cfg.project .. "/_apis/wit/queries?$depth=1&api-version=7.1"
+  local full_url = base_url .. test_path
+
+  vim.notify("Workhorse Debug Info:\n" ..
+    "  Server URL: " .. (cfg.server_url or "NOT SET") .. "\n" ..
+    "  Project: " .. (cfg.project or "NOT SET") .. "\n" ..
+    "  PAT: " .. (cfg.pat and (cfg.pat:sub(1, 4) .. "..." .. cfg.pat:sub(-4)) or "NOT SET") .. "\n" ..
+    "  Full test URL: " .. full_url,
+    vim.log.levels.INFO
+  )
+
+  -- Make a test request
+  vim.notify("Workhorse: Testing connection...", vim.log.levels.INFO)
+
+  M.get(test_path, {
+    on_success = function(data)
+      local count = data and data.count or (data and data.value and #data.value) or 0
+      vim.notify("Workhorse: Connection successful! Found " .. count .. " queries.", vim.log.levels.INFO)
+    end,
+    on_error = function(err, response)
+      vim.notify("Workhorse: Connection failed!\n  Status: " .. (response and response.status or "unknown") ..
+        "\n  URL: " .. full_url ..
+        "\n  Error: " .. (err or "unknown"),
+        vim.log.levels.ERROR
+      )
+    end,
+  })
 end
 
 return M

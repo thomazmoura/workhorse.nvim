@@ -19,6 +19,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").refresh()
   elseif cmd == "state" then
     require("workhorse").change_state()
+  elseif cmd == "test" then
+    require("workhorse.api.client").test()
   else
     -- No command or unknown command, show help
     vim.notify([[
@@ -26,6 +28,7 @@ Workhorse commands:
   :Workhorse query [id]  - Open saved query (or picker if no id)
   :Workhorse refresh     - Refresh current buffer
   :Workhorse state       - Change state of item under cursor
+  :Workhorse test        - Test connection to Azure DevOps
 ]], vim.log.levels.INFO)
   end
 end, {
@@ -35,7 +38,7 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "query", "refresh", "state" })
+      end, { "query", "refresh", "state", "test" })
     end
     return {}
   end,
