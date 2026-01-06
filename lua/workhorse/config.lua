@@ -25,6 +25,24 @@ local defaults = {
     ["Task"] = { "New", "Active", "Closed" },
   },
 
+  -- State header colors (highlight group names)
+  state_colors = {
+    ["New"] = "WorkhorseStateNew",
+    ["Active"] = "WorkhorseStateActive",
+    ["Resolved"] = "WorkhorseStateResolved",
+    ["Closed"] = "WorkhorseStateClosed",
+    ["Removed"] = "WorkhorseStateRemoved",
+  },
+
+  -- Work item type display (text and color independently configurable)
+  work_item_type_display = {
+    ["Epic"] = { text = "[Epic]", color = "WorkhorseTypeEpic" },
+    ["Feature"] = { text = "[Feature]", color = "WorkhorseTypeFeature" },
+    ["User Story"] = { text = "[Story]", color = "WorkhorseTypeUserStory" },
+    ["Bug"] = { text = "[Bug]", color = "WorkhorseTypeBug" },
+    ["Task"] = { text = "[Task]", color = "WorkhorseTypeTask" },
+  },
+
   -- UI options
   confirm_changes = true,
 

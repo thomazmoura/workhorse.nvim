@@ -51,12 +51,19 @@ end, {
 local function setup_highlights()
   -- Default highlight groups (can be overridden by colorscheme)
   local highlights = {
+    -- State highlights (for headers and virtual text)
     WorkhorseState = { link = "Comment" },
     WorkhorseStateNew = { link = "DiagnosticInfo" },
     WorkhorseStateActive = { link = "DiagnosticHint" },
     WorkhorseStateResolved = { link = "DiagnosticOk" },
     WorkhorseStateClosed = { link = "DiagnosticOk" },
     WorkhorseStateRemoved = { link = "DiagnosticError" },
+    -- Work item type highlights
+    WorkhorseTypeEpic = { link = "Special" },
+    WorkhorseTypeFeature = { link = "Function" },
+    WorkhorseTypeUserStory = { link = "String" },
+    WorkhorseTypeBug = { link = "DiagnosticError" },
+    WorkhorseTypeTask = { link = "Identifier" },
   }
 
   for name, opts in pairs(highlights) do

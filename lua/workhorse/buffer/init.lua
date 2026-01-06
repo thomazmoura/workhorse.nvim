@@ -75,6 +75,9 @@ function M.create(opts)
   local lines, line_map = render.render_grouped_lines(work_items, available_states)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
+  -- Apply line highlights (state headers and type prefixes)
+  render.apply_line_highlights(bufnr, line_map)
+
   -- Store line map for reference
   buffers[bufnr].line_map = line_map
 
@@ -302,8 +305,9 @@ function M.refresh_buffer(bufnr, work_items)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   state.line_map = line_map
 
-  -- Clear any pending markers
+  -- Clear any pending markers and apply line highlights
   render.clear_virtual_text(bufnr)
+  render.apply_line_highlights(bufnr, line_map)
 
   -- Mark as unmodified
   vim.bo[bufnr].modified = false

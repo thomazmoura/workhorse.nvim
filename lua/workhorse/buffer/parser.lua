@@ -2,8 +2,9 @@ local M = {}
 
 local render = require("workhorse.buffer.render")
 
--- Pattern for existing work items: #1234 | Work item title
-local EXISTING_PATTERN = "^#(%d+)%s*|%s*(.+)$"
+-- Pattern for existing work items: [Type] #1234 | Work item title
+-- The type prefix is optional for backwards compatibility
+local EXISTING_PATTERN = "^.-%s*#(%d+)%s*|%s*(.+)$"
 
 -- Check if a line is a section header
 function M.is_header(line)
@@ -36,9 +37,9 @@ function M.parse_line(line)
     }
   end
 
-  -- Check if it's a new item (doesn't start with #number)
+  -- Check if it's a new item (doesn't contain #number | pattern)
   local trimmed = vim.trim(line)
-  if trimmed ~= "" and not trimmed:match("^#%d+") then
+  if trimmed ~= "" and not trimmed:match("#%d+%s*|") then
     return {
       id = nil,
       title = trimmed,

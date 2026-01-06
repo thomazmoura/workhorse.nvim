@@ -1,8 +1,9 @@
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("workhorse")
+local hl_ns = vim.api.nvim_create_namespace("workhorse_highlights")
 
--- Highlight groups for different states
+-- Default highlight groups for different states (fallback if not in config)
 local STATE_HL = {
   ["New"] = "WorkhorseStateNew",
   ["Active"] = "WorkhorseStateActive",
@@ -11,8 +12,39 @@ local STATE_HL = {
   ["Removed"] = "WorkhorseStateRemoved",
 }
 
+-- Default highlight groups for work item types
+local TYPE_HL = {
+  ["Epic"] = "WorkhorseTypeEpic",
+  ["Feature"] = "WorkhorseTypeFeature",
+  ["User Story"] = "WorkhorseTypeUserStory",
+  ["Bug"] = "WorkhorseTypeBug",
+  ["Task"] = "WorkhorseTypeTask",
+}
+
 local function get_state_hl(state)
   return STATE_HL[state] or "WorkhorseState"
+end
+
+-- Get display text for a work item type
+local function get_type_text(work_item_type)
+  local cfg = require("workhorse.config").get()
+  local display = cfg.work_item_type_display and cfg.work_item_type_display[work_item_type]
+  if display and display.text then
+    return display.text
+  end
+  -- Fallback: [Type]
+  return "[" .. (work_item_type or "Item") .. "]"
+end
+
+-- Get highlight group for a work item type
+local function get_type_hl(work_item_type)
+  local cfg = require("workhorse.config").get()
+  local display = cfg.work_item_type_display and cfg.work_item_type_display[work_item_type]
+  if display and display.color then
+    return display.color
+  end
+  -- Fallback to defaults
+  return TYPE_HL[work_item_type] or "Comment"
 end
 
 -- Header pattern for sections
@@ -51,9 +83,10 @@ function M.render_grouped_lines(work_items, available_states)
     -- Add work items in this state
     local items = groups[state] or {}
     for _, item in ipairs(items) do
-      local line = string.format("#%d | %s", item.id, item.title)
+      local type_text = get_type_text(item.type)
+      local line = string.format("%s #%d | %s", type_text, item.id, item.title)
       table.insert(lines, line)
-      line_map[#lines] = { type = "item", state = state, item = item }
+      line_map[#lines] = { type = "item", state = state, item = item, type_text = type_text }
     end
 
     -- Add empty line after section (except last)
@@ -115,6 +148,27 @@ function M.add_virtual_text(bufnr, work_items)
         },
         virt_text_pos = "eol",
       })
+    end
+  end
+end
+
+-- Apply line highlights for state headers and work item type prefixes
+function M.apply_line_highlights(bufnr, line_map)
+  local cfg = require("workhorse.config").get()
+
+  -- Clear previous line highlights
+  vim.api.nvim_buf_clear_namespace(bufnr, hl_ns, 0, -1)
+
+  for line_num, info in pairs(line_map) do
+    if info.type == "header" then
+      -- Apply state color to entire header line
+      local hl = (cfg.state_colors and cfg.state_colors[info.state]) or get_state_hl(info.state)
+      vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, -1)
+    elseif info.type == "item" and info.item then
+      -- Apply type color to prefix only
+      local type_text = info.type_text or get_type_text(info.item.type)
+      local hl = get_type_hl(info.item.type)
+      vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, #type_text)
     end
   end
 end
