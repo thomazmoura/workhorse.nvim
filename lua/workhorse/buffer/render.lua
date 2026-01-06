@@ -165,10 +165,13 @@ function M.apply_line_highlights(bufnr, line_map)
       local hl = (cfg.state_colors and cfg.state_colors[info.state]) or get_state_hl(info.state)
       vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, -1)
     elseif info.type == "item" and info.item then
-      -- Apply type color to prefix only
-      local type_text = info.type_text or get_type_text(info.item.type)
-      local hl = get_type_hl(info.item.type)
-      vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, #type_text)
+      -- Apply state color to everything before the | separator
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+      local pipe_pos = line:find("|")
+      if pipe_pos then
+        local hl = (cfg.state_colors and cfg.state_colors[info.state]) or get_state_hl(info.state)
+        vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, pipe_pos - 1)
+      end
     end
   end
 end
