@@ -12,6 +12,7 @@ function M.show(changes, on_confirm, on_cancel)
   local created = 0
   local updated = 0
   local deleted = 0
+  local state_changed = 0
   for _, change in ipairs(changes) do
     if change.type == "created" then
       created = created + 1
@@ -19,6 +20,8 @@ function M.show(changes, on_confirm, on_cancel)
       updated = updated + 1
     elseif change.type == "deleted" then
       deleted = deleted + 1
+    elseif change.type == "state_changed" then
+      state_changed = state_changed + 1
     end
   end
 
@@ -32,6 +35,9 @@ function M.show(changes, on_confirm, on_cancel)
   end
   if deleted > 0 then
     table.insert(summary_parts, deleted .. " deleted")
+  end
+  if state_changed > 0 then
+    table.insert(summary_parts, state_changed .. " state changes")
   end
   local summary = table.concat(summary_parts, ", ")
 

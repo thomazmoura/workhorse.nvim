@@ -8,6 +8,25 @@ local config = require("workhorse.config")
 -- Track workhorse buffers
 local buffers = {}
 
+-- Get available states for the work items in the buffer
+local function get_available_states(work_items)
+  local cfg = config.get()
+
+  -- Determine work item type (use first item's type or default)
+  local work_item_type = cfg.default_work_item_type
+  if work_items and #work_items > 0 and work_items[1].type then
+    work_item_type = work_items[1].type
+  end
+
+  -- Get states for this type, fallback to default User Story states
+  local states = cfg.available_states[work_item_type]
+  if not states then
+    states = cfg.available_states["User Story"] or { "New", "Active", "Resolved", "Closed", "Removed" }
+  end
+
+  return states
+end
+
 -- Create a new workhorse buffer for displaying work items
 function M.create(opts)
   local query_id = opts.query_id
@@ -34,12 +53,16 @@ function M.create(opts)
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].bufhidden = "hide"
 
+  -- Get available states for grouping
+  local available_states = get_available_states(work_items)
+
   -- Store buffer state
   buffers[bufnr] = {
     query_id = query_id,
     query_name = query_name,
     original_items = vim.deepcopy(work_items),
     work_items = work_items,
+    available_states = available_states,
   }
 
   -- Also store in buffer variable for easy access
@@ -48,12 +71,12 @@ function M.create(opts)
     query_name = query_name,
   }
 
-  -- Render work items to buffer
-  local lines = render.render_lines(work_items)
+  -- Render work items grouped by state
+  local lines, line_map = render.render_grouped_lines(work_items, available_states)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-  -- Add virtual text for states
-  render.add_virtual_text(bufnr, work_items)
+  -- Store line map for reference
+  buffers[bufnr].line_map = line_map
 
   -- Set buffer as unmodified
   vim.bo[bufnr].modified = false
@@ -79,6 +102,37 @@ function M.setup_autocmds(bufnr)
       M.on_unload(bufnr)
     end,
   })
+
+  -- Update pending move markers when text changes
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      M.update_pending_markers(bufnr)
+    end,
+  })
+end
+
+-- Update virtual text markers for pending state changes
+function M.update_pending_markers(bufnr)
+  local state = buffers[bufnr]
+  if not state then
+    return
+  end
+
+  -- Clear existing markers
+  render.clear_virtual_text(bufnr)
+
+  -- Parse current buffer with sections
+  local current_items = parser.parse_buffer_with_sections(bufnr)
+
+  -- Get pending moves
+  local pending_moves = changes_mod.get_pending_moves(state.original_items, current_items)
+
+  -- Add markers
+  if next(pending_moves) then
+    render.add_pending_move_markers(bufnr, pending_moves)
+  end
 end
 
 -- Set up keymaps for a workhorse buffer
@@ -125,7 +179,7 @@ function M.get_current()
   return nil, nil
 end
 
--- Handle buffer write
+-- Handle buffer write / apply
 function M.on_write(bufnr)
   local state = buffers[bufnr]
   if not state then
@@ -133,14 +187,14 @@ function M.on_write(bufnr)
     return
   end
 
-  -- Parse current buffer contents
-  local current_items = parser.parse_buffer(bufnr)
+  -- Parse current buffer contents with section tracking
+  local current_items = parser.parse_buffer_with_sections(bufnr)
 
-  -- Detect changes
+  -- Detect changes (including state changes)
   local changes = changes_mod.detect(state.original_items, current_items)
 
   if #changes == 0 then
-    vim.notify("Workhorse: No changes to save", vim.log.levels.INFO)
+    vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
     vim.bo[bufnr].modified = false
     return
   end
@@ -186,11 +240,15 @@ function M.apply_changes(bufnr, changes)
 
   for _, change in ipairs(changes) do
     if change.type == changes_mod.ChangeType.CREATED then
-      -- Create new work item
-      workitems.create({
+      -- Create new work item (optionally with initial state)
+      local create_opts = {
         title = change.title,
         type = cfg.default_work_item_type,
-      }, function(item, err)
+      }
+      if change.new_state then
+        create_opts.state = change.new_state
+      end
+      workitems.create(create_opts, function(item, err)
         if err then
           table.insert(errors, "Create failed: " .. (err or "unknown error"))
         end
@@ -212,6 +270,14 @@ function M.apply_changes(bufnr, changes)
         end
         on_complete()
       end)
+    elseif change.type == changes_mod.ChangeType.STATE_CHANGED then
+      -- Update state
+      workitems.update_state(change.id, change.new_state, function(item, err)
+        if err then
+          table.insert(errors, "State change #" .. change.id .. " failed: " .. (err or "unknown error"))
+        end
+        on_complete()
+      end)
     end
   end
 end
@@ -223,14 +289,21 @@ function M.refresh_buffer(bufnr, work_items)
     return
   end
 
+  -- Update available states (in case work item types changed)
+  local available_states = get_available_states(work_items)
+
   -- Update state
   state.original_items = vim.deepcopy(work_items)
   state.work_items = work_items
+  state.available_states = available_states
 
-  -- Re-render
-  local lines = render.render_lines(work_items)
+  -- Re-render with grouping
+  local lines, line_map = render.render_grouped_lines(work_items, available_states)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-  render.add_virtual_text(bufnr, work_items)
+  state.line_map = line_map
+
+  -- Clear any pending markers
+  render.clear_virtual_text(bufnr)
 
   -- Mark as unmodified
   vim.bo[bufnr].modified = false

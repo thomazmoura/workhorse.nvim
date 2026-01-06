@@ -1,13 +1,29 @@
 local M = {}
 
+local render = require("workhorse.buffer.render")
+
 -- Pattern for existing work items: #1234 | Work item title
 local EXISTING_PATTERN = "^#(%d+)%s*|%s*(.+)$"
 
+-- Check if a line is a section header
+function M.is_header(line)
+  if not line then
+    return false, nil
+  end
+  local state = line:match(render.HEADER_PATTERN)
+  return state ~= nil, state
+end
+
 -- Parse a single line
--- Returns: { id = number|nil, title = string } or nil for empty/invalid lines
+-- Returns: { id = number|nil, title = string } or nil for empty/invalid/header lines
 function M.parse_line(line)
   -- Skip empty lines
   if not line or line:match("^%s*$") then
+    return nil
+  end
+
+  -- Skip header lines
+  if M.is_header(line) then
     return nil
   end
 
@@ -33,7 +49,7 @@ function M.parse_line(line)
   return nil
 end
 
--- Parse all buffer lines
+-- Parse all buffer lines (simple, without section tracking)
 function M.parse_buffer(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local items = {}
@@ -49,6 +65,32 @@ function M.parse_buffer(bufnr)
   return items
 end
 
+-- Parse buffer with section (state) tracking
+-- Returns: items with current_state field based on which section they're in
+function M.parse_buffer_with_sections(bufnr)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local items = {}
+  local current_section = nil
+
+  for i, line in ipairs(lines) do
+    -- Check if this is a header line
+    local is_hdr, state = M.is_header(line)
+    if is_hdr then
+      current_section = state
+    else
+      -- Try to parse as work item
+      local item = M.parse_line(line)
+      if item then
+        item.line_number = i
+        item.current_state = current_section  -- State based on section position
+        table.insert(items, item)
+      end
+    end
+  end
+
+  return items
+end
+
 -- Get work item ID from a specific line
 function M.get_id_at_line(bufnr, line_num)
   local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
@@ -58,6 +100,21 @@ function M.get_id_at_line(bufnr, line_num)
 
   local item = M.parse_line(line)
   return item and item.id
+end
+
+-- Get the section state at a specific line
+function M.get_section_at_line(bufnr, line_num)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, line_num, false)
+  local current_section = nil
+
+  for _, line in ipairs(lines) do
+    local is_hdr, state = M.is_header(line)
+    if is_hdr then
+      current_section = state
+    end
+  end
+
+  return current_section
 end
 
 -- Format a line for a work item
