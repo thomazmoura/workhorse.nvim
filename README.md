@@ -1,0 +1,193 @@
+# workhorse.nvim
+
+A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buffer interface. View and edit work items as a simple text buffer where each line represents a work item.
+
+## Features
+
+- **Oil.nvim-style editing** - Work items displayed as editable text lines
+- **Full CRUD operations** - Create, read, update, and soft-delete work items
+- **Saved queries** - Browse and execute Azure DevOps saved queries via Telescope
+- **State management** - Change work item states through a floating menu
+- **Virtual text** - Work item states displayed as virtual text at end of lines
+- **Confirmation dialog** - Review changes before applying to Azure DevOps
+
+## Requirements
+
+- Neovim >= 0.9.0
+- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query picker)
+- Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
+
+## Installation
+
+### lazy.nvim
+
+```lua
+{
+  "your-username/workhorse.nvim",
+  dependencies = {
+    "nvim-lua/plenary.nvim",
+    "nvim-telescope/telescope.nvim",
+  },
+  config = function()
+    require("workhorse").setup({
+      project = "YourProject",
+    })
+  end,
+}
+```
+
+### packer.nvim
+
+```lua
+use {
+  "your-username/workhorse.nvim",
+  requires = {
+    "nvim-lua/plenary.nvim",
+    "nvim-telescope/telescope.nvim",
+  },
+  config = function()
+    require("workhorse").setup({
+      project = "YourProject",
+    })
+  end,
+}
+```
+
+### vim-plug
+
+```vim
+Plug 'nvim-lua/plenary.nvim'
+Plug 'nvim-telescope/telescope.nvim'
+Plug 'your-username/workhorse.nvim'
+
+" In your init.lua or after/plugin:
+lua require("workhorse").setup({ project = "YourProject" })
+```
+
+## Configuration
+
+### Environment Variables
+
+Set these environment variables for authentication:
+
+```bash
+export AZURE_DEVOPS_URL="https://dev.azure.com/your-organization"
+# Or for Azure DevOps Server:
+export AZURE_DEVOPS_URL="https://your-server/tfs/DefaultCollection"
+
+export AZURE_DEVOPS_PAT="your-personal-access-token"
+```
+
+### Setup Options
+
+```lua
+require("workhorse").setup({
+  -- Required: Azure DevOps project name
+  project = "MyProject",
+
+  -- Optional: Override environment variables
+  server_url = nil,  -- Falls back to AZURE_DEVOPS_URL
+  pat = nil,         -- Falls back to AZURE_DEVOPS_PAT
+
+  -- Work item defaults
+  default_work_item_type = "User Story",
+  default_area_path = nil,       -- Uses project root if nil
+  default_iteration_path = nil,  -- Uses project root if nil
+
+  -- State for soft delete
+  deleted_state = "Removed",
+
+  -- Available states per work item type (customize as needed)
+  available_states = {
+    ["Epic"] = { "New", "Active", "Resolved", "Closed", "Removed" },
+    ["Feature"] = { "New", "Active", "Resolved", "Closed", "Removed" },
+    ["User Story"] = { "New", "Active", "Resolved", "Closed", "Removed" },
+    ["Bug"] = { "New", "Active", "Resolved", "Closed" },
+    ["Task"] = { "New", "Active", "Closed" },
+  },
+
+  -- UI options
+  confirm_changes = true,  -- Show confirmation dialog before saving
+
+  -- Cache settings
+  cache = {
+    enabled = true,
+    ttl = 300,  -- 5 minutes
+  },
+})
+```
+
+## Usage
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `:Workhorse query` | Open Telescope picker to select a saved query |
+| `:Workhorse query <id>` | Open a specific saved query by ID |
+| `:Workhorse refresh` | Refresh current buffer from Azure DevOps |
+| `:Workhorse state` | Change state of work item under cursor |
+
+### Buffer Keymaps
+
+When in a workhorse buffer:
+
+| Key | Action |
+|-----|--------|
+| `<CR>` | Open actions menu (change state, open in browser, refresh) |
+| `<C-r>` | Refresh buffer |
+| `gx` | Open work item in browser |
+| `:w` | Save changes (with confirmation dialog) |
+
+### Suggested Global Keymaps
+
+```lua
+vim.keymap.set("n", "<leader>wq", require("workhorse").pick_query, { desc = "Workhorse: Pick query" })
+vim.keymap.set("n", "<leader>wr", require("workhorse").refresh, { desc = "Workhorse: Refresh" })
+```
+
+## Buffer Format
+
+Work items are displayed as editable text lines:
+
+```
+#1234 | Implement user authentication  [Active]
+#1235 | Fix login page styling         [New]
+#1236 | Add password reset flow        [Resolved]
+```
+
+- **ID and Title**: `#1234 | Work item title`
+- **State**: Shown as virtual text at end of line (e.g., `[Active]`)
+
+### Editing Operations
+
+| Action | How |
+|--------|-----|
+| **Edit title** | Modify the title text after the `\|`, then `:w` to save |
+| **Create work item** | Add a new line with just the title (no `#id \|` prefix), then `:w` |
+| **Delete work item** | Remove the line entirely, then `:w` (soft-delete: state changes to "Removed") |
+| **Change state** | Press `<CR>` to open actions menu, select "Change state" |
+
+### Example Workflow
+
+1. Run `:Workhorse query` to open the query picker
+2. Select a saved query from Telescope
+3. Work items appear in a buffer
+4. Edit titles, add new lines, or delete lines
+5. Press `:w` to save - a confirmation dialog shows pending changes
+6. Press `y` to apply changes to Azure DevOps
+
+## Creating a Personal Access Token
+
+1. Go to Azure DevOps > User Settings > Personal Access Tokens
+2. Click "New Token"
+3. Set a name and expiration
+4. Select scopes:
+   - **Work Items**: Read & Write
+   - **Project and Team**: Read (for queries)
+5. Copy the token and set it as `AZURE_DEVOPS_PAT`
+
+## License
+
+MIT
