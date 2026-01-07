@@ -94,17 +94,35 @@ local function get_or_create_buffer()
     group = group,
     buffer = desc_bufnr,
     callback = function()
-      -- Mark as modified in memory
+      -- Mark as modified in memory (not in buffer - to avoid blocking tmux)
       if current_item_id and description_edits[current_item_id] then
         local lines = vim.api.nvim_buf_get_lines(desc_bufnr, 0, -1, false)
         local content = table.concat(lines, "\n")
         description_edits[current_item_id].description = content
         description_edits[current_item_id].modified = (content ~= description_edits[current_item_id].original)
       end
+      -- Keep buffer unmodified so it doesn't block navigation
+      vim.bo[desc_bufnr].modified = false
     end,
   })
 
   return desc_bufnr
+end
+
+-- Close the description window
+local function close_window()
+  if desc_winid and vim.api.nvim_win_is_valid(desc_winid) then
+    save_to_memory()
+    vim.api.nvim_win_close(desc_winid, true)
+    desc_winid = nil
+  end
+end
+
+-- Check if description window is visible for a specific item
+local function is_showing_item(item_id)
+  return desc_winid
+    and vim.api.nvim_win_is_valid(desc_winid)
+    and current_item_id == item_id
 end
 
 -- Open or focus the description window
@@ -130,17 +148,23 @@ local function open_or_focus_window()
   return desc_winid
 end
 
--- Open description for a work item
+-- Open description for a work item (toggle if same item)
 function M.open(work_item)
   if not work_item then
     vim.notify("Workhorse: No work item provided", vim.log.levels.WARN)
     return
   end
 
+  local item_id = work_item.id
+
+  -- Toggle: if already showing this item, close the window
+  if is_showing_item(item_id) then
+    close_window()
+    return
+  end
+
   -- Save current content before switching
   save_to_memory()
-
-  local item_id = work_item.id
 
   -- Initialize edit storage if needed
   if not description_edits[item_id] then
