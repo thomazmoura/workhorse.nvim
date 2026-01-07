@@ -30,14 +30,38 @@ function M.execute(query_id, callback)
   client.get(path, {
     on_success = function(data)
       if callback then
-        -- Extract just the IDs from the work items
+        local result = {
+          query_type = data.queryType,
+          relations = data.workItemRelations or nil,
+        }
+
+        -- Extract IDs from flat queries
         local ids = {}
         if data.workItems then
           for _, item in ipairs(data.workItems) do
             table.insert(ids, item.id)
           end
         end
-        callback(ids)
+
+        -- Extract IDs from tree queries
+        if data.workItemRelations then
+          local seen = {}
+          for _, rel in ipairs(data.workItemRelations) do
+            local source = type(rel.source) == "table" and rel.source or nil
+            local target = type(rel.target) == "table" and rel.target or nil
+            if source and source.id and not seen[source.id] then
+              seen[source.id] = true
+              table.insert(ids, source.id)
+            end
+            if target and target.id and not seen[target.id] then
+              seen[target.id] = true
+              table.insert(ids, target.id)
+            end
+          end
+        end
+
+        result.ids = ids
+        callback(result)
       end
     end,
     on_error = function(err)
@@ -56,13 +80,36 @@ function M.execute_wiql(wiql_text, callback)
   client.post(path, { query = wiql_text }, {
     on_success = function(data)
       if callback then
+        local result = {
+          query_type = data.queryType,
+          relations = data.workItemRelations or nil,
+        }
+
         local ids = {}
         if data.workItems then
           for _, item in ipairs(data.workItems) do
             table.insert(ids, item.id)
           end
         end
-        callback(ids)
+
+        if data.workItemRelations then
+          local seen = {}
+          for _, rel in ipairs(data.workItemRelations) do
+            local source = type(rel.source) == "table" and rel.source or nil
+            local target = type(rel.target) == "table" and rel.target or nil
+            if source and source.id and not seen[source.id] then
+              seen[source.id] = true
+              table.insert(ids, source.id)
+            end
+            if target and target.id and not seen[target.id] then
+              seen[target.id] = true
+              table.insert(ids, target.id)
+            end
+          end
+        end
+
+        result.ids = ids
+        callback(result)
       end
     end,
     on_error = function(err)

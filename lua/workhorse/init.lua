@@ -19,24 +19,48 @@ function M.setup(opts)
   config.setup(opts)
 end
 
+local function get_buffer_module(bufnr)
+  local buffer_tree = require("workhorse.buffer_tree")
+  local buffer_flat = require("workhorse.buffer")
+  local target = bufnr or vim.api.nvim_get_current_buf()
+
+  if buffer_tree.is_tree_buffer(target) then
+    return buffer_tree, target
+  end
+  if buffer_flat.is_workhorse_buffer(target) then
+    return buffer_flat, target
+  end
+  return nil, nil
+end
+
+local function is_tree_result(result)
+  local query_type = result and result.query_type
+  if query_type and type(query_type) == "string" then
+    return query_type:lower() == "tree"
+  end
+  return result and result.relations and #result.relations > 0
+end
+
 -- Open work items from a saved query
-function M.open_query(query_id)
+function M.open_query(query_id, query_name)
   if not check_config() then
     return
   end
   local queries = require("workhorse.api.queries")
   local workitems = require("workhorse.api.workitems")
   local buffer = require("workhorse.buffer")
+  local buffer_tree = require("workhorse.buffer_tree")
 
   vim.notify("Workhorse: Loading query...", vim.log.levels.INFO)
 
   -- Execute query to get work item IDs
-  queries.execute(query_id, function(ids, err)
+  queries.execute(query_id, function(result, err)
     if err then
       vim.notify("Workhorse: Failed to execute query: " .. (err or "unknown error"), vim.log.levels.ERROR)
       return
     end
 
+    local ids = result and result.ids or {}
     if not ids or #ids == 0 then
       vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
       return
@@ -49,15 +73,25 @@ function M.open_query(query_id)
         return
       end
 
-      -- Create buffer with work items
-      local bufnr = buffer.create({
-        query_id = query_id,
-        query_name = "Query",
-        work_items = items,
-      })
+      local use_tree = is_tree_result(result)
+      local bufnr
+      if use_tree then
+        bufnr = buffer_tree.create({
+          query_id = query_id,
+          query_name = query_name or "Query",
+          work_items = items,
+          relations = result.relations,
+        })
+      else
+        bufnr = buffer.create({
+          query_id = query_id,
+          query_name = query_name or "Query",
+          work_items = items,
+        })
+      end
 
       -- Save for resume
-      require("workhorse.session").save_last_query(query_id, "Query")
+      require("workhorse.session").save_last_query(query_id, query_name or "Query")
 
       -- Switch to the buffer
       vim.api.nvim_set_current_buf(bufnr)
@@ -86,10 +120,14 @@ end
 -- Refresh current buffer from server
 function M.refresh()
   local buffer = require("workhorse.buffer")
+  local buffer_tree = require("workhorse.buffer_tree")
   local queries = require("workhorse.api.queries")
   local workitems = require("workhorse.api.workitems")
 
   local bufnr, state = buffer.get_current()
+  if not bufnr then
+    bufnr, state = buffer_tree.get_current()
+  end
   if not bufnr then
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
     return
@@ -98,14 +136,19 @@ function M.refresh()
   vim.notify("Workhorse: Refreshing...", vim.log.levels.INFO)
 
   -- Re-execute query
-  queries.execute(state.query_id, function(ids, err)
+  queries.execute(state.query_id, function(result, err)
     if err then
       vim.notify("Workhorse: Failed to refresh: " .. (err or "unknown error"), vim.log.levels.ERROR)
       return
     end
 
+    local ids = result and result.ids or {}
     if not ids or #ids == 0 then
-      buffer.refresh_buffer(bufnr, {})
+      if buffer_tree.is_tree_buffer(bufnr) then
+        buffer_tree.refresh_buffer(bufnr, {}, result and result.relations or nil)
+      else
+        buffer.refresh_buffer(bufnr, {})
+      end
       vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
       return
     end
@@ -117,7 +160,11 @@ function M.refresh()
         return
       end
 
-      buffer.refresh_buffer(bufnr, items)
+      if buffer_tree.is_tree_buffer(bufnr) then
+        buffer_tree.refresh_buffer(bufnr, items, result and result.relations or nil)
+      else
+        buffer.refresh_buffer(bufnr, items)
+      end
       vim.notify("Workhorse: Refreshed " .. #items .. " work items", vim.log.levels.INFO)
     end)
   end)
@@ -130,13 +177,13 @@ function M.change_state()
   local workitems = require("workhorse.api.workitems")
   local render = require("workhorse.buffer.render")
 
-  local bufnr, _ = buffer.get_current()
+  local buf_module, bufnr = get_buffer_module()
   if not bufnr then
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
     return
   end
 
-  local item, line_num = buffer.get_item_at_cursor(bufnr)
+  local item, line_num = buf_module.get_item_at_cursor(bufnr)
   if not item then
     vim.notify("Workhorse: No work item on this line", vim.log.levels.WARN)
     return
@@ -161,8 +208,9 @@ function M.change_state()
         -- Update local state
         item.state = new_state
 
-        -- Update virtual text
-        render.update_line_virtual_text(bufnr, line_num, new_state)
+        if not require("workhorse.buffer_tree").is_tree_buffer(bufnr) then
+          render.update_line_virtual_text(bufnr, line_num, new_state)
+        end
 
         vim.notify("Workhorse: State changed to " .. new_state, vim.log.levels.INFO)
       end)
@@ -178,27 +226,25 @@ end
 
 -- Apply changes in current buffer to Azure DevOps
 function M.apply()
-  local buffer = require("workhorse.buffer")
-  local bufnr = buffer.get_current()
+  local buf_module, bufnr = get_buffer_module()
   if not bufnr then
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
     return
   end
-  buffer.on_write(bufnr)
+  buf_module.on_write(bufnr)
 end
 
 -- Open description for work item under cursor
 function M.open_description()
-  local buffer = require("workhorse.buffer")
   local description = require("workhorse.buffer.description")
 
-  local bufnr, _ = buffer.get_current()
+  local buf_module, bufnr = get_buffer_module()
   if not bufnr then
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
     return
   end
 
-  local item = buffer.get_item_at_cursor(bufnr)
+  local item = buf_module.get_item_at_cursor(bufnr)
   if not item then
     vim.notify("Workhorse: No work item on this line", vim.log.levels.WARN)
     return
@@ -215,7 +261,7 @@ function M.resume()
     vim.notify("Workhorse: No previous query to resume", vim.log.levels.WARN)
     return
   end
-  M.open_query(last_query.id)
+  M.open_query(last_query.id, last_query.name)
 end
 
 return M

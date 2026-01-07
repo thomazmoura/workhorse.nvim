@@ -75,6 +75,20 @@ local function handle_response(response, opts)
   end)
 end
 
+local function handle_transport_error(err, opts)
+  local message = err and err.message or "Network error"
+  if err and err.exit == 6 then
+    message = "Unable to reach server (could not resolve host). Check server_url."
+  end
+
+  vim.schedule(function()
+    vim.notify("Workhorse: " .. message, vim.log.levels.ERROR)
+    if opts.on_error then
+      opts.on_error(message, err)
+    end
+  end)
+end
+
 function M.request(opts)
   local url = get_base_url() .. opts.path
   local auth = get_auth_header()
@@ -92,6 +106,9 @@ function M.request(opts)
     body = opts.body and vim.json.encode(opts.body) or nil,
     callback = function(response)
       handle_response(response, opts)
+    end,
+    on_error = function(err)
+      handle_transport_error(err, opts)
     end,
   }
 

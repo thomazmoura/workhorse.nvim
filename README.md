@@ -205,6 +205,35 @@ Work items are displayed as editable text lines:
 | **Delete work item** | Remove the line entirely, then `:w` (soft-delete: state changes to "Removed") |
 | **Change state** | Press `<CR>` to open actions menu, select "Change state" |
 
+## Tree Queries (Parent/Child)
+
+Tree queries are detected automatically and rendered as an indented list (one level per configured `tree_indent`).
+Work item type is inferred per level from the initial query results.
+
+Example:
+
+```
+[Epic] #100 | Platform
+> [Feature] #200 | Observability
+> > [Story] #300 | Add metrics export
+```
+
+Notes:
+- **Column display**: Board column is shown as virtual text at line end.
+- **Change column**: Press `<CR>` on an item to select a new column.
+- **Create item**: Add a new line at the desired indentation level; it inherits the type for that level and uses the nearest parent above.
+- **Reparent**: Move items up/down to sit under another parent (same indentation); changing indentation is blocked.
+- **Delete**: Remove the line, then apply (soft-delete).
+
+Indentation can be a single string or a list (up to four levels) in config:
+
+```lua
+require("workhorse").setup({
+  tree_indent = { "└─", "──", "──", "──" },
+  tree_indent_hl = "LspCodeLens",
+})
+```
+
 ### Example Workflow
 
 1. Run `:Workhorse query` to open the query picker

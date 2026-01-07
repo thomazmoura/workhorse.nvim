@@ -243,4 +243,82 @@ function M.update_stack_rank(id, new_rank, callback)
   M.update(id, { ["Microsoft.VSTS.Common.StackRank"] = new_rank }, callback)
 end
 
+local function get_with_relations(id, callback)
+  local path = "/_apis/wit/workitems/" .. id .. "?$expand=relations&api-version=7.1"
+
+  client.get(path, {
+    on_success = function(data)
+      callback(data)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+local function build_work_item_url(id)
+  local cfg = config.get()
+  return cfg.server_url:gsub("/$", "") .. "/" .. cfg.project .. "/_apis/wit/workItems/" .. id
+end
+
+function M.update_parent(id, parent_id, callback)
+  get_with_relations(id, function(data, err)
+    if err then
+      if callback then
+        callback(nil, err)
+      end
+      return
+    end
+
+    local relations = data and data.relations or {}
+    local parent_index = nil
+    for idx, rel in ipairs(relations) do
+      if rel.rel == "System.LinkTypes.Hierarchy-Reverse" then
+        parent_index = idx - 1
+        break
+      end
+    end
+
+    local patch = {}
+    if parent_index ~= nil then
+      table.insert(patch, {
+        op = "remove",
+        path = "/relations/" .. parent_index,
+      })
+    end
+
+    if parent_id then
+      table.insert(patch, {
+        op = "add",
+        path = "/relations/-",
+        value = {
+          rel = "System.LinkTypes.Hierarchy-Reverse",
+          url = build_work_item_url(parent_id),
+        },
+      })
+    end
+
+    if #patch == 0 then
+      if callback then
+        callback(parse_work_item(data))
+      end
+      return
+    end
+
+    local path = "/_apis/wit/workitems/" .. id .. "?api-version=7.1"
+    client.patch(path, patch, {
+      on_success = function(updated)
+        if callback then
+          callback(parse_work_item(updated))
+        end
+      end,
+      on_error = function(err_msg)
+        if callback then
+          callback(nil, err_msg)
+        end
+      end,
+    })
+  end)
+end
+
 return M

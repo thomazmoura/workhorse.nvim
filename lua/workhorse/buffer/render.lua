@@ -240,6 +240,25 @@ function M.add_virtual_text(bufnr, work_items)
   end
 end
 
+function M.update_line_virtual_text(bufnr, line_num, state)
+  if not line_num or line_num < 1 then
+    return
+  end
+
+  vim.api.nvim_buf_clear_namespace(bufnr, ns, line_num - 1, line_num)
+
+  if state and state ~= "" then
+    vim.api.nvim_buf_set_extmark(bufnr, ns, line_num - 1, 0, {
+      virt_text = {
+        { " [", "Comment" },
+        { state, get_state_hl(state) },
+        { "]", "Comment" },
+      },
+      virt_text_pos = "eol",
+    })
+  end
+end
+
 -- Apply line highlights for state/column headers and work item type prefixes
 function M.apply_line_highlights(bufnr, line_map)
   local cfg = require("workhorse.config").get()

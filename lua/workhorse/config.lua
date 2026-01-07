@@ -56,6 +56,11 @@ local defaults = {
     ["Task"] = { text = "[Task]", color = "WorkhorseTypeTask" },
   },
 
+  -- Tree view indentation prefix per level (up to four entries)
+  -- Each level uses its own prefix, and deeper levels reuse the last entry.
+  tree_indent = { "└─", "──", "──", "──" },
+  tree_indent_hl = "LspCodeLens",
+
   -- UI options
   confirm_changes = true,
 

@@ -58,7 +58,7 @@ function M.pick(opts)
           actions.close(prompt_bufnr)
           local selection = action_state.get_selected_entry()
           if selection then
-            require("workhorse").open_query(selection.value.id)
+            require("workhorse").open_query(selection.value.id, selection.value.name)
           end
         end)
         return true
