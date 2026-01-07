@@ -202,19 +202,44 @@ function M.on_write(bufnr)
     return
   end
 
-  -- Apply changes (with or without confirmation)
+  -- Check if there are new items that need an area path
+  local has_new = false
+  for _, change in ipairs(changes) do
+    if change.type == changes_mod.ChangeType.CREATED then
+      has_new = true
+      break
+    end
+  end
+
   local cfg = config.get()
-  if cfg.confirm_changes then
-    require("workhorse.ui.confirm").show(changes, function()
-      M.apply_changes(bufnr, changes)
+
+  -- Helper to proceed with confirmation and apply
+  local function proceed_with_changes(area_path)
+    if cfg.confirm_changes then
+      require("workhorse.ui.confirm").show(changes, function()
+        M.apply_changes(bufnr, changes, area_path)
+      end)
+    else
+      M.apply_changes(bufnr, changes, area_path)
+    end
+  end
+
+  if has_new then
+    -- Show area picker first for new items
+    require("workhorse.ui.area_picker").show(function(selected_area)
+      proceed_with_changes(selected_area)
+    end, function()
+      -- Cancelled - don't apply changes
+      vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
     end)
   else
-    M.apply_changes(bufnr, changes)
+    -- No new items, proceed normally
+    proceed_with_changes(nil)
   end
 end
 
 -- Apply changes to Azure DevOps
-function M.apply_changes(bufnr, changes)
+function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
   local workitems = require("workhorse.api.workitems")
   local cfg = config.get()
@@ -243,10 +268,11 @@ function M.apply_changes(bufnr, changes)
 
   for _, change in ipairs(changes) do
     if change.type == changes_mod.ChangeType.CREATED then
-      -- Create new work item (optionally with initial state)
+      -- Create new work item (optionally with initial state and area)
       local create_opts = {
         title = change.title,
         type = cfg.default_work_item_type,
+        area_path = area_path,
       }
       if change.new_state then
         create_opts.state = change.new_state

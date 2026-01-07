@@ -21,6 +21,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").change_state()
   elseif cmd == "apply" then
     require("workhorse").apply()
+  elseif cmd == "resume" then
+    require("workhorse").resume()
   elseif cmd == "test" then
     require("workhorse.api.client").test()
   else
@@ -28,6 +30,7 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     vim.notify([[
 Workhorse commands:
   :Workhorse query [id]  - Open saved query (or picker if no id)
+  :Workhorse resume      - Reopen the last query
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
   :Workhorse state       - Change state of item under cursor
@@ -41,7 +44,7 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "apply", "query", "refresh", "state", "test" })
+      end, { "apply", "query", "refresh", "resume", "state", "test" })
     end
     return {}
   end,
@@ -81,3 +84,8 @@ vim.api.nvim_create_autocmd("ColorScheme", {
   group = vim.api.nvim_create_augroup("workhorse_highlights", { clear = true }),
   callback = setup_highlights,
 })
+
+-- Global keymaps
+vim.keymap.set("n", "<leader>wQ", function()
+  require("workhorse").resume()
+end, { silent = true, desc = "Workhorse: Resume last query" })

@@ -74,8 +74,14 @@ function M.render_grouped_lines(work_items, available_states)
   local lines = {}
   local line_map = {}
   local groups = group_by_state(work_items)
+  local cfg = require("workhorse.config").get()
 
   for _, state in ipairs(available_states) do
+    -- Skip deleted state if configured to hide it
+    if cfg.hide_deleted_state and state == cfg.deleted_state then
+      goto continue
+    end
+
     -- Add header line
     table.insert(lines, make_header(state))
     line_map[#lines] = { type = "header", state = state }
@@ -92,6 +98,8 @@ function M.render_grouped_lines(work_items, available_states)
     -- Add empty line after section (except last)
     table.insert(lines, "")
     line_map[#lines] = { type = "empty", state = state }
+
+    ::continue::
   end
 
   -- Remove trailing empty line

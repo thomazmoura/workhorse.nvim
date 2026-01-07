@@ -56,6 +56,9 @@ function M.open_query(query_id)
         work_items = items,
       })
 
+      -- Save for resume
+      require("workhorse.session").save_last_query(query_id, "Query")
+
       -- Switch to the buffer
       vim.api.nvim_set_current_buf(bufnr)
       vim.notify("Workhorse: Loaded " .. #items .. " work items", vim.log.levels.INFO)
@@ -182,6 +185,17 @@ function M.apply()
     return
   end
   buffer.on_write(bufnr)
+end
+
+-- Resume the last opened query
+function M.resume()
+  local session = require("workhorse.session")
+  local last_query = session.get_last_query()
+  if not last_query then
+    vim.notify("Workhorse: No previous query to resume", vim.log.levels.WARN)
+    return
+  end
+  M.open_query(last_query.id)
 end
 
 return M

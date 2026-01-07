@@ -15,6 +15,7 @@ local defaults = {
 
   -- State for soft delete
   deleted_state = "Removed",
+  hide_deleted_state = false,
 
   -- Available states per work item type
   available_states = {
