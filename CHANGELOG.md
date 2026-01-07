@@ -2,7 +2,33 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
-## [Unreleased]
+## [7a1a7f6] - 2026-01-07
+
+### Added
+- Tree of Work Items buffer type for hierarchical display of work items with parent-child relationships
+- New `buffer_tree` module for tree-structured query rendering
+
+## [fad09d1] - 2026-01-07
+
+### Fixed
+- Fix stack rank ordering to actually be applied
+
+## [7c8f161] - 2026-01-07
+
+### Fixed
+- Fix card column movement by using the hidden editable field
+
+## [4c109b4] - 2026-01-07
+
+### Fixed
+- Ignore work items returned by the query but that could not be rendered
+
+## [67dbc67] - 2026-01-07
+
+### Changed
+- Move agent configuration to AGENTS.md
+
+## [09274d6] - 2026-01-07
 
 ### Added
 - Board Column grouping mode: display work items grouped by Kanban board columns instead of workflow states
@@ -10,6 +36,11 @@ All notable changes to workhorse.nvim are documented in this file.
 - New configuration options: `team`, `grouping_mode`, `default_board`, `column_colors`
 - New API module for fetching board column definitions (`api/boards.lua`)
 - Support for moving work items between board columns by dragging lines between sections
+
+## [948283e] - 2026-01-07
+
+### Added
+- Documentation updates
 
 ## [e506a04] - 2026-01-07
 
