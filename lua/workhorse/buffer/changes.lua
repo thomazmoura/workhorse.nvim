@@ -18,17 +18,35 @@ local function normalize_title(title)
   return vim.trim(title):gsub("%s+", " ")
 end
 
+local function is_unknown_column(column)
+  return column == nil or column == "" or column == "Unknown"
+end
+
 -- Check if two titles are equal (after normalization)
 local function titles_equal(a, b)
   return normalize_title(a) == normalize_title(b)
 end
 
+-- Check if a section is in the list of available sections
+local function is_section_available(section, available_sections)
+  if not available_sections or not section or section == "" then
+    return false
+  end
+  for _, s in ipairs(available_sections) do
+    if s == section then
+      return true
+    end
+  end
+  return false
+end
+
 -- Detect changes between original work items and current buffer state
 -- current_items should have current_section field from parse_buffer_with_sections
 -- grouping_mode: "state" (default) or "board_column"
+-- available_sections: list of sections that are rendered (used to avoid false deletions)
 -- Returns array of change records:
 -- { type, id, title, old_title, work_item, new_state, old_state, new_column, old_column }
-function M.detect(original_items, current_items, grouping_mode)
+function M.detect(original_items, current_items, grouping_mode, available_sections)
   local changes = {}
   grouping_mode = grouping_mode or "state"
 
@@ -61,13 +79,19 @@ function M.detect(original_items, current_items, grouping_mode)
   for _, orig in ipairs(original_items) do
     local current = current_by_id[orig.id]
     if not current then
-      -- Line was deleted (soft delete)
-      table.insert(changes, {
-        type = M.ChangeType.DELETED,
-        id = orig.id,
-        title = orig.title,
-        work_item = orig,
-      })
+      -- Check if the item was actually rendered (has a valid section)
+      local orig_section = grouping_mode == "board_column" and orig.board_column or orig.state
+      local was_rendered = is_section_available(orig_section, available_sections)
+
+      -- Only mark as deleted if it was rendered (otherwise it was just not displayed)
+      if was_rendered then
+        table.insert(changes, {
+          type = M.ChangeType.DELETED,
+          id = orig.id,
+          title = orig.title,
+          work_item = orig,
+        })
+      end
     else
       -- Check for title change
       if not titles_equal(current.title, orig.title) then
