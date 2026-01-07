@@ -237,7 +237,8 @@ function M.on_write(bufnr)
     state.original_items,
     current_items,
     state.grouping_mode,
-    available_sections
+    available_sections,
+    state.column_definitions
   )
 
   -- Check for description changes too
@@ -381,6 +382,14 @@ function M.apply_changes(bufnr, changes, area_path)
       workitems.update_board_column(change.id, change.new_column, function(item, err)
         if err then
           table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
+        end
+        on_complete()
+      end)
+    elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
+      -- Update stack rank
+      workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
+        if err then
+          table.insert(errors, "Order change #" .. change.id .. " failed: " .. (err or "unknown error"))
         end
         on_complete()
       end)

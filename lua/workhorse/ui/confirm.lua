@@ -22,6 +22,8 @@ function M.show(changes, on_confirm, on_cancel)
   local updated = 0
   local deleted = 0
   local state_changed = 0
+  local column_changed = 0
+  local order_changed = 0
   local desc_updated = #desc_changes
 
   for _, change in ipairs(changes) do
@@ -33,6 +35,10 @@ function M.show(changes, on_confirm, on_cancel)
       deleted = deleted + 1
     elseif change.type == "state_changed" then
       state_changed = state_changed + 1
+    elseif change.type == "column_changed" then
+      column_changed = column_changed + 1
+    elseif change.type == "stack_rank_changed" then
+      order_changed = order_changed + 1
     end
   end
 
@@ -49,6 +55,12 @@ function M.show(changes, on_confirm, on_cancel)
   end
   if state_changed > 0 then
     table.insert(summary_parts, state_changed .. " state changes")
+  end
+  if column_changed > 0 then
+    table.insert(summary_parts, column_changed .. " column changes")
+  end
+  if order_changed > 0 then
+    table.insert(summary_parts, order_changed .. " order changes")
   end
   if desc_updated > 0 then
     table.insert(summary_parts, desc_updated .. " description changes")
