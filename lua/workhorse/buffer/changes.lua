@@ -108,13 +108,16 @@ function M.detect(original_items, current_items, grouping_mode, available_sectio
       -- Check for section change (moved to different section)
       if grouping_mode == "board_column" then
         -- Compare against original board_column
-        if current.current_section and current.current_section ~= orig.board_column then
+        local new_col = current.current_section
+        local old_col = orig.board_column
+        local both_unknown = is_unknown_column(new_col) and is_unknown_column(old_col)
+        if new_col and not both_unknown and new_col ~= old_col then
           table.insert(changes, {
             type = M.ChangeType.COLUMN_CHANGED,
             id = orig.id,
             title = orig.title,
-            old_column = orig.board_column,
-            new_column = current.current_section,
+            old_column = old_col,
+            new_column = new_col,
             line_number = current.line_number,
             work_item = orig,
           })

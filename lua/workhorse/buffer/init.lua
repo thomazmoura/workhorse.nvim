@@ -230,7 +230,15 @@ function M.on_write(bufnr)
   local current_items = parser.parse_buffer_with_sections(bufnr)
 
   -- Detect changes (including state/column changes)
-  local changes = changes_mod.detect(state.original_items, current_items, state.grouping_mode)
+  local available_sections = state.grouping_mode == "board_column"
+    and state.available_columns
+    or state.available_states
+  local changes = changes_mod.detect(
+    state.original_items,
+    current_items,
+    state.grouping_mode,
+    available_sections
+  )
 
   -- Check for description changes too
   local has_desc_changes = description_mod.has_pending_changes()

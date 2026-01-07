@@ -37,6 +37,42 @@ local function parse_work_item(item)
   }
 end
 
+local function find_kanban_column_field(fields, preferred_value)
+  local candidates = {}
+  for name, value in pairs(fields or {}) do
+    if type(name) == "string" and name:match("Kanban%.Column$") then
+      table.insert(candidates, { name = name, value = value })
+    end
+  end
+
+  if preferred_value then
+    for _, candidate in ipairs(candidates) do
+      if candidate.value == preferred_value then
+        return candidate.name
+      end
+    end
+  end
+
+  if #candidates > 0 then
+    return candidates[1].name
+  end
+
+  return nil
+end
+
+local function get_all_fields(id, callback)
+  local path = "/_apis/wit/workitems/" .. id .. "?$expand=all&api-version=7.1"
+
+  client.get(path, {
+    on_success = function(data)
+      callback(data and data.fields or {})
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Get work items by IDs
 function M.get_by_ids(ids, callback)
   if not ids or #ids == 0 then
@@ -179,7 +215,27 @@ end
 
 -- Update board column
 function M.update_board_column(id, new_column, callback)
-  M.update(id, { ["System.BoardColumn"] = new_column }, callback)
+  get_all_fields(id, function(fields, err)
+    if err then
+      if callback then
+        callback(nil, err)
+      end
+      return
+    end
+
+    local current_column = fields and fields["System.BoardColumn"]
+    local field = find_kanban_column_field(fields, current_column)
+    if not field then
+      local msg = "No writable Kanban column field found for work item"
+      vim.notify("Workhorse: " .. msg, vim.log.levels.ERROR)
+      if callback then
+        callback(nil, msg)
+      end
+      return
+    end
+
+    M.update(id, { [field] = new_column }, callback)
+  end)
 end
 
 -- Update stack rank
