@@ -13,6 +13,9 @@ local FIELDS = {
   "System.IterationPath",
   "System.Description",
   "System.Rev",
+  "System.BoardColumn",
+  "System.BoardColumnDone",
+  "Microsoft.VSTS.Common.StackRank",
 }
 
 -- Parse API response into internal work item format
@@ -28,6 +31,9 @@ local function parse_work_item(item)
     iteration_path = fields["System.IterationPath"] or "",
     description = fields["System.Description"] or "",
     url = item.url,
+    board_column = fields["System.BoardColumn"] or "",
+    board_column_done = fields["System.BoardColumnDone"] or false,
+    stack_rank = fields["Microsoft.VSTS.Common.StackRank"],
   }
 end
 
@@ -169,6 +175,16 @@ end
 function M.soft_delete(id, callback)
   local cfg = config.get()
   M.update_state(id, cfg.deleted_state, callback)
+end
+
+-- Update board column
+function M.update_board_column(id, new_column, callback)
+  M.update(id, { ["System.BoardColumn"] = new_column }, callback)
+end
+
+-- Update stack rank
+function M.update_stack_rank(id, new_rank, callback)
+  M.update(id, { ["Microsoft.VSTS.Common.StackRank"] = new_rank }, callback)
 end
 
 return M

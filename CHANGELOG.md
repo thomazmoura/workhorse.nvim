@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Board Column grouping mode: display work items grouped by Kanban board columns instead of workflow states
+- Stack Rank ordering: items within each column are sorted by their Stack Rank (same order as the board)
+- New configuration options: `team`, `grouping_mode`, `default_board`, `column_colors`
+- New API module for fetching board column definitions (`api/boards.lua`)
+- Support for moving work items between board columns by dragging lines between sections
+
 ## [e506a04] - 2026-01-07
 
 ### Changed

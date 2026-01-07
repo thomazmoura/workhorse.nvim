@@ -8,6 +8,15 @@ local defaults = {
   -- Required: project name
   project = nil,
 
+  -- Team name (required for board_column grouping mode)
+  team = nil,
+
+  -- Grouping mode: "state" (default) or "board_column"
+  grouping_mode = "state",
+
+  -- Board name for column configuration (Stories, Epics, Features, etc.)
+  default_board = "Stories",
+
   -- Work item defaults
   default_work_item_type = "User Story",
   default_area_path = nil,
@@ -34,6 +43,9 @@ local defaults = {
     ["Closed"] = "WorkhorseStateClosed",
     ["Removed"] = "WorkhorseStateRemoved",
   },
+
+  -- Board column colors (highlight group names, used when grouping_mode = "board_column")
+  column_colors = {},
 
   -- Work item type display (text and color independently configurable)
   work_item_type_display = {
@@ -81,6 +93,10 @@ function M.validate()
     table.insert(warnings, "project is required in setup()")
   end
 
+  if config.grouping_mode == "board_column" and not config.team then
+    table.insert(warnings, "team is required when grouping_mode is 'board_column'")
+  end
+
   if #warnings > 0 then
     vim.schedule(function()
       vim.notify(
@@ -101,6 +117,11 @@ end
 
 function M.get()
   return config
+end
+
+-- Check if grouping mode is board_column
+function M.is_board_column_mode()
+  return config.grouping_mode == "board_column"
 end
 
 return M

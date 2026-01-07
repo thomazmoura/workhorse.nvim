@@ -6,6 +6,7 @@ M.ChangeType = {
   UPDATED = "updated",
   DELETED = "deleted",
   STATE_CHANGED = "state_changed",
+  COLUMN_CHANGED = "column_changed",
 }
 
 -- Normalize title for comparison (trim whitespace, normalize internal spaces)
@@ -23,11 +24,13 @@ local function titles_equal(a, b)
 end
 
 -- Detect changes between original work items and current buffer state
--- current_items should have current_state field from parse_buffer_with_sections
+-- current_items should have current_section field from parse_buffer_with_sections
+-- grouping_mode: "state" (default) or "board_column"
 -- Returns array of change records:
--- { type, id, title, old_title, work_item, new_state, old_state }
-function M.detect(original_items, current_items)
+-- { type, id, title, old_title, work_item, new_state, old_state, new_column, old_column }
+function M.detect(original_items, current_items, grouping_mode)
   local changes = {}
+  grouping_mode = grouping_mode or "state"
 
   -- Build lookup of original items by ID
   local original_by_id = {}
@@ -48,13 +51,13 @@ function M.detect(original_items, current_items)
           type = M.ChangeType.CREATED,
           title = title,
           line_number = item.line_number,
-          new_state = item.current_state,  -- State from section where it was added
+          new_state = item.current_section,  -- Section where it was added
         })
       end
     end
   end
 
-  -- Check for updates, deletions, and state changes
+  -- Check for updates, deletions, and state/column changes
   for _, orig in ipairs(original_items) do
     local current = current_by_id[orig.id]
     if not current then
@@ -78,17 +81,33 @@ function M.detect(original_items, current_items)
         })
       end
 
-      -- Check for state change (moved to different section)
-      if current.current_state and current.current_state ~= orig.state then
-        table.insert(changes, {
-          type = M.ChangeType.STATE_CHANGED,
-          id = orig.id,
-          title = orig.title,
-          old_state = orig.state,
-          new_state = current.current_state,
-          line_number = current.line_number,
-          work_item = orig,
-        })
+      -- Check for section change (moved to different section)
+      if grouping_mode == "board_column" then
+        -- Compare against original board_column
+        if current.current_section and current.current_section ~= orig.board_column then
+          table.insert(changes, {
+            type = M.ChangeType.COLUMN_CHANGED,
+            id = orig.id,
+            title = orig.title,
+            old_column = orig.board_column,
+            new_column = current.current_section,
+            line_number = current.line_number,
+            work_item = orig,
+          })
+        end
+      else
+        -- Compare against original state
+        if current.current_section and current.current_section ~= orig.state then
+          table.insert(changes, {
+            type = M.ChangeType.STATE_CHANGED,
+            id = orig.id,
+            title = orig.title,
+            old_state = orig.state,
+            new_state = current.current_section,
+            line_number = current.line_number,
+            work_item = orig,
+          })
+        end
       end
     end
   end
@@ -109,6 +128,7 @@ function M.group_by_type(changes)
     updated = {},
     deleted = {},
     state_changed = {},
+    column_changed = {},
   }
 
   for _, change in ipairs(changes) do
@@ -133,6 +153,10 @@ function M.format_for_display(changes)
       table.insert(lines, "  - #" .. change.id .. " -> Removed")
     elseif change.type == M.ChangeType.STATE_CHANGED then
       table.insert(lines, "  → #" .. change.id .. ": " .. change.old_state .. " -> " .. change.new_state)
+    elseif change.type == M.ChangeType.COLUMN_CHANGED then
+      local old_col = change.old_column or "Unknown"
+      local new_col = change.new_column or "Unknown"
+      table.insert(lines, "  → #" .. change.id .. ": " .. old_col .. " -> " .. new_col)
     end
   end
 

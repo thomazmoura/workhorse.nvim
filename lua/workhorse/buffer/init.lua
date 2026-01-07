@@ -4,6 +4,7 @@ local render = require("workhorse.buffer.render")
 local parser = require("workhorse.buffer.parser")
 local changes_mod = require("workhorse.buffer.changes")
 local config = require("workhorse.config")
+local boards = require("workhorse.api.boards")
 
 -- Track workhorse buffers
 local buffers = {}
@@ -25,6 +26,30 @@ local function get_available_states(work_items)
   end
 
   return states
+end
+
+-- Get grouping info (states or board columns) based on configuration
+-- Calls callback with { mode = "state"|"board_column", values = [...], columns = [...] }
+local function get_grouping_info(work_items, callback)
+  local cfg = config.get()
+
+  if cfg.grouping_mode == "board_column" then
+    -- Fetch board columns from API
+    local board_name = cfg.default_board or "Stories"
+
+    boards.get_columns(board_name, function(data, err)
+      if err then
+        vim.notify("Workhorse: Failed to fetch board columns: " .. (err or "unknown") .. ". Falling back to state grouping.", vim.log.levels.WARN)
+        -- Fallback to state grouping
+        callback({ mode = "state", values = get_available_states(work_items) })
+        return
+      end
+      callback({ mode = "board_column", values = data.order, columns = data.columns })
+    end)
+  else
+    -- Use state grouping (default behavior)
+    callback({ mode = "state", values = get_available_states(work_items) })
+  end
 end
 
 -- Create a new workhorse buffer for displaying work items
@@ -53,42 +78,51 @@ function M.create(opts)
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].bufhidden = "hide"
 
-  -- Get available states for grouping
-  local available_states = get_available_states(work_items)
-
-  -- Store buffer state
-  buffers[bufnr] = {
-    query_id = query_id,
-    query_name = query_name,
-    original_items = vim.deepcopy(work_items),
-    work_items = work_items,
-    available_states = available_states,
-  }
-
   -- Also store in buffer variable for easy access
   vim.b[bufnr].workhorse = {
     query_id = query_id,
     query_name = query_name,
   }
 
-  -- Render work items grouped by state
-  local lines, line_map = render.render_grouped_lines(work_items, available_states)
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  -- Get grouping info (async for board_column mode)
+  get_grouping_info(work_items, function(grouping_info)
+    -- Store buffer state
+    buffers[bufnr] = {
+      query_id = query_id,
+      query_name = query_name,
+      original_items = vim.deepcopy(work_items),
+      work_items = work_items,
+      grouping_mode = grouping_info.mode,
+      available_states = grouping_info.mode == "state" and grouping_info.values or nil,
+      available_columns = grouping_info.mode == "board_column" and grouping_info.values or nil,
+      column_definitions = grouping_info.columns,
+    }
 
-  -- Apply line highlights (state headers and type prefixes)
-  render.apply_line_highlights(bufnr, line_map)
+    -- Render based on mode
+    local lines, line_map
+    if grouping_info.mode == "board_column" then
+      lines, line_map = render.render_grouped_by_column(work_items, grouping_info.values)
+    else
+      lines, line_map = render.render_grouped_lines(work_items, grouping_info.values)
+    end
 
-  -- Store line map for reference
-  buffers[bufnr].line_map = line_map
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 
-  -- Set buffer as unmodified
-  vim.bo[bufnr].modified = false
+    -- Apply line highlights
+    render.apply_line_highlights(bufnr, line_map)
 
-  -- Set up autocommands for this buffer
-  M.setup_autocmds(bufnr)
+    -- Store line map for reference
+    buffers[bufnr].line_map = line_map
 
-  -- Set up keymaps for this buffer
-  M.setup_keymaps(bufnr)
+    -- Set buffer as unmodified
+    vim.bo[bufnr].modified = false
+
+    -- Set up autocommands for this buffer
+    M.setup_autocmds(bufnr)
+
+    -- Set up keymaps for this buffer
+    M.setup_keymaps(bufnr)
+  end)
 
   return bufnr
 end
@@ -195,8 +229,8 @@ function M.on_write(bufnr)
   -- Parse current buffer contents with section tracking
   local current_items = parser.parse_buffer_with_sections(bufnr)
 
-  -- Detect changes (including state changes)
-  local changes = changes_mod.detect(state.original_items, current_items)
+  -- Detect changes (including state/column changes)
+  local changes = changes_mod.detect(state.original_items, current_items, state.grouping_mode)
 
   -- Check for description changes too
   local has_desc_changes = description_mod.has_pending_changes()
@@ -334,36 +368,53 @@ function M.apply_changes(bufnr, changes, area_path)
         end
         on_complete()
       end)
+    elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
+      -- Update board column
+      workitems.update_board_column(change.id, change.new_column, function(item, err)
+        if err then
+          table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
+        end
+        on_complete()
+      end)
     end
   end
 end
 
 -- Refresh buffer with latest data from server
 function M.refresh_buffer(bufnr, work_items)
-  local state = buffers[bufnr]
-  if not state then
+  local buf_state = buffers[bufnr]
+  if not buf_state then
     return
   end
 
-  -- Update available states (in case work item types changed)
-  local available_states = get_available_states(work_items)
+  -- Get grouping info (async for board_column mode)
+  get_grouping_info(work_items, function(grouping_info)
+    -- Update state
+    buf_state.original_items = vim.deepcopy(work_items)
+    buf_state.work_items = work_items
+    buf_state.grouping_mode = grouping_info.mode
+    buf_state.available_states = grouping_info.mode == "state" and grouping_info.values or nil
+    buf_state.available_columns = grouping_info.mode == "board_column" and grouping_info.values or nil
+    buf_state.column_definitions = grouping_info.columns
 
-  -- Update state
-  state.original_items = vim.deepcopy(work_items)
-  state.work_items = work_items
-  state.available_states = available_states
+    -- Re-render based on mode
+    local lines, line_map
+    if grouping_info.mode == "board_column" then
+      lines, line_map = render.render_grouped_by_column(work_items, grouping_info.values)
+    else
+      lines, line_map = render.render_grouped_lines(work_items, grouping_info.values)
+    end
 
-  -- Re-render with grouping
-  local lines, line_map = render.render_grouped_lines(work_items, available_states)
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-  state.line_map = line_map
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+    buf_state.line_map = line_map
 
-  -- Clear any pending markers and apply line highlights
-  render.clear_virtual_text(bufnr)
-  render.apply_line_highlights(bufnr, line_map)
+    -- Clear any pending markers and apply line highlights
+    render.clear_virtual_text(bufnr)
+    render.apply_line_highlights(bufnr, line_map)
 
-  -- Mark as unmodified
-  vim.bo[bufnr].modified = false
+    -- Mark as unmodified
+    vim.bo[bufnr].modified = false
+  end)
 end
 
 -- Handle buffer unload

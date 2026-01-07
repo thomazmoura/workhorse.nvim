@@ -66,8 +66,8 @@ function M.parse_buffer(bufnr)
   return items
 end
 
--- Parse buffer with section (state) tracking
--- Returns: items with current_state field based on which section they're in
+-- Parse buffer with section (state/column) tracking
+-- Returns: items with current_section and current_state fields based on which section they're in
 function M.parse_buffer_with_sections(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local items = {}
@@ -75,15 +75,16 @@ function M.parse_buffer_with_sections(bufnr)
 
   for i, line in ipairs(lines) do
     -- Check if this is a header line
-    local is_hdr, state = M.is_header(line)
+    local is_hdr, section = M.is_header(line)
     if is_hdr then
-      current_section = state
+      current_section = section
     else
       -- Try to parse as work item
       local item = M.parse_line(line)
       if item then
         item.line_number = i
-        item.current_state = current_section  -- State based on section position
+        item.current_section = current_section  -- Generic: could be state or column
+        item.current_state = current_section    -- For backwards compatibility
         table.insert(items, item)
       end
     end

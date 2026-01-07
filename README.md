@@ -92,6 +92,18 @@ require("workhorse").setup({
   server_url = nil,  -- Falls back to AZURE_DEVOPS_URL
   pat = nil,         -- Falls back to AZURE_DEVOPS_PAT
 
+  -- Team name (required for board_column grouping mode)
+  team = nil,  -- e.g., "MyProject Team"
+
+  -- Grouping mode: "state" (default) or "board_column"
+  -- "state" groups work items by their workflow state
+  -- "board_column" groups by Kanban board column (requires team to be set)
+  grouping_mode = "state",
+
+  -- Board name for column configuration (used when grouping_mode = "board_column")
+  -- Common values: "Stories" for User Story/Bug, "Epics" for Epic/Feature
+  default_board = "Stories",
+
   -- Work item defaults
   default_work_item_type = "User Story",
   default_area_path = nil,       -- Uses project root if nil
@@ -109,6 +121,10 @@ require("workhorse").setup({
     ["Task"] = { "New", "Active", "Closed" },
   },
 
+  -- Board column colors (used when grouping_mode = "board_column")
+  -- Keys are column names, values are highlight group names
+  column_colors = {},
+
   -- UI options
   confirm_changes = true,  -- Show confirmation dialog before saving
 
@@ -119,6 +135,24 @@ require("workhorse").setup({
   },
 })
 ```
+
+### Board Column Mode
+
+To display work items grouped by Kanban board columns (instead of workflow states) with Stack Rank ordering:
+
+```lua
+require("workhorse").setup({
+  project = "MyProject",
+  team = "MyProject Team",        -- Required: your team name
+  grouping_mode = "board_column", -- Group by board column
+  default_board = "Stories",      -- Board name (Stories, Epics, Features)
+})
+```
+
+In this mode:
+- Work items are grouped by their Kanban board column
+- Items within each column are sorted by Stack Rank (same order as the board)
+- Moving items between sections changes their board column
 
 ## Usage
 
