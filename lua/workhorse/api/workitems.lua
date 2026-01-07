@@ -11,6 +11,7 @@ local FIELDS = {
   "System.WorkItemType",
   "System.AreaPath",
   "System.IterationPath",
+  "System.Description",
   "System.Rev",
 }
 
@@ -25,6 +26,7 @@ local function parse_work_item(item)
     type = fields["System.WorkItemType"] or "",
     area_path = fields["System.AreaPath"] or "",
     iteration_path = fields["System.IterationPath"] or "",
+    description = fields["System.Description"] or "",
     url = item.url,
   }
 end
@@ -156,6 +158,11 @@ end
 -- Update state
 function M.update_state(id, new_state, callback)
   M.update(id, { ["System.State"] = new_state }, callback)
+end
+
+-- Update description
+function M.update_description(id, new_description, callback)
+  M.update(id, { ["System.Description"] = new_description }, callback)
 end
 
 -- Soft delete (change state to Removed)

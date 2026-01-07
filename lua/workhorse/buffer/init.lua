@@ -147,9 +147,9 @@ function M.setup_keymaps(bufnr)
     require("workhorse").apply()
   end, opts)
 
-  -- Enter to change state
+  -- Enter to open description
   vim.keymap.set("n", "<CR>", function()
-    require("workhorse").change_state()
+    require("workhorse").open_description()
   end, opts)
 
   -- Ctrl-r to refresh
@@ -185,6 +185,8 @@ end
 -- Handle buffer write / apply
 function M.on_write(bufnr)
   local state = buffers[bufnr]
+  local description_mod = require("workhorse.buffer.description")
+
   if not state then
     vim.notify("Workhorse: Buffer state not found", vim.log.levels.ERROR)
     return
@@ -196,7 +198,10 @@ function M.on_write(bufnr)
   -- Detect changes (including state changes)
   local changes = changes_mod.detect(state.original_items, current_items)
 
-  if #changes == 0 then
+  -- Check for description changes too
+  local has_desc_changes = description_mod.has_pending_changes()
+
+  if #changes == 0 and not has_desc_changes then
     vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
     vim.bo[bufnr].modified = false
     return
@@ -242,9 +247,13 @@ end
 function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
   local workitems = require("workhorse.api.workitems")
+  local description_mod = require("workhorse.buffer.description")
   local cfg = config.get()
 
-  local total = #changes
+  -- Get pending description changes
+  local desc_changes = description_mod.get_pending_changes()
+
+  local total = #changes + #desc_changes
   local completed = 0
   local errors = {}
 
@@ -264,6 +273,24 @@ function M.apply_changes(bufnr, changes, area_path)
       -- Refresh the buffer
       require("workhorse").refresh()
     end
+  end
+
+  -- Handle case where there are no changes
+  if total == 0 then
+    vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
+    return
+  end
+
+  -- Apply description changes
+  for _, desc_change in ipairs(desc_changes) do
+    workitems.update_description(desc_change.id, desc_change.description, function(item, err)
+      if err then
+        table.insert(errors, "Description #" .. desc_change.id .. " failed: " .. (err or "unknown error"))
+      else
+        description_mod.mark_saved(desc_change.id)
+      end
+      on_complete()
+    end)
   end
 
   for _, change in ipairs(changes) do

@@ -187,6 +187,26 @@ function M.apply()
   buffer.on_write(bufnr)
 end
 
+-- Open description for work item under cursor
+function M.open_description()
+  local buffer = require("workhorse.buffer")
+  local description = require("workhorse.buffer.description")
+
+  local bufnr, _ = buffer.get_current()
+  if not bufnr then
+    vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
+    return
+  end
+
+  local item = buffer.get_item_at_cursor(bufnr)
+  if not item then
+    vim.notify("Workhorse: No work item on this line", vim.log.levels.WARN)
+    return
+  end
+
+  description.open(item)
+end
+
 -- Resume the last opened query
 function M.resume()
   local session = require("workhorse.session")
