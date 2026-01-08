@@ -43,6 +43,142 @@ function M.get_prefix_len(level)
   return #indent_prefix(level)
 end
 
+-- Sort nodes by stack rank (lower rank = higher priority)
+local function sort_by_stack_rank(nodes)
+  table.sort(nodes, function(a, b)
+    local rank_a = a.item.stack_rank or math.huge
+    local rank_b = b.item.stack_rank or math.huge
+    if rank_a == rank_b then
+      return (a.item.id or 0) < (b.item.id or 0)
+    end
+    return rank_a < rank_b
+  end)
+end
+
+-- Build children map from nodes
+local function build_children_map(nodes, parent_by_id)
+  local children_map = {}
+  for _, node in ipairs(nodes) do
+    local parent_id = parent_by_id[node.item.id]
+    if parent_id then
+      children_map[parent_id] = children_map[parent_id] or {}
+      table.insert(children_map[parent_id], node)
+    end
+  end
+  -- Sort children by stack rank
+  for _, children in pairs(children_map) do
+    sort_by_stack_rank(children)
+  end
+  return children_map
+end
+
+-- Recursively render a node and its children
+local function render_node_recursive(node, children_map, lines, line_map, current_section)
+  local item = node.item
+  local level = node.level or 0
+  local type_text = get_type_text(item.type)
+  local prefix = indent_prefix(level)
+  local line = string.format("%s%s #%d | %s", prefix, type_text, item.id, item.title)
+  table.insert(lines, line)
+  line_map[#lines] = {
+    type = "item",
+    item = item,
+    level = level,
+    prefix_len = #prefix,
+    section = current_section,
+  }
+
+  -- Render children recursively
+  local children = children_map[item.id] or {}
+  for _, child in ipairs(children) do
+    render_node_recursive(child, children_map, lines, line_map, current_section)
+  end
+end
+
+-- Render tree items grouped by board column (top-level only)
+-- nodes: [{ item = work_item, level = number }]
+-- column_order: ordered list of column names
+-- parent_by_id: map of child_id -> parent_id
+function M.render_grouped_by_column(nodes, column_order, parent_by_id)
+  local lines = {}
+  local line_map = {}
+
+  -- Separate top-level (level 0) from children
+  local roots = {}
+  local all_nodes_by_id = {}
+  for _, node in ipairs(nodes or {}) do
+    all_nodes_by_id[node.item.id] = node
+    if node.level == 0 then
+      table.insert(roots, node)
+    end
+  end
+
+  -- Build children map for recursive rendering
+  local children_map = build_children_map(nodes, parent_by_id or {})
+
+  -- Group top-level items by board_column
+  local by_column = {}
+  for _, node in ipairs(roots) do
+    local col = node.item.board_column or "Unknown"
+    if col == "" then
+      col = "Unknown"
+    end
+    by_column[col] = by_column[col] or {}
+    table.insert(by_column[col], node)
+  end
+
+  -- Sort each column group by stack_rank
+  for _, group in pairs(by_column) do
+    sort_by_stack_rank(group)
+  end
+
+  -- Render in column order
+  local rendered_columns = {}
+  for _, col_name in ipairs(column_order or {}) do
+    local group = by_column[col_name]
+    if group and #group > 0 then
+      -- Add header
+      local header = string.format("══ [%s] ══", col_name)
+      table.insert(lines, header)
+      line_map[#lines] = { type = "header", section = col_name }
+
+      -- Render each root and its children
+      for _, node in ipairs(group) do
+        render_node_recursive(node, children_map, lines, line_map, col_name)
+      end
+
+      -- Add empty line after section
+      table.insert(lines, "")
+      line_map[#lines] = { type = "empty" }
+
+      rendered_columns[col_name] = true
+    end
+  end
+
+  -- Render "Unknown" column (items with no board_column)
+  local unknown_group = by_column["Unknown"]
+  if unknown_group and #unknown_group > 0 and not rendered_columns["Unknown"] then
+    local header = "══ [Unknown] ══"
+    table.insert(lines, header)
+    line_map[#lines] = { type = "header", section = "Unknown" }
+
+    for _, node in ipairs(unknown_group) do
+      render_node_recursive(node, children_map, lines, line_map, "Unknown")
+    end
+
+    table.insert(lines, "")
+    line_map[#lines] = { type = "empty" }
+  end
+
+  -- Remove trailing empty line
+  if #lines > 0 and lines[#lines] == "" then
+    table.remove(lines)
+    line_map[#lines + 1] = nil
+  end
+
+  return lines, line_map
+end
+
 -- Render tree items with indentation
 -- items: [{ item = work_item, level = number }]
 function M.render(items)
@@ -96,6 +232,18 @@ function M.apply_indent_highlights(bufnr, line_map, hl_group)
   for line_num, info in pairs(line_map or {}) do
     if info.type == "item" and info.prefix_len and info.prefix_len > 0 then
       vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl_group, line_num - 1, 0, info.prefix_len)
+    end
+  end
+end
+
+function M.apply_header_highlights(bufnr, line_map, column_colors)
+  for line_num, info in pairs(line_map or {}) do
+    if info.type == "header" and info.section then
+      local hl = column_colors and column_colors[info.section] or "Title"
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+      if line then
+        vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, #line)
+      end
     end
   end
 end

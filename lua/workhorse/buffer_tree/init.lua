@@ -174,18 +174,37 @@ function M.create(opts)
     levels = levels,
     level_types = level_types,
     column_overrides = {},
+    nodes = nodes,
+    column_order = nil,
+    column_definitions = nil,
   }
 
-  local lines, line_map = render.render(nodes)
-  buffers[bufnr].line_map = line_map
-
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-
+  -- Fetch board columns and render with grouping
   local cfg = config.get()
-  render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
-  render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+  local board_name = cfg.default_board or "Stories"
 
-  vim.bo[bufnr].modified = false
+  boards.get_columns(board_name, function(data, err)
+    if err then
+      -- Fallback to regular rendering without column grouping
+      local lines, line_map = render.render(nodes)
+      buffers[bufnr].line_map = line_map
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+      render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
+      render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    else
+      buffers[bufnr].column_order = data.order or {}
+      buffers[bufnr].column_definitions = data.columns or {}
+
+      local lines, line_map = render.render_grouped_by_column(nodes, data.order, parent_by_id)
+      buffers[bufnr].line_map = line_map
+
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+      render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
+      render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+      render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
+    end
+    vim.bo[bufnr].modified = false
+  end)
 
   M.setup_autocmds(bufnr)
   M.setup_keymaps(bufnr)
@@ -295,8 +314,14 @@ function M.on_write(bufnr)
     return
   end
 
-  local current_items = parser.parse_buffer(bufnr)
-  local changes, errors = changes_mod.detect(state, current_items, state.column_overrides)
+  -- Use section-aware parsing if we have column grouping
+  local current_items
+  if state.column_order then
+    current_items = parser.parse_buffer_with_sections(bufnr)
+  else
+    current_items = parser.parse_buffer(bufnr)
+  end
+  local changes, errors = changes_mod.detect(state, current_items, state.column_overrides, state.column_order, state.column_definitions)
 
   local has_desc_changes = description_mod.has_pending_changes()
 
@@ -452,6 +477,13 @@ function M.apply_changes(bufnr, changes, area_path)
         end
         on_complete()
       end)
+    elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
+      workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
+        if err then
+          table.insert(errors, "Stack rank #" .. change.id .. " failed: " .. (err or "unknown error"))
+        end
+        on_complete()
+      end)
     end
   end
 end
@@ -471,15 +503,25 @@ function M.refresh_buffer(bufnr, work_items, relations)
   buf_state.levels = levels
   buf_state.level_types = level_types
   buf_state.column_overrides = {}
-
-  local lines, line_map = render.render(nodes)
-  buf_state.line_map = line_map
-
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  buf_state.nodes = nodes
 
   local cfg = config.get()
-  render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
-  render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+
+  -- Use column-grouped rendering if we have column info
+  if buf_state.column_order then
+    local lines, line_map = render.render_grouped_by_column(nodes, buf_state.column_order, parent_by_id)
+    buf_state.line_map = line_map
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+    render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
+    render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
+  else
+    local lines, line_map = render.render(nodes)
+    buf_state.line_map = line_map
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+    render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
+    render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+  end
 
   vim.bo[bufnr].modified = false
 end
@@ -495,13 +537,28 @@ function M.update_virtual_text(bufnr)
     by_id[item.id] = item
   end
 
-  local current_items = parser.parse_buffer(bufnr)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local line_map = {}
-  for _, parsed in ipairs(current_items) do
-    if parsed.id then
-      local item = by_id[parsed.id] or { id = parsed.id, board_column = "" }
-      local prefix_len = render.get_prefix_len(parsed.level)
-      line_map[parsed.line_number] = { type = "item", item = item, level = parsed.level, prefix_len = prefix_len }
+  local current_section = nil
+
+  for i, line in ipairs(lines) do
+    local header = parser.parse_header(line)
+    if header then
+      current_section = header
+      line_map[i] = { type = "header", section = header }
+    else
+      local parsed = parser.parse_line(line)
+      if parsed and parsed.id then
+        local item = by_id[parsed.id] or { id = parsed.id, board_column = "" }
+        local prefix_len = render.get_prefix_len(parsed.level)
+        line_map[i] = {
+          type = "item",
+          item = item,
+          level = parsed.level,
+          prefix_len = prefix_len,
+          section = current_section,
+        }
+      end
     end
   end
 
@@ -510,6 +567,9 @@ function M.update_virtual_text(bufnr)
   local cfg = config.get()
   render.apply_column_virtual_text(bufnr, line_map, state.column_overrides, cfg.column_colors)
   render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+  if state.column_order then
+    render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
+  end
 end
 
 function M.on_unload(bufnr)
