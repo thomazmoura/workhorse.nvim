@@ -243,6 +243,45 @@ require("workhorse").setup({
 5. Press `:w` to save - a confirmation dialog shows pending changes
 6. Press `y` to apply changes to Azure DevOps
 
+## Lualine Integration
+
+Workhorse can display your current work item in lualine's statusline.
+
+### Setup
+
+1. Set the environment variable with your query ID:
+
+   ```bash
+   export WORKHORSE_LUALINE_QUERY_ID="your-query-guid-here"
+   ```
+
+2. Add the workhorse component to your lualine configuration:
+
+   ```lua
+   require('lualine').setup({
+     sections = {
+       lualine_x = {
+         { require('workhorse').lualine.get },
+       },
+     },
+   })
+   ```
+
+3. (Optional) Configure the refresh interval in your workhorse setup:
+
+   ```lua
+   require('workhorse').setup({
+     -- ... other options
+     lualine = {
+       refresh_interval = 60000,  -- 1 minute (default)
+     },
+   })
+   ```
+
+The statusline will show the first work item (sorted by Stack Rank) from your query as `#123 | Work item title`.
+
+If no environment variable is set, the lualine component will not fetch any data.
+
 ## Creating a Personal Access Token
 
 1. Go to Azure DevOps > User Settings > Personal Access Tokens

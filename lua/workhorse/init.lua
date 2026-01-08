@@ -17,6 +17,12 @@ end
 -- Setup the plugin
 function M.setup(opts)
   config.setup(opts)
+
+  -- Auto-start lualine integration if env var is set
+  local lualine_query = vim.env.WORKHORSE_LUALINE_QUERY_ID
+  if lualine_query and lualine_query ~= "" then
+    require("workhorse.lualine").start()
+  end
 end
 
 local function get_buffer_module(bufnr)
@@ -263,5 +269,8 @@ function M.resume()
   end
   M.open_query(last_query.id, last_query.name)
 end
+
+-- Export lualine integration module
+M.lualine = require("workhorse.lualine")
 
 return M

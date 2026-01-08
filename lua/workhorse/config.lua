@@ -69,6 +69,11 @@ local defaults = {
     enabled = true,
     ttl = 300, -- 5 minutes
   },
+
+  -- Lualine integration settings
+  lualine = {
+    refresh_interval = 60000, -- 1 minute in ms
+  },
 }
 
 local config = vim.deepcopy(defaults)
