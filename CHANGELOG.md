@@ -2,6 +2,19 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [6ee5b78] - 2026-01-08
+
+### Fixed
+- Fix parent tracking for chained new items in tree buffer (new items at increasing indentation levels now correctly reference each other as parents)
+- Fix type inference for new items in tree buffer to use configurable type hierarchy
+- Fix indentation detection to recognize whitespace-based indentation (spaces/tabs from `>` command) in addition to tree characters
+
+### Added
+- New `work_item_type_hierarchy` config option to define work item types by tree indentation level (default: `{ "Epic", "Feature", "User Story", "Task" }`)
+
+### Changed
+- `default_area_path` config now skips the area picker dialog when set (creates new items directly with the configured area)
+
 ## [47f2a02] - 2026-01-08
 
 ### Added

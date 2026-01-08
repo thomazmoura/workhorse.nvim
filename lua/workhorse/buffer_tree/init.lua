@@ -339,8 +339,14 @@ function M.on_write(bufnr)
   for _, change in ipairs(changes) do
     if change.type == changes_mod.ChangeType.CREATED then
       local level_type = state.level_types and state.level_types[change.level]
+      if not level_type then
+        -- Fall back to hierarchy config
+        local hierarchy = cfg.work_item_type_hierarchy or {}
+        level_type = hierarchy[change.level + 1] -- Lua is 1-indexed
+      end
       change.item_type = level_type or cfg.default_work_item_type
-      if change.level > 0 and not change.parent_id then
+      -- Check if parent is missing (neither existing ID nor new item line)
+      if change.level > 0 and not change.parent_id and not change.parent_line_number then
         table.insert(errors, "Missing parent for new item: " .. change.title)
       end
     end
@@ -370,11 +376,16 @@ function M.on_write(bufnr)
   end
 
   if has_new then
-    require("workhorse.ui.area_picker").show(function(selected_area)
-      proceed_with_changes(selected_area)
-    end, function()
-      vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
-    end)
+    -- Use default_area_path if configured, otherwise show picker
+    if cfg.default_area_path then
+      proceed_with_changes(cfg.default_area_path)
+    else
+      require("workhorse.ui.area_picker").show(function(selected_area)
+        proceed_with_changes(selected_area)
+      end, function()
+        vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
+      end)
+    end
   else
     proceed_with_changes(nil)
   end
@@ -388,9 +399,28 @@ function M.apply_changes(bufnr, changes, area_path)
 
   local desc_changes = description_mod.get_pending_changes()
 
+  -- Separate CREATED changes from others
+  local created_changes = {}
+  local other_changes = {}
+  for _, change in ipairs(changes) do
+    if change.type == changes_mod.ChangeType.CREATED then
+      table.insert(created_changes, change)
+    else
+      table.insert(other_changes, change)
+    end
+  end
+
+  -- Sort CREATED changes by level (lowest first) so parents are created before children
+  table.sort(created_changes, function(a, b)
+    return (a.level or 0) < (b.level or 0)
+  end)
+
   local total = #changes + #desc_changes
   local completed = 0
   local errors = {}
+
+  -- Track created item IDs by their line number (for resolving parent chains)
+  local created_ids_by_line = {}
 
   local function on_complete()
     completed = completed + 1
@@ -413,6 +443,7 @@ function M.apply_changes(bufnr, changes, area_path)
     return
   end
 
+  -- Process description changes in parallel
   for _, desc_change in ipairs(desc_changes) do
     workitems.update_description(desc_change.id, desc_change.description, function(item, err)
       if err then
@@ -424,68 +455,92 @@ function M.apply_changes(bufnr, changes, area_path)
     end)
   end
 
-  for _, change in ipairs(changes) do
-    if change.type == changes_mod.ChangeType.CREATED then
-      local create_opts = {
-        title = change.title,
-        type = change.item_type or cfg.default_work_item_type,
-        area_path = area_path,
-      }
-      workitems.create(create_opts, function(item, err)
-        if err then
-          table.insert(errors, "Create failed: " .. (err or "unknown error"))
-          on_complete()
-          return
-        end
-
-        if change.parent_id then
-          workitems.update_parent(item.id, change.parent_id, function(_, parent_err)
-            if parent_err then
-              table.insert(errors, "Parent update #" .. item.id .. " failed: " .. (parent_err or "unknown error"))
+  -- Process CREATED changes sequentially by level
+  local function process_created(index)
+    if index > #created_changes then
+      -- All created items processed, now process other changes in parallel
+      for _, change in ipairs(other_changes) do
+        if change.type == changes_mod.ChangeType.UPDATED then
+          workitems.update_title(change.id, change.title, function(item, err)
+            if err then
+              table.insert(errors, "Update #" .. change.id .. " failed: " .. (err or "unknown error"))
             end
             on_complete()
           end)
-        else
-          on_complete()
+        elseif change.type == changes_mod.ChangeType.DELETED then
+          workitems.soft_delete(change.id, function(item, err)
+            if err then
+              table.insert(errors, "Delete #" .. change.id .. " failed: " .. (err or "unknown error"))
+            end
+            on_complete()
+          end)
+        elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
+          workitems.update_board_column(change.id, change.new_column, function(item, err)
+            if err then
+              table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
+            end
+            on_complete()
+          end)
+        elseif change.type == changes_mod.ChangeType.PARENT_CHANGED then
+          workitems.update_parent(change.id, change.new_parent, function(item, err)
+            if err then
+              table.insert(errors, "Parent change #" .. change.id .. " failed: " .. (err or "unknown error"))
+            end
+            on_complete()
+          end)
+        elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
+          workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
+            if err then
+              table.insert(errors, "Stack rank #" .. change.id .. " failed: " .. (err or "unknown error"))
+            end
+            on_complete()
+          end)
         end
-      end)
-    elseif change.type == changes_mod.ChangeType.UPDATED then
-      workitems.update_title(change.id, change.title, function(item, err)
-        if err then
-          table.insert(errors, "Update #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.DELETED then
-      workitems.soft_delete(change.id, function(item, err)
-        if err then
-          table.insert(errors, "Delete #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
-      workitems.update_board_column(change.id, change.new_column, function(item, err)
-        if err then
-          table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.PARENT_CHANGED then
-      workitems.update_parent(change.id, change.new_parent, function(item, err)
-        if err then
-          table.insert(errors, "Parent change #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
-      workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
-        if err then
-          table.insert(errors, "Stack rank #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
+      end
+      return
     end
+
+    local change = created_changes[index]
+    local create_opts = {
+      title = change.title,
+      type = change.item_type or cfg.default_work_item_type,
+      area_path = area_path,
+    }
+
+    workitems.create(create_opts, function(item, err)
+      if err then
+        table.insert(errors, "Create failed: " .. (err or "unknown error"))
+        on_complete()
+        process_created(index + 1)
+        return
+      end
+
+      -- Track the created ID by line number for child resolution
+      created_ids_by_line[change.line_number] = item.id
+
+      -- Resolve parent ID: use existing parent_id, or look up from created items
+      local parent_id = change.parent_id
+      if not parent_id and change.parent_line_number then
+        parent_id = created_ids_by_line[change.parent_line_number]
+      end
+
+      if parent_id then
+        workitems.update_parent(item.id, parent_id, function(_, parent_err)
+          if parent_err then
+            table.insert(errors, "Parent update #" .. item.id .. " failed: " .. (parent_err or "unknown error"))
+          end
+          on_complete()
+          process_created(index + 1)
+        end)
+      else
+        on_complete()
+        process_created(index + 1)
+      end
+    end)
   end
+
+  -- Start processing created items (or jump directly to other changes if none)
+  process_created(1)
 end
 
 function M.refresh_buffer(bufnr, work_items, relations)

@@ -240,7 +240,7 @@ end
 local function compute_parent_map(items)
   local parents_by_id = {}
   local parents_by_line = {}
-  local last_at_level = {}
+  local last_at_level = {} -- Now stores { id = ..., line_number = ... }
   local errors = {}
 
   for _, item in ipairs(items) do
@@ -251,17 +251,21 @@ local function compute_parent_map(items)
       end
       parents_by_line[item.line_number] = nil
     else
-      local parent = last_at_level[level - 1]
-      if not parent then
+      local parent_ref = last_at_level[level - 1]
+      if not parent_ref then
         table.insert(errors, "No parent found for line " .. item.line_number)
       else
+        -- Use parent's ID if available
+        local parent_id = parent_ref.id
         if item.id then
-          parents_by_id[item.id] = parent
+          parents_by_id[item.id] = parent_id
         end
-        parents_by_line[item.line_number] = parent
+        -- Store full ref for resolving parent chains of new items
+        parents_by_line[item.line_number] = parent_ref
       end
     end
-    last_at_level[level] = item.id
+    -- Track both id and line_number for each level
+    last_at_level[level] = { id = item.id, line_number = item.line_number }
   end
 
   return parents_by_id, parents_by_line, errors
@@ -318,11 +322,13 @@ function M.detect(state, current_items, column_overrides, available_sections, co
 
   for _, change in ipairs(changes) do
     if change.type == M.ChangeType.CREATED then
-      local parent_id = nil
       if change.level and change.level > 0 then
-        parent_id = parent_map_by_line[change.line_number]
+        local parent_ref = parent_map_by_line[change.line_number]
+        if parent_ref then
+          change.parent_id = parent_ref.id -- May be nil if parent is also new
+          change.parent_line_number = parent_ref.line_number -- For resolving chains
+        end
       end
-      change.parent_id = parent_id
     end
   end
 

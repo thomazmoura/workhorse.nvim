@@ -273,13 +273,17 @@ function M.on_write(bufnr)
   end
 
   if has_new then
-    -- Show area picker first for new items
-    require("workhorse.ui.area_picker").show(function(selected_area)
-      proceed_with_changes(selected_area)
-    end, function()
-      -- Cancelled - don't apply changes
-      vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
-    end)
+    -- Use default_area_path if configured, otherwise show picker
+    if cfg.default_area_path then
+      proceed_with_changes(cfg.default_area_path)
+    else
+      require("workhorse.ui.area_picker").show(function(selected_area)
+        proceed_with_changes(selected_area)
+      end, function()
+        -- Cancelled - don't apply changes
+        vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
+      end)
+    end
   else
     -- No new items, proceed normally
     proceed_with_changes(nil)

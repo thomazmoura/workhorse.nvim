@@ -7,40 +7,56 @@ local function parse_indent(line)
   local unit = cfg.tree_indent or { "└── " }
   local level = 0
   local rest = line or ""
+
+  -- First, try to match tree indent characters
   if type(unit) == "string" then
     local unit_len = #unit
-    if unit_len == 0 then
-      return 0, rest
+    if unit_len > 0 then
+      while rest:sub(1, unit_len) == unit do
+        level = level + 1
+        rest = rest:sub(unit_len + 1)
+      end
     end
-    while rest:sub(1, unit_len) == unit do
-      level = level + 1
-      rest = rest:sub(unit_len + 1)
+  else
+    local max = #unit
+    if max > 0 then
+      while true do
+        local idx = math.min(level + 1, max)
+        local prefix = unit[idx] or unit[max]
+        if not prefix or prefix == "" then
+          break
+        end
+        local plen = #prefix
+        if rest:sub(1, plen) == prefix then
+          level = level + 1
+          rest = rest:sub(plen + 1)
+        else
+          break
+        end
+      end
     end
+  end
+
+  -- If no tree characters matched, check for whitespace-based indentation
+  -- This supports users typing new items with regular indentation (spaces/tabs)
+  if level == 0 then
+    local leading_ws = rest:match("^(%s+)")
+    if leading_ws then
+      -- Use shiftwidth or default to 2 spaces per level
+      local indent_width = vim.bo.shiftwidth
+      if indent_width == 0 then
+        indent_width = vim.bo.tabstop or 2
+      end
+      -- Convert tabs to spaces for counting
+      local expanded = leading_ws:gsub("\t", string.rep(" ", indent_width))
+      level = math.floor(#expanded / indent_width)
+      rest = rest:gsub("^%s+", "")
+    end
+  else
+    -- Strip any remaining whitespace after tree characters
     rest = rest:gsub("^%s+", "")
-    return level, rest
   end
 
-  local max = #unit
-  if max == 0 then
-    return 0, rest
-  end
-
-  while true do
-    local idx = math.min(level + 1, max)
-    local prefix = unit[idx] or unit[max]
-    if not prefix or prefix == "" then
-      break
-    end
-    local plen = #prefix
-    if rest:sub(1, plen) == prefix then
-      level = level + 1
-      rest = rest:sub(plen + 1)
-    else
-      break
-    end
-  end
-
-  rest = rest:gsub("^%s+", "")
   return level, rest
 end
 

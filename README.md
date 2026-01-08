@@ -106,7 +106,8 @@ require("workhorse").setup({
 
   -- Work item defaults
   default_work_item_type = "User Story",
-  default_area_path = nil,       -- Uses project root if nil
+  work_item_type_hierarchy = { "Epic", "Feature", "User Story", "Task" },  -- Types by tree level
+  default_area_path = nil,       -- If set, skips area picker and uses this value
   default_iteration_path = nil,  -- Uses project root if nil
 
   -- State for soft delete
@@ -208,7 +209,6 @@ Work items are displayed as editable text lines:
 ## Tree Queries (Parent/Child)
 
 Tree queries are detected automatically and rendered as an indented list (one level per configured `tree_indent`).
-Work item type is inferred per level from the initial query results.
 
 Example:
 
@@ -221,7 +221,11 @@ Example:
 Notes:
 - **Column display**: Board column is shown as virtual text at line end.
 - **Change column**: Press `<CR>` on an item to select a new column.
-- **Create item**: Add a new line at the desired indentation level; it inherits the type for that level and uses the nearest parent above.
+- **Create item**: Add a new line at the desired indentation level. The type is determined by:
+  1. First, inferring from existing items at that level in the tree
+  2. If no items exist at that level, using `work_item_type_hierarchy` config (e.g., level 0 = Epic, level 1 = Feature)
+  3. The parent is automatically set to the item directly above with one less indentation level
+- **Chained creation**: You can create multiple new items at increasing indentation levels - each will become a child of the one above
 - **Reparent**: Move items up/down to sit under another parent (same indentation); changing indentation is blocked.
 - **Delete**: Remove the line, then apply (soft-delete).
 

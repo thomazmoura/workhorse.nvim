@@ -19,6 +19,7 @@ local defaults = {
 
   -- Work item defaults
   default_work_item_type = "User Story",
+  work_item_type_hierarchy = { "Epic", "Feature", "User Story", "Task" },
   default_area_path = nil,
   default_iteration_path = nil,
 
