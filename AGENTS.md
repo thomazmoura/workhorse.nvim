@@ -72,6 +72,7 @@ Environment variables:
   - Version: First 7 characters of the commit hash
   - Date: The commit date
   - Description of changes
+- **Skip CHANGELOG updates for documentation-only commits** - Commits that only modify `CHANGELOG.md`, `README.md`, or `AGENTS.md` do not need a CHANGELOG entry (to avoid infinite amend loops)
 
 ## Documentation Guidelines
 

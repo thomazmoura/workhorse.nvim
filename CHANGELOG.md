@@ -2,7 +2,7 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
-## [6ee5b78] - 2026-01-08
+## [3558b46] - 2026-01-08
 
 ### Fixed
 - Fix parent tracking for chained new items in tree buffer (new items at increasing indentation levels now correctly reference each other as parents)
