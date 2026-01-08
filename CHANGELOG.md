@@ -2,6 +2,21 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [47f2a02] - 2026-01-08
+
+### Added
+- Lualine integration for displaying current work item in statusline
+- New `lualine` module with periodic query fetching
+- Auto-starts when `WORKHORSE_LUALINE_QUERY_ID` environment variable is set
+- Configurable refresh interval (default: 1 minute)
+
+## [3d4a304] - 2026-01-08
+
+### Added
+- Board Column grouping for tree buffer (top-level items only)
+- Stack Rank ordering for top-level and sibling items in tree buffer
+- Stack Rank change detection using LCS algorithm
+
 ## [7a1a7f6] - 2026-01-07
 
 ### Added
