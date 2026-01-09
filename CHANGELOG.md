@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [b4d7a82] - 2026-01-09
+
+### Added
+- `default_new_state` config option for board_column mode item creation
+
+### Fixed
+- Update state when moving items between board columns using stateMappings
+- Side panels now properly handle empty description/tags content without extra whitespace
+
 ## [888a81b] - 2026-01-09
 
 ### Added

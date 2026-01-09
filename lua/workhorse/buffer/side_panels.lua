@@ -86,6 +86,14 @@ local function save_description_to_memory()
   if #lines > 0 and lines[1] == DESC_HEADER then
     table.remove(lines, 1)
   end
+  -- Skip leading empty lines (we add one after header)
+  while #lines > 0 and vim.trim(lines[1]) == "" do
+    table.remove(lines, 1)
+  end
+  -- Skip trailing empty lines
+  while #lines > 0 and vim.trim(lines[#lines]) == "" do
+    table.remove(lines)
+  end
   local content = table.concat(lines, "\n")
 
   local edit = description_edits[current_item_id]
@@ -306,11 +314,15 @@ function M.open(work_item)
   -- Set current item
   current_item_id = item_id
 
-  -- Load description content
+  -- Load description content (add empty line only if no content)
   local desc_edit = description_edits[item_id]
   local desc_lines = { DESC_HEADER }
-  for _, line in ipairs(vim.split(desc_edit.description, "\n", { plain = true })) do
-    table.insert(desc_lines, line)
+  if desc_edit.description == "" then
+    table.insert(desc_lines, "")
+  else
+    for _, line in ipairs(vim.split(desc_edit.description, "\n", { plain = true })) do
+      table.insert(desc_lines, line)
+    end
   end
 
   local desc_buf = get_or_create_description_buffer()
@@ -318,11 +330,15 @@ function M.open(work_item)
   vim.api.nvim_buf_set_lines(desc_buf, 0, -1, false, desc_lines)
   vim.api.nvim_buf_set_name(desc_buf, "workhorse://description/#" .. item_id)
 
-  -- Load tags content
+  -- Load tags content (add empty line only if no tags)
   local tags_edit = tags_edits[item_id]
   local tags_lines = { TAGS_HEADER }
-  for _, tag in ipairs(tags_edit.tags) do
-    table.insert(tags_lines, tag)
+  if #tags_edit.tags == 0 then
+    table.insert(tags_lines, "")
+  else
+    for _, tag in ipairs(tags_edit.tags) do
+      table.insert(tags_lines, tag)
+    end
   end
 
   local tags_buf = get_or_create_tags_buffer()

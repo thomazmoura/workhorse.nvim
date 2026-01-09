@@ -221,8 +221,9 @@ function M.soft_delete(id, callback)
   M.update_state(id, cfg.deleted_state, callback)
 end
 
--- Update board column
-function M.update_board_column(id, new_column, callback)
+-- Update board column (with optional state mapping for column transitions)
+-- state_for_column: optional state to set when moving to this column (from board's stateMappings)
+function M.update_board_column(id, new_column, callback, state_for_column)
   get_all_fields(id, function(fields, err)
     if err then
       if callback then
@@ -242,7 +243,13 @@ function M.update_board_column(id, new_column, callback)
       return
     end
 
-    M.update(id, { [field] = new_column }, callback)
+    local updates = { [field] = new_column }
+    -- Also update state if provided (required for column transitions)
+    if state_for_column then
+      updates["System.State"] = state_for_column
+    end
+
+    M.update(id, updates, callback)
   end)
 end
 

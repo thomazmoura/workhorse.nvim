@@ -27,6 +27,9 @@ local defaults = {
   deleted_state = "Removed",
   hide_deleted_state = false,
 
+  -- Default state for new items (used in board_column mode)
+  default_new_state = "New",
+
   -- Available states per work item type
   available_states = {
     ["Epic"] = { "New", "Active", "Resolved", "Closed", "Removed" },

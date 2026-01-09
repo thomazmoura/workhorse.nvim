@@ -133,12 +133,18 @@ function M.detect(original_items, current_items, grouping_mode, available_sectio
       -- New item (no ID) - only if title is not empty
       local title = normalize_title(item.title)
       if title ~= "" then
-        table.insert(changes, {
+        local change = {
           type = M.ChangeType.CREATED,
           title = title,
           line_number = item.line_number,
-          new_state = item.current_section,  -- Section where it was added
-        })
+        }
+        -- In board_column mode, section is a column, not a state
+        if grouping_mode == "board_column" then
+          change.new_column = item.current_section
+        else
+          change.new_state = item.current_section
+        end
+        table.insert(changes, change)
       end
     end
   end
@@ -394,8 +400,13 @@ function M.format_for_display(changes)
 
   for _, change in ipairs(changes) do
     if change.type == M.ChangeType.CREATED then
-      local state_info = change.new_state and (" [" .. change.new_state .. "]") or ""
-      table.insert(lines, "  + [NEW] " .. change.title .. state_info)
+      local section_info = ""
+      if change.new_state then
+        section_info = " [" .. change.new_state .. "]"
+      elseif change.new_column then
+        section_info = " [" .. change.new_column .. "]"
+      end
+      table.insert(lines, "  + [NEW] " .. change.title .. section_info)
     elseif change.type == M.ChangeType.UPDATED then
       table.insert(lines, "  ~ #" .. change.id .. ": " .. change.old_title)
       table.insert(lines, "      -> " .. change.title)

@@ -290,6 +290,19 @@ function M.on_write(bufnr)
   end
 end
 
+-- Get the required state for a column based on work item type and column definitions
+local function get_state_for_column(column_name, work_item_type, column_definitions)
+  if not column_definitions then
+    return nil
+  end
+  for _, col in ipairs(column_definitions) do
+    if col.name == column_name and col.stateMappings then
+      return col.stateMappings[work_item_type]
+    end
+  end
+  return nil
+end
+
 -- Apply changes to Azure DevOps
 function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
@@ -363,12 +376,26 @@ function M.apply_changes(bufnr, changes, area_path)
       }
       if change.new_state then
         create_opts.state = change.new_state
+      elseif change.new_column then
+        -- In board_column mode, use default state (items start as New)
+        create_opts.state = cfg.default_new_state or "New"
       end
       workitems.create(create_opts, function(item, err)
         if err then
           table.insert(errors, "Create failed: " .. (err or "unknown error"))
+          on_complete()
+        elseif change.new_column and item then
+          -- In board_column mode, update the column after creation
+          local state_for_col = get_state_for_column(change.new_column, item.type, state.column_definitions)
+          workitems.update_board_column(item.id, change.new_column, function(_, col_err)
+            if col_err then
+              table.insert(errors, "Column update for new item failed: " .. (col_err or "unknown error"))
+            end
+            on_complete()
+          end, state_for_col)
+        else
+          on_complete()
         end
-        on_complete()
       end)
     elseif change.type == changes_mod.ChangeType.UPDATED then
       -- Update title
@@ -395,13 +422,15 @@ function M.apply_changes(bufnr, changes, area_path)
         on_complete()
       end)
     elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
-      -- Update board column
+      -- Update board column (with state mapping for column transition)
+      local work_item_type = change.work_item and change.work_item.type
+      local state_for_col = get_state_for_column(change.new_column, work_item_type, state.column_definitions)
       workitems.update_board_column(change.id, change.new_column, function(item, err)
         if err then
           table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
         end
         on_complete()
-      end)
+      end, state_for_col)
     elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
       -- Update stack rank
       workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
