@@ -2,6 +2,22 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [888a81b] - 2026-01-09
+
+### Added
+- Side panels for editing work item description and tags (toggle with `<CR>`)
+- Description panel (top) with HTML-to-text conversion
+- Tags panel (bottom) with one tag per line editing
+- Readonly headers in side panels with auto-restore protection
+- `tag_title_colors` config option for coloring titles based on work item type and tags
+- `System.Tags` field support in API layer
+- `update_tags()` API function for saving tag changes
+
+### Changed
+- Tree buffer `<CR>` now toggles side panels (was: column menu)
+- Tree buffer `<leader>ws` now opens column menu (was: `<leader>w`)
+- Cursor auto-positions on line 2 (after headers) when opening side panels
+
 ## [3558b46] - 2026-01-08
 
 ### Fixed
