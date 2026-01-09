@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [354ae8a] - 2026-01-09
+
+### Added
+- Column-based line coloring in tree buffer (text before `|` colored by board column)
+
 ## [b4d7a82] - 2026-01-09
 
 ### Added
