@@ -269,21 +269,25 @@ function M.apply_header_highlights(bufnr, line_map, column_colors)
 end
 
 -- Apply column-based coloring to the text before the | separator (after indent)
-function M.apply_column_line_highlights(bufnr, line_map, column_colors)
+-- Uses the item's own board_column (same as virtual text), not the section header
+function M.apply_column_line_highlights(bufnr, line_map, column_map, column_colors)
   if not column_colors then
     return
   end
 
   for line_num, info in pairs(line_map or {}) do
-    if info.type == "item" and info.section then
-      local hl = column_colors[info.section]
-      if hl then
-        local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
-        if line then
-          local pipe_pos = line:find("|")
-          if pipe_pos then
-            local start_col = info.prefix_len or 0
-            vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, start_col, pipe_pos - 1)
+    if info.type == "item" and info.item then
+      local col = column_map and column_map[info.item.id] or info.item.board_column
+      if col and col ~= "" then
+        local hl = column_colors[col]
+        if hl then
+          local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+          if line then
+            local pipe_pos = line:find("|")
+            if pipe_pos then
+              local start_col = info.prefix_len or 0
+              vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, start_col, pipe_pos - 1)
+            end
           end
         end
       end
