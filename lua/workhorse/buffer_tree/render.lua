@@ -230,20 +230,44 @@ function M.clear_virtual_text(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 end
 
-function M.apply_column_virtual_text(bufnr, line_map, column_map, column_colors)
+function M.apply_column_virtual_text(bufnr, line_map, column_map, column_colors, original_items)
   M.clear_virtual_text(bufnr)
+
+  -- Build lookup of original columns by item ID
+  local original_columns = {}
+  for _, item in ipairs(original_items or {}) do
+    if item.id then
+      original_columns[item.id] = item.board_column
+    end
+  end
 
   for line_num, info in pairs(line_map or {}) do
     if info.type == "item" and info.item then
       local col = column_map and column_map[info.item.id] or info.item.board_column
+      local original_col = original_columns[info.item.id]
       if col and col ~= "" then
         local hl = column_colors and column_colors[col] or "Comment"
-        vim.api.nvim_buf_set_extmark(bufnr, ns, line_num - 1, 0, {
+        local virt_text
+        if original_col and original_col ~= col then
+          -- Pending change: show [original → new]
+          local orig_hl = column_colors and column_colors[original_col] or "Comment"
+          virt_text = {
+            { " [", "Comment" },
+            { original_col, orig_hl },
+            { " → ", "Comment" },
+            { col, hl },
+            { "]", "Comment" },
+          }
+        else
+          -- No change: show [column]
           virt_text = {
             { " [", "Comment" },
             { col, hl },
             { "]", "Comment" },
-          },
+          }
+        end
+        vim.api.nvim_buf_set_extmark(bufnr, ns, line_num - 1, 0, {
+          virt_text = virt_text,
           virt_text_pos = "eol",
         })
       end

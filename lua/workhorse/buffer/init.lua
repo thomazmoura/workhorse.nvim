@@ -151,7 +151,7 @@ function M.setup_autocmds(bufnr)
   })
 end
 
--- Update virtual text markers for pending state changes
+-- Update virtual text markers for pending column changes
 function M.update_pending_markers(bufnr)
   local state = buffers[bufnr]
   if not state then
@@ -164,12 +164,12 @@ function M.update_pending_markers(bufnr)
   -- Parse current buffer with sections
   local current_items = parser.parse_buffer_with_sections(bufnr)
 
-  -- Get pending moves
-  local pending_moves = changes_mod.get_pending_moves(state.original_items, current_items)
+  -- Get pending moves (returns both new and original columns)
+  local pending_moves, original_columns = changes_mod.get_pending_moves(state.original_items, current_items)
 
   -- Add markers
   if next(pending_moves) then
-    render.add_pending_move_markers(bufnr, pending_moves)
+    render.add_pending_move_markers(bufnr, pending_moves, original_columns)
   end
 end
 

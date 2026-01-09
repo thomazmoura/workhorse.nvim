@@ -26,6 +26,12 @@ local function get_state_hl(state)
   return STATE_HL[state] or "WorkhorseState"
 end
 
+-- Get highlight group for a column
+local function get_column_hl(column)
+  local cfg = require("workhorse.config").get()
+  return cfg.column_colors and cfg.column_colors[column] or "Comment"
+end
+
 -- Get display text for a work item type
 local function get_type_text(work_item_type)
   local cfg = require("workhorse.config").get()
@@ -231,14 +237,18 @@ function M.render_lines(work_items)
   return lines
 end
 
--- Add virtual text for pending state changes
-function M.add_pending_move_markers(bufnr, pending_moves)
-  -- pending_moves: { [line_num] = new_state }
-  for line_num, new_state in pairs(pending_moves) do
+-- Add virtual text for pending column changes
+function M.add_pending_move_markers(bufnr, pending_moves, original_columns)
+  -- pending_moves: { [line_num] = new_column }
+  -- original_columns: { [line_num] = original_column }
+  for line_num, new_column in pairs(pending_moves) do
+    local old_column = original_columns and original_columns[line_num] or ""
     vim.api.nvim_buf_set_extmark(bufnr, ns, line_num - 1, 0, {
       virt_text = {
-        { " [→ ", "Comment" },
-        { new_state, get_state_hl(new_state) },
+        { " [", "Comment" },
+        { old_column, get_column_hl(old_column) },
+        { " → ", "Comment" },
+        { new_column, get_column_hl(new_column) },
         { "]", "Comment" },
       },
       virt_text_pos = "eol",
