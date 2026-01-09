@@ -47,6 +47,26 @@ local function get_type_hl(work_item_type)
   return TYPE_HL[work_item_type] or "Comment"
 end
 
+-- Get highlight group for title based on work item type and tags
+-- Returns nil if no matching config found
+local function get_tag_title_highlight(work_item_type, tags_string)
+  local cfg = require("workhorse.config").get()
+  local type_config = cfg.tag_title_colors and cfg.tag_title_colors[work_item_type]
+  if not type_config then
+    return nil
+  end
+
+  -- Parse tags (semicolon-separated, may have spaces)
+  for tag in (tags_string or ""):gmatch("[^;]+") do
+    tag = vim.trim(tag)
+    if type_config[tag] then
+      return type_config[tag]
+    end
+  end
+
+  return nil
+end
+
 -- Header pattern for sections
 M.HEADER_PATTERN = "^══ %[(.+)%] ══$"
 
@@ -284,6 +304,12 @@ function M.apply_line_highlights(bufnr, line_map)
             or (cfg.state_colors and cfg.state_colors[key])
             or get_state_hl(key)
         vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, pipe_pos - 1)
+
+        -- Apply tag-based color to the title (after the pipe)
+        local title_hl = get_tag_title_highlight(info.item.type, info.item.tags)
+        if title_hl then
+          vim.api.nvim_buf_add_highlight(bufnr, hl_ns, title_hl, line_num - 1, pipe_pos + 1, -1)
+        end
       end
     end
   end

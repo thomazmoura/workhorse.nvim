@@ -129,6 +129,7 @@ local function show_column_menu(bufnr)
       item.board_column = choice
       render.apply_column_virtual_text(bufnr, state.line_map, state.column_overrides, cfg.column_colors)
       render.apply_indent_highlights(bufnr, state.line_map, cfg.tree_indent_hl)
+      render.apply_tag_title_highlights(bufnr, state.line_map)
 
       vim.notify("Workhorse: Column updated to " .. choice, vim.log.levels.INFO)
     end)
@@ -191,6 +192,7 @@ function M.create(opts)
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+      render.apply_tag_title_highlights(bufnr, line_map)
     else
       buffers[bufnr].column_order = data.order or {}
       buffers[bufnr].column_definitions = data.columns or {}
@@ -202,6 +204,7 @@ function M.create(opts)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
       render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
+      render.apply_tag_title_highlights(bufnr, line_map)
     end
     vim.bo[bufnr].modified = false
   end)
@@ -240,11 +243,11 @@ function M.setup_keymaps(bufnr)
   end, opts)
 
   vim.keymap.set("n", "<CR>", function()
-    show_column_menu(bufnr)
+    require("workhorse").open_description()
   end, opts)
 
-  vim.keymap.set("n", "<leader>w", function()
-    require("workhorse").open_description()
+  vim.keymap.set("n", "<leader>ws", function()
+    show_column_menu(bufnr)
   end, opts)
 
   vim.keymap.set("n", "<leader>R", function()
@@ -273,11 +276,15 @@ function M.get_current()
 end
 
 local function show_confirm(changes, on_confirm, on_cancel)
-  local description_mod = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
   local formatted = changes_mod.format_for_display(changes)
-  local desc_changes = description_mod.get_pending_changes()
+  local desc_changes = side_panels.get_pending_description_changes()
   for _, desc_change in ipairs(desc_changes) do
     table.insert(formatted, "  ~ #" .. desc_change.id .. ": description updated")
+  end
+  local tag_changes = side_panels.get_pending_tag_changes()
+  for _, tag_change in ipairs(tag_changes) do
+    table.insert(formatted, "  ~ #" .. tag_change.id .. ": tags updated")
   end
 
   if #formatted == 0 then
@@ -306,7 +313,7 @@ end
 
 function M.on_write(bufnr)
   local state = buffers[bufnr]
-  local description_mod = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
   local cfg = config.get()
 
   if not state then
@@ -323,14 +330,14 @@ function M.on_write(bufnr)
   end
   local changes, errors = changes_mod.detect(state, current_items, state.column_overrides, state.column_order, state.column_definitions)
 
-  local has_desc_changes = description_mod.has_pending_changes()
+  local has_panel_changes = side_panels.has_pending_changes()
 
   if #errors > 0 then
     vim.notify("Workhorse: Fix errors before applying:\n" .. table.concat(errors, "\n"), vim.log.levels.WARN)
     return
   end
 
-  if #changes == 0 and not has_desc_changes then
+  if #changes == 0 and not has_panel_changes then
     vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
     vim.bo[bufnr].modified = false
     return
@@ -394,10 +401,11 @@ end
 function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
   local workitems = require("workhorse.api.workitems")
-  local description_mod = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
   local cfg = config.get()
 
-  local desc_changes = description_mod.get_pending_changes()
+  local desc_changes = side_panels.get_pending_description_changes()
+  local tag_changes = side_panels.get_pending_tag_changes()
 
   -- Separate CREATED changes from others
   local created_changes = {}
@@ -415,7 +423,7 @@ function M.apply_changes(bufnr, changes, area_path)
     return (a.level or 0) < (b.level or 0)
   end)
 
-  local total = #changes + #desc_changes
+  local total = #changes + #desc_changes + #tag_changes
   local completed = 0
   local errors = {}
 
@@ -449,7 +457,19 @@ function M.apply_changes(bufnr, changes, area_path)
       if err then
         table.insert(errors, "Description #" .. desc_change.id .. " failed: " .. (err or "unknown error"))
       else
-        description_mod.mark_saved(desc_change.id)
+        side_panels.mark_description_saved(desc_change.id)
+      end
+      on_complete()
+    end)
+  end
+
+  -- Process tag changes in parallel
+  for _, tag_change in ipairs(tag_changes) do
+    workitems.update_tags(tag_change.id, tag_change.tags, function(item, err)
+      if err then
+        table.insert(errors, "Tags #" .. tag_change.id .. " failed: " .. (err or "unknown error"))
+      else
+        side_panels.mark_tags_saved(tag_change.id)
       end
       on_complete()
     end)
@@ -570,12 +590,14 @@ function M.refresh_buffer(bufnr, work_items, relations)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
     render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
     render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
+    render.apply_tag_title_highlights(bufnr, line_map)
   else
     local lines, line_map = render.render(nodes)
     buf_state.line_map = line_map
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
     render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    render.apply_tag_title_highlights(bufnr, line_map)
   end
 
   vim.bo[bufnr].modified = false
@@ -622,6 +644,7 @@ function M.update_virtual_text(bufnr)
   local cfg = config.get()
   render.apply_column_virtual_text(bufnr, line_map, state.column_overrides, cfg.column_colors)
   render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+  render.apply_tag_title_highlights(bufnr, line_map)
   if state.column_order then
     render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
   end

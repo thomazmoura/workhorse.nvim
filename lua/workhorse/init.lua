@@ -240,9 +240,9 @@ function M.apply()
   buf_module.on_write(bufnr)
 end
 
--- Open description for work item under cursor
+-- Open description and tags side panels for work item under cursor
 function M.open_description()
-  local description = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
 
   local buf_module, bufnr = get_buffer_module()
   if not bufnr then
@@ -256,7 +256,7 @@ function M.open_description()
     return
   end
 
-  description.open(item)
+  side_panels.open(item)
 end
 
 -- Resume the last opened query

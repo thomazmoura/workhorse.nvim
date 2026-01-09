@@ -57,6 +57,17 @@ local defaults = {
     ["Task"] = { text = "[Task]", color = "WorkhorseTypeTask" },
   },
 
+  -- Tag-based title colors (Work Item Type -> Tag -> Highlight Group)
+  -- First matching tag wins for items with multiple tags
+  -- Example:
+  -- tag_title_colors = {
+  --   ["Bug"] = {
+  --     ["Critical"] = "DiagnosticError",
+  --     ["Silly"] = "DiagnosticWarn",
+  --   },
+  -- },
+  tag_title_colors = {},
+
   -- Tree view indentation prefix per level (up to four entries)
   -- Each level uses its own prefix, and deeper levels reuse the last entry.
   tree_indent = { "└─", "──", "──", "──" },

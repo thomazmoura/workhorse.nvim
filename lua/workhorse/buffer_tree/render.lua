@@ -13,6 +13,26 @@ local function get_type_text(work_item_type)
   return "[" .. (work_item_type or "Item") .. "]"
 end
 
+-- Get highlight group for title based on work item type and tags
+-- Returns nil if no matching config found
+local function get_tag_title_highlight(work_item_type, tags_string)
+  local cfg = require("workhorse.config").get()
+  local type_config = cfg.tag_title_colors and cfg.tag_title_colors[work_item_type]
+  if not type_config then
+    return nil
+  end
+
+  -- Parse tags (semicolon-separated, may have spaces)
+  for tag in (tags_string or ""):gmatch("[^;]+") do
+    tag = vim.trim(tag)
+    if type_config[tag] then
+      return type_config[tag]
+    end
+  end
+
+  return nil
+end
+
 local function indent_prefix(level)
   local cfg = require("workhorse.config").get()
   local unit = cfg.tree_indent or { "└── " }
@@ -243,6 +263,23 @@ function M.apply_header_highlights(bufnr, line_map, column_colors)
       local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
       if line then
         vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl, line_num - 1, 0, #line)
+      end
+    end
+  end
+end
+
+function M.apply_tag_title_highlights(bufnr, line_map)
+  for line_num, info in pairs(line_map or {}) do
+    if info.type == "item" and info.item then
+      local title_hl = get_tag_title_highlight(info.item.type, info.item.tags)
+      if title_hl then
+        local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+        if line then
+          local pipe_pos = line:find("|")
+          if pipe_pos then
+            vim.api.nvim_buf_add_highlight(bufnr, hl_ns, title_hl, line_num - 1, pipe_pos + 1, -1)
+          end
+        end
       end
     end
   end

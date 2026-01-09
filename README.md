@@ -12,6 +12,8 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **State management** - Change work item states through a floating menu
 - **Virtual text** - Work item states displayed as virtual text at end of lines
 - **Confirmation dialog** - Review changes before applying to Azure DevOps
+- **Side panels** - Edit work item description and tags in dedicated buffers
+- **Tag-based coloring** - Color work item titles based on type and tags
 
 ## Requirements
 
@@ -126,6 +128,16 @@ require("workhorse").setup({
   -- Keys are column names, values are highlight group names
   column_colors = {},
 
+  -- Tag-based title colors (Work Item Type -> Tag -> Highlight Group)
+  -- First matching tag wins for items with multiple tags
+  tag_title_colors = {
+    -- Example: Color Bug titles red if they have "Critical" tag
+    -- ["Bug"] = {
+    --   ["Critical"] = "DiagnosticError",
+    --   ["Silly"] = "DiagnosticWarn",
+    -- },
+  },
+
   -- UI options
   confirm_changes = true,  -- Show confirmation dialog before saving
 
@@ -168,14 +180,24 @@ In this mode:
 
 ### Buffer Keymaps
 
-When in a workhorse buffer:
+When in a workhorse buffer (flat queries):
 
 | Key | Action |
 |-----|--------|
-| `<CR>` | Open actions menu (change state, open in browser, refresh) |
-| `<C-r>` | Refresh buffer |
-| `gx` | Open work item in browser |
-| `:w` | Save changes (with confirmation dialog) |
+| `<CR>` | Toggle description and tags side panels for work item under cursor |
+| `<leader><leader>` | Apply changes |
+| `<leader>R` | Refresh buffer |
+| `gw` | Open work item in browser |
+
+When in a workhorse buffer (tree queries):
+
+| Key | Action |
+|-----|--------|
+| `<CR>` | Toggle description and tags side panels for work item under cursor |
+| `<leader>ws` | Open column/state selection menu |
+| `<leader><leader>` | Apply changes |
+| `<leader>R` | Refresh buffer |
+| `gw` | Open work item in browser |
 
 ### Suggested Global Keymaps
 
@@ -220,7 +242,8 @@ Example:
 
 Notes:
 - **Column display**: Board column is shown as virtual text at line end.
-- **Change column**: Press `<CR>` on an item to select a new column.
+- **Change column**: Press `<leader>ws` on an item to select a new column.
+- **Description/Tags**: Press `<CR>` on an item to open the description and tags side panels.
 - **Create item**: Add a new line at the desired indentation level. The type is determined by:
   1. First, inferring from existing items at that level in the tree
   2. If no items exist at that level, using `work_item_type_hierarchy` config (e.g., level 0 = Epic, level 1 = Feature)
@@ -237,6 +260,27 @@ require("workhorse").setup({
   tree_indent_hl = "LspCodeLens",
 })
 ```
+
+## Side Panels (Description & Tags)
+
+Press `<CR>` on any work item to open the description and tags side panels on the right:
+
+```
+┌────────────────┬─────────────────┐
+│                │ ═══ Description ═══│
+│   Work Items   │   Description text  │
+│     Buffer     ├─────────────────┤
+│                │ ═══ Tags ═══    │
+│                │   Tag1          │
+│                │   Tag2          │
+└────────────────┴─────────────────┘
+```
+
+- **Description panel**: Edit the work item description (converted from HTML)
+- **Tags panel**: Each tag on a separate line; add/remove tags by editing lines
+- **Headers**: The `═══ Description ═══` and `═══ Tags ═══` headers are readonly
+- **Toggle**: Press `<CR>` again on the same item to close the panels
+- **Save**: Changes are saved when you apply changes with `<leader><leader>`
 
 ### Example Workflow
 

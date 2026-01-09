@@ -219,7 +219,7 @@ end
 -- Handle buffer write / apply
 function M.on_write(bufnr)
   local state = buffers[bufnr]
-  local description_mod = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
 
   if not state then
     vim.notify("Workhorse: Buffer state not found", vim.log.levels.ERROR)
@@ -241,10 +241,10 @@ function M.on_write(bufnr)
     state.column_definitions
   )
 
-  -- Check for description changes too
-  local has_desc_changes = description_mod.has_pending_changes()
+  -- Check for description and tag changes too
+  local has_panel_changes = side_panels.has_pending_changes()
 
-  if #changes == 0 and not has_desc_changes then
+  if #changes == 0 and not has_panel_changes then
     vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
     vim.bo[bufnr].modified = false
     return
@@ -294,13 +294,14 @@ end
 function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
   local workitems = require("workhorse.api.workitems")
-  local description_mod = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
   local cfg = config.get()
 
-  -- Get pending description changes
-  local desc_changes = description_mod.get_pending_changes()
+  -- Get pending description and tag changes
+  local desc_changes = side_panels.get_pending_description_changes()
+  local tag_changes = side_panels.get_pending_tag_changes()
 
-  local total = #changes + #desc_changes
+  local total = #changes + #desc_changes + #tag_changes
   local completed = 0
   local errors = {}
 
@@ -334,7 +335,19 @@ function M.apply_changes(bufnr, changes, area_path)
       if err then
         table.insert(errors, "Description #" .. desc_change.id .. " failed: " .. (err or "unknown error"))
       else
-        description_mod.mark_saved(desc_change.id)
+        side_panels.mark_description_saved(desc_change.id)
+      end
+      on_complete()
+    end)
+  end
+
+  -- Apply tag changes
+  for _, tag_change in ipairs(tag_changes) do
+    workitems.update_tags(tag_change.id, tag_change.tags, function(item, err)
+      if err then
+        table.insert(errors, "Tags #" .. tag_change.id .. " failed: " .. (err or "unknown error"))
+      else
+        side_panels.mark_tags_saved(tag_change.id)
       end
       on_complete()
     end)

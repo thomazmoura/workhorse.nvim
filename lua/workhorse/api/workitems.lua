@@ -15,6 +15,7 @@ local FIELDS = {
   "System.Rev",
   "System.BoardColumn",
   "System.BoardColumnDone",
+  "System.Tags",
   "Microsoft.VSTS.Common.StackRank",
 }
 
@@ -30,6 +31,7 @@ local function parse_work_item(item)
     area_path = fields["System.AreaPath"] or "",
     iteration_path = fields["System.IterationPath"] or "",
     description = fields["System.Description"] or "",
+    tags = fields["System.Tags"] or "",
     url = item.url,
     board_column = fields["System.BoardColumn"] or "",
     board_column_done = fields["System.BoardColumnDone"] or false,
@@ -205,6 +207,12 @@ end
 -- Update description
 function M.update_description(id, new_description, callback)
   M.update(id, { ["System.Description"] = new_description }, callback)
+end
+
+-- Update tags (accepts array of tag strings)
+function M.update_tags(id, tags_array, callback)
+  local tags_str = table.concat(tags_array, "; ")
+  M.update(id, { ["System.Tags"] = tags_str }, callback)
 end
 
 -- Soft delete (change state to Removed)
