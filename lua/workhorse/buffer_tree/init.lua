@@ -129,6 +129,7 @@ local function show_column_menu(bufnr)
       item.board_column = choice
       render.apply_column_virtual_text(bufnr, state.line_map, state.column_overrides, cfg.column_colors)
       render.apply_indent_highlights(bufnr, state.line_map, cfg.tree_indent_hl)
+      render.apply_column_line_highlights(bufnr, state.line_map, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, state.line_map)
 
       vim.notify("Workhorse: Column updated to " .. choice, vim.log.levels.INFO)
@@ -192,6 +193,7 @@ function M.create(opts)
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+      render.apply_column_line_highlights(bufnr, line_map, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, line_map)
     else
       buffers[bufnr].column_order = data.order or {}
@@ -203,6 +205,7 @@ function M.create(opts)
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+      render.apply_column_line_highlights(bufnr, line_map, cfg.column_colors)
       render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, line_map)
     end
@@ -604,6 +607,7 @@ function M.refresh_buffer(bufnr, work_items, relations)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
     render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    render.apply_column_line_highlights(bufnr, line_map, cfg.column_colors)
     render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
     render.apply_tag_title_highlights(bufnr, line_map)
   else
@@ -612,6 +616,7 @@ function M.refresh_buffer(bufnr, work_items, relations)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
     render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    render.apply_column_line_highlights(bufnr, line_map, cfg.column_colors)
     render.apply_tag_title_highlights(bufnr, line_map)
   end
 
@@ -659,6 +664,7 @@ function M.update_virtual_text(bufnr)
   local cfg = config.get()
   render.apply_column_virtual_text(bufnr, line_map, state.column_overrides, cfg.column_colors)
   render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+  render.apply_column_line_highlights(bufnr, line_map, cfg.column_colors)
   render.apply_tag_title_highlights(bufnr, line_map)
   if state.column_order then
     render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
