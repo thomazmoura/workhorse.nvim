@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [ef5a2ae] - 2026-01-09
+
+### Fixed
+- Tree buffer column coloring now uses item's own board_column (same as virtual text)
+
 ## [354ae8a] - 2026-01-09
 
 ### Added
