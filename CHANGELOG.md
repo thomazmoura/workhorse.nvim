@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [1f024e3] - 2026-01-09
+
+### Changed
+- Pending column changes now show `[Original → New]` format in virtual text instead of just `[New]`
+- Applies to both tree buffer and flat buffer
+
 ## [ef5a2ae] - 2026-01-09
 
 ### Fixed
