@@ -67,6 +67,10 @@ local function setup_highlights()
     WorkhorseTypeUserStory = { link = "String" },
     WorkhorseTypeBug = { link = "DiagnosticError" },
     WorkhorseTypeTask = { link = "Identifier" },
+    -- Decoration-only highlights (for composability - no colors, only styles)
+    WorkhorseBold = { bold = true },
+    WorkhorseItalic = { italic = true },
+    WorkhorseUnderline = { underline = true },
   }
 
   for name, opts in pairs(highlights) do

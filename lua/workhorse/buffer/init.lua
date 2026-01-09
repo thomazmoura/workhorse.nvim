@@ -110,6 +110,7 @@ function M.create(opts)
 
     -- Apply line highlights
     render.apply_line_highlights(bufnr, line_map)
+    render.apply_type_decorations(bufnr, line_map)
 
     -- Store line map for reference
     buffers[bufnr].line_map = line_map
@@ -474,6 +475,7 @@ function M.refresh_buffer(bufnr, work_items)
     -- Clear any pending markers and apply line highlights
     render.clear_virtual_text(bufnr)
     render.apply_line_highlights(bufnr, line_map)
+    render.apply_type_decorations(bufnr, line_map)
 
     -- Mark as unmodified
     vim.bo[bufnr].modified = false

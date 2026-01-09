@@ -71,6 +71,16 @@ local defaults = {
   -- },
   tag_title_colors = {},
 
+  -- Work item type decorations (composable with colors)
+  -- Maps work item type to list of decoration highlight groups
+  -- Example:
+  -- work_item_type_decorations = {
+  --   ["User Story"] = { "WorkhorseItalic" },
+  --   ["Epic"] = { "WorkhorseBold", "WorkhorseUnderline" },
+  --   ["Bug"] = { "WorkhorseBold" },
+  -- },
+  work_item_type_decorations = {},
+
   -- Tree view indentation prefix per level (up to four entries)
   -- Each level uses its own prefix, and deeper levels reuse the last entry.
   tree_indent = { "└─", "──", "──", "──" },

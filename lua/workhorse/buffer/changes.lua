@@ -426,10 +426,12 @@ function M.format_for_display(changes)
   return lines
 end
 
--- Get pending state changes as a map of line_num -> new_state
+-- Get pending state changes as maps of line_num -> state
+-- Returns: pending_moves (line_num -> new_state), original_states (line_num -> original_state)
 -- Used for showing virtual text markers
 function M.get_pending_moves(original_items, current_items)
   local pending = {}
+  local original_states = {}
 
   -- Build lookup of original items by ID
   local original_by_id = {}
@@ -442,11 +444,12 @@ function M.get_pending_moves(original_items, current_items)
       local orig = original_by_id[current.id]
       if orig and orig.state ~= current.current_state then
         pending[current.line_number] = current.current_state
+        original_states[current.line_number] = orig.state
       end
     end
   end
 
-  return pending
+  return pending, original_states
 end
 
 return M

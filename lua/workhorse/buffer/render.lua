@@ -2,6 +2,7 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("workhorse")
 local hl_ns = vim.api.nvim_create_namespace("workhorse_highlights")
+local deco_ns = vim.api.nvim_create_namespace("workhorse_decorations")
 
 -- Default highlight groups for different states (fallback if not in config)
 local STATE_HL = {
@@ -65,6 +66,14 @@ local function get_tag_title_highlight(work_item_type, tags_string)
   end
 
   return nil
+end
+
+-- Get decoration highlight groups for a work item type
+-- Returns a list of highlight group names, or empty table if none configured
+local function get_type_decorations(work_item_type)
+  local cfg = require("workhorse.config").get()
+  local decorations = cfg.work_item_type_decorations and cfg.work_item_type_decorations[work_item_type]
+  return decorations or {}
 end
 
 -- Header pattern for sections
@@ -310,6 +319,31 @@ function M.apply_line_highlights(bufnr, line_map)
         if title_hl then
           vim.api.nvim_buf_add_highlight(bufnr, hl_ns, title_hl, line_num - 1, pipe_pos + 1, -1)
         end
+      end
+    end
+  end
+end
+
+-- Apply decoration extmarks for work item types
+-- These compose with (overlay) the existing color highlights
+function M.apply_type_decorations(bufnr, line_map)
+  -- Clear previous decoration extmarks
+  vim.api.nvim_buf_clear_namespace(bufnr, deco_ns, 0, -1)
+
+  for line_num, info in pairs(line_map) do
+    if info.type == "item" and info.item then
+      local decorations = get_type_decorations(info.item.type)
+      for _, deco_hl in ipairs(decorations) do
+        -- Use extmark with hl_group to overlay decoration on entire line
+        -- Priority 200 ensures decorations layer above color highlights (default priority 100)
+        local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+        local line_len = line and #line or 0
+        vim.api.nvim_buf_set_extmark(bufnr, deco_ns, line_num - 1, 0, {
+          end_row = line_num - 1,
+          end_col = line_len,
+          hl_group = deco_hl,
+          priority = 200,
+        })
       end
     end
   end

@@ -12,6 +12,7 @@ local desc_winid = nil
 local tags_bufnr = nil
 local tags_winid = nil
 local current_item_id = nil
+local closing_in_progress = false
 
 -- Header constants
 local DESC_HEADER = "═══ Description ═══"
@@ -170,11 +171,27 @@ local function setup_header_protection(bufnr, header_text, save_fn)
   })
 end
 
+-- Delete any existing buffer matching the given pattern
+local function delete_buffers_matching(pattern)
+  local bufs = vim.api.nvim_list_bufs()
+  for _, buf in ipairs(bufs) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      local buf_name = vim.api.nvim_buf_get_name(buf)
+      if buf_name:match(pattern) then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+      end
+    end
+  end
+end
+
 -- Get or create the description buffer
 local function get_or_create_description_buffer()
   if desc_bufnr and vim.api.nvim_buf_is_valid(desc_bufnr) then
     return desc_bufnr
   end
+
+  -- Clean up any orphaned buffer with this name
+  delete_buffers_matching("workhorse://description")
 
   desc_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(desc_bufnr, "workhorse://description")
@@ -194,6 +211,9 @@ local function get_or_create_tags_buffer()
     return tags_bufnr
   end
 
+  -- Clean up any orphaned buffer with this name
+  delete_buffers_matching("workhorse://tags")
+
   tags_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(tags_bufnr, "workhorse://tags")
   vim.bo[tags_bufnr].buftype = "nofile"
@@ -208,18 +228,49 @@ end
 
 -- Close both windows
 local function close_windows()
+  -- Guard against re-entrant calls (from WinClosed autocommand)
+  if closing_in_progress then
+    return
+  end
+  closing_in_progress = true
+
+  -- Clear the WinClosed autocommand to prevent callbacks during close
+  vim.api.nvim_create_augroup("workhorse_side_panels", { clear = true })
+
   save_description_to_memory()
   save_tags_to_memory()
 
-  if tags_winid and vim.api.nvim_win_is_valid(tags_winid) then
-    vim.api.nvim_win_close(tags_winid, true)
-    tags_winid = nil
+  -- Capture IDs before any close (closing one may affect the other's validity)
+  local tags_win = tags_winid
+  local desc_win = desc_winid
+  local tags_buf = tags_bufnr
+  local desc_buf = desc_bufnr
+
+  -- Clear module state first
+  tags_winid = nil
+  desc_winid = nil
+  desc_bufnr = nil
+  tags_bufnr = nil
+
+  -- Close windows
+  if tags_win and vim.api.nvim_win_is_valid(tags_win) then
+    vim.api.nvim_win_close(tags_win, true)
   end
 
-  if desc_winid and vim.api.nvim_win_is_valid(desc_winid) then
-    vim.api.nvim_win_close(desc_winid, true)
-    desc_winid = nil
+  if desc_win and vim.api.nvim_win_is_valid(desc_win) then
+    vim.api.nvim_win_close(desc_win, true)
   end
+
+  -- Delete buffers to free up the names
+  if tags_buf and vim.api.nvim_buf_is_valid(tags_buf) then
+    vim.api.nvim_buf_delete(tags_buf, { force = true })
+  end
+
+  if desc_buf and vim.api.nvim_buf_is_valid(desc_buf) then
+    vim.api.nvim_buf_delete(desc_buf, { force = true })
+  end
+
+  closing_in_progress = false
 end
 
 -- Check if panels are showing a specific item
@@ -231,17 +282,18 @@ end
 
 -- Open or focus the side panel windows
 local function open_or_focus_windows()
-  local desc_buf = get_or_create_description_buffer()
-  local tags_buf = get_or_create_tags_buffer()
-
-  -- Check if windows are still valid
+  -- Check if windows are still valid - if so, just focus
   if desc_winid and vim.api.nvim_win_is_valid(desc_winid) and tags_winid and vim.api.nvim_win_is_valid(tags_winid) then
     vim.api.nvim_set_current_win(desc_winid)
     return
   end
 
-  -- Close any stale windows
+  -- Close any stale windows (this also deletes buffers)
   close_windows()
+
+  -- Create fresh buffers AFTER cleanup
+  local desc_buf = get_or_create_description_buffer()
+  local tags_buf = get_or_create_tags_buffer()
 
   -- Open a vertical split on the right for description
   vim.cmd("vsplit")
@@ -267,6 +319,21 @@ local function open_or_focus_windows()
 
   -- Return focus to description window
   vim.api.nvim_set_current_win(desc_winid)
+
+  -- Setup WinClosed autocommand to close both panels when one is manually closed
+  local group = vim.api.nvim_create_augroup("workhorse_side_panels", { clear = true })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = group,
+    callback = function(args)
+      local closed_win = tonumber(args.match)
+      if closed_win == desc_winid or closed_win == tags_winid then
+        -- Defer to avoid issues during window close event
+        vim.schedule(function()
+          close_windows()
+        end)
+      end
+    end,
+  })
 end
 
 -- Open side panels for a work item (toggle if same item)
