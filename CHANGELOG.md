@@ -2,6 +2,17 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [fb4c5a0] - 2026-01-10
+
+### Fixed
+- Fix TF401320 State validation error when updating board columns
+- Now uses correct board-specific WEF field from Board API instead of scanning work item fields
+- Multiple changes to same work item are now merged into single API request
+
+### Added
+- `debug` config option for verbose API logging
+- `get_board()` API function returning full board configuration including column field name
+
 ## [1f024e3] - 2026-01-09
 
 ### Changed
