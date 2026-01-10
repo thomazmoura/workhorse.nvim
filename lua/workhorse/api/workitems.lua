@@ -3,6 +3,13 @@ local M = {}
 local client = require("workhorse.api.client")
 local config = require("workhorse.config")
 
+-- Debug logging helper
+local function debug_log(msg)
+  if config.get().debug then
+    vim.notify("DEBUG: " .. msg, vim.log.levels.INFO)
+  end
+end
+
 -- Fields to fetch for work items
 local FIELDS = {
   "System.Id",
@@ -180,13 +187,17 @@ function M.update(id, field_changes, callback)
   local path = "/_apis/wit/workitems/" .. id .. "?api-version=7.1"
   local patch = build_patch(field_changes)
 
+  debug_log("M.update: id=" .. id .. ", patch=" .. vim.inspect(patch))
+
   client.patch(path, patch, {
     on_success = function(data)
+      debug_log("M.update SUCCESS for id=" .. id)
       if callback then
         callback(parse_work_item(data))
       end
     end,
     on_error = function(err)
+      debug_log("M.update ERROR for id=" .. id .. ": " .. tostring(err))
       if callback then
         callback(nil, err)
       end
@@ -256,6 +267,92 @@ end
 -- Update stack rank
 function M.update_stack_rank(id, new_rank, callback)
   M.update(id, { ["Microsoft.VSTS.Common.StackRank"] = new_rank }, callback)
+end
+
+-- Update multiple fields at once (merges all changes into a single API request)
+-- fields: { title = "...", board_column = "...", stack_rank = N, description = "...", tags = "..." }
+-- kanban_field_name: optional - the correct WEF field name from the board API (e.g., "WEF_xxx_Kanban.Column")
+--                    If provided, uses this field directly instead of scanning work item fields
+function M.update_fields(id, fields, callback, kanban_field_name)
+  if not fields or not next(fields) then
+    if callback then
+      callback(nil, "No fields to update")
+    end
+    return
+  end
+
+  -- Helper to add common fields to field_changes
+  local function add_common_fields(field_changes)
+    if fields.title and fields.title ~= "" then
+      field_changes["System.Title"] = fields.title
+    end
+    if fields.stack_rank then
+      field_changes["Microsoft.VSTS.Common.StackRank"] = fields.stack_rank
+    end
+    if fields.description ~= nil then
+      field_changes["System.Description"] = fields.description
+    end
+    if fields.tags ~= nil then
+      field_changes["System.Tags"] = fields.tags
+    end
+  end
+
+  -- If board_column is specified, we need the correct Kanban field name
+  if fields.board_column and fields.board_column ~= "" then
+    if kanban_field_name then
+      -- Use the provided field name directly (from board API)
+      local field_changes = {}
+      add_common_fields(field_changes)
+      field_changes[kanban_field_name] = fields.board_column
+
+      debug_log("update_fields: using provided kanban_field=" .. kanban_field_name .. ", board_column=" .. tostring(fields.board_column))
+
+      M.update(id, field_changes, callback)
+    else
+      -- Fallback: scan work item fields to find a Kanban column field
+      get_all_fields(id, function(all_fields, err)
+        if err then
+          if callback then
+            callback(nil, err)
+          end
+          return
+        end
+
+        local current_column = all_fields and all_fields["System.BoardColumn"]
+        local kanban_field = find_kanban_column_field(all_fields, current_column)
+        if not kanban_field then
+          local msg = "No writable Kanban column field found for work item"
+          vim.notify("Workhorse: " .. msg, vim.log.levels.ERROR)
+          if callback then
+            callback(nil, msg)
+          end
+          return
+        end
+
+        -- Build the field changes map
+        local field_changes = {}
+        add_common_fields(field_changes)
+        field_changes[kanban_field] = fields.board_column
+
+        debug_log("update_fields: scanned kanban_field=" .. kanban_field .. ", board_column=" .. tostring(fields.board_column))
+
+        M.update(id, field_changes, callback)
+      end)
+    end
+  else
+    -- No board_column, can update directly without field lookup
+    local field_changes = {}
+    add_common_fields(field_changes)
+
+    if not next(field_changes) then
+      if callback then
+        callback(nil, "No valid fields to update")
+      end
+      return
+    end
+
+    M.update(id, field_changes, callback)
+  end
 end
 
 local function get_with_relations(id, callback)

@@ -186,7 +186,7 @@ function M.create(opts)
   local cfg = config.get()
   local board_name = cfg.default_board or "Stories"
 
-  boards.get_columns(board_name, function(data, err)
+  boards.get_board(board_name, function(data, err)
     if err then
       -- Fallback to regular rendering without column grouping
       local lines, line_map = render.render(nodes)
@@ -200,6 +200,7 @@ function M.create(opts)
     else
       buffers[bufnr].column_order = data.order or {}
       buffers[bufnr].column_definitions = data.columns or {}
+      buffers[bufnr].column_field = data.column_field -- WEF field name for this board
 
       local lines, line_map = render.render_grouped_by_column(nodes, data.order, parent_by_id)
       buffers[bufnr].line_map = line_map
@@ -404,17 +405,65 @@ function M.on_write(bufnr)
   end
 end
 
--- Get the required state for a column based on work item type and column definitions
-local function get_state_for_column(column_name, work_item_type, column_definitions)
-  if not column_definitions then
-    return nil
-  end
-  for _, col in ipairs(column_definitions) do
-    if col.name == column_name and col.stateMappings then
-      return col.stateMappings[work_item_type]
+-- Group changes by work item ID and merge field updates (including description and tags)
+local function group_and_merge_changes(changes, column_definitions, desc_changes, tag_changes)
+  local creates = {}
+  local deletes = {}
+  local parent_changes = {} -- Can't merge with field updates (relation changes)
+  local updates_by_id = {} -- { [id] = { fields = {} } }
+
+  for _, change in ipairs(changes) do
+    if change.type == changes_mod.ChangeType.CREATED then
+      table.insert(creates, change)
+    elseif change.type == changes_mod.ChangeType.DELETED then
+      table.insert(deletes, change)
+    elseif change.type == changes_mod.ChangeType.PARENT_CHANGED then
+      -- Parent changes involve relation updates, can't merge with field updates
+      table.insert(parent_changes, change)
+    else
+      -- Group field updates by work item ID
+      local id = change.id
+      if id then
+        if not updates_by_id[id] then
+          updates_by_id[id] = { fields = {} }
+        end
+
+        if change.type == changes_mod.ChangeType.UPDATED then
+          updates_by_id[id].fields.title = change.title
+        elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
+          updates_by_id[id].fields.board_column = change.new_column
+          -- Note: Do NOT set state_for_column here - Azure DevOps handles state
+          -- transitions automatically when the board column is updated.
+          -- Explicitly setting State causes TF401320 errors due to workflow rules.
+        elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
+          updates_by_id[id].fields.stack_rank = change.new_rank
+        end
+      end
     end
   end
-  return nil
+
+  -- Merge description changes into updates_by_id
+  for _, desc_change in ipairs(desc_changes or {}) do
+    local id = desc_change.id
+    if not updates_by_id[id] then
+      updates_by_id[id] = { fields = {} }
+    end
+    updates_by_id[id].fields.description = desc_change.description
+    updates_by_id[id].desc_change = desc_change
+  end
+
+  -- Merge tag changes into updates_by_id
+  for _, tag_change in ipairs(tag_changes or {}) do
+    local id = tag_change.id
+    if not updates_by_id[id] then
+      updates_by_id[id] = { fields = {} }
+    end
+    -- Convert tags array to semicolon-separated string
+    updates_by_id[id].fields.tags = table.concat(tag_change.tags, "; ")
+    updates_by_id[id].tag_change = tag_change
+  end
+
+  return creates, deletes, parent_changes, updates_by_id
 end
 
 function M.apply_changes(bufnr, changes, area_path)
@@ -426,23 +475,22 @@ function M.apply_changes(bufnr, changes, area_path)
   local desc_changes = side_panels.get_pending_description_changes()
   local tag_changes = side_panels.get_pending_tag_changes()
 
-  -- Separate CREATED changes from others
-  local created_changes = {}
-  local other_changes = {}
-  for _, change in ipairs(changes) do
-    if change.type == changes_mod.ChangeType.CREATED then
-      table.insert(created_changes, change)
-    else
-      table.insert(other_changes, change)
-    end
-  end
+  -- Group and merge ALL changes by work item ID (including description and tags)
+  local creates, deletes, parent_changes, updates_by_id = group_and_merge_changes(
+    changes, state.column_definitions, desc_changes, tag_changes
+  )
 
   -- Sort CREATED changes by level (lowest first) so parents are created before children
-  table.sort(created_changes, function(a, b)
+  table.sort(creates, function(a, b)
     return (a.level or 0) < (b.level or 0)
   end)
 
-  local total = #changes + #desc_changes + #tag_changes
+  -- Count total operations
+  local update_count = 0
+  for _ in pairs(updates_by_id) do
+    update_count = update_count + 1
+  end
+  local total = #creates + #deletes + #parent_changes + update_count
   local completed = 0
   local errors = {}
 
@@ -470,78 +518,54 @@ function M.apply_changes(bufnr, changes, area_path)
     return
   end
 
-  -- Process description changes in parallel
-  for _, desc_change in ipairs(desc_changes) do
-    workitems.update_description(desc_change.id, desc_change.description, function(item, err)
-      if err then
-        table.insert(errors, "Description #" .. desc_change.id .. " failed: " .. (err or "unknown error"))
-      else
-        side_panels.mark_description_saved(desc_change.id)
-      end
-      on_complete()
-    end)
-  end
-
-  -- Process tag changes in parallel
-  for _, tag_change in ipairs(tag_changes) do
-    workitems.update_tags(tag_change.id, tag_change.tags, function(item, err)
-      if err then
-        table.insert(errors, "Tags #" .. tag_change.id .. " failed: " .. (err or "unknown error"))
-      else
-        side_panels.mark_tags_saved(tag_change.id)
-      end
-      on_complete()
-    end)
-  end
-
   -- Process CREATED changes sequentially by level
   local function process_created(index)
-    if index > #created_changes then
+    if index > #creates then
       -- All created items processed, now process other changes in parallel
-      for _, change in ipairs(other_changes) do
-        if change.type == changes_mod.ChangeType.UPDATED then
-          workitems.update_title(change.id, change.title, function(item, err)
-            if err then
-              table.insert(errors, "Update #" .. change.id .. " failed: " .. (err or "unknown error"))
-            end
-            on_complete()
-          end)
-        elseif change.type == changes_mod.ChangeType.DELETED then
-          workitems.soft_delete(change.id, function(item, err)
-            if err then
-              table.insert(errors, "Delete #" .. change.id .. " failed: " .. (err or "unknown error"))
-            end
-            on_complete()
-          end)
-        elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
-          local work_item_type = change.work_item and change.work_item.type
-          local state_for_col = get_state_for_column(change.new_column, work_item_type, state.column_definitions)
-          workitems.update_board_column(change.id, change.new_column, function(item, err)
-            if err then
-              table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
-            end
-            on_complete()
-          end, state_for_col)
-        elseif change.type == changes_mod.ChangeType.PARENT_CHANGED then
-          workitems.update_parent(change.id, change.new_parent, function(item, err)
-            if err then
-              table.insert(errors, "Parent change #" .. change.id .. " failed: " .. (err or "unknown error"))
-            end
-            on_complete()
-          end)
-        elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
-          workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
-            if err then
-              table.insert(errors, "Stack rank #" .. change.id .. " failed: " .. (err or "unknown error"))
-            end
-            on_complete()
-          end)
-        end
+
+      -- Apply deletes
+      for _, change in ipairs(deletes) do
+        workitems.soft_delete(change.id, function(item, err)
+          if err then
+            table.insert(errors, "Delete #" .. change.id .. " failed: " .. (err or "unknown error"))
+          end
+          on_complete()
+        end)
       end
+
+      -- Apply parent changes (relation updates - can't merge with field updates)
+      for _, change in ipairs(parent_changes) do
+        workitems.update_parent(change.id, change.new_parent, function(item, err)
+          if err then
+            table.insert(errors, "Parent change #" .. change.id .. " failed: " .. (err or "unknown error"))
+          end
+          on_complete()
+        end)
+      end
+
+      -- Apply merged field updates (single request per work item, includes description and tags)
+      for id, update_info in pairs(updates_by_id) do
+        -- Pass the correct column field name from board API (if available)
+        workitems.update_fields(id, update_info.fields, function(item, err)
+          if err then
+            table.insert(errors, "Update #" .. id .. " failed: " .. (err or "unknown error"))
+          else
+            -- Mark side panel changes as saved if they were included
+            if update_info.desc_change then
+              side_panels.mark_description_saved(id)
+            end
+            if update_info.tag_change then
+              side_panels.mark_tags_saved(id)
+            end
+          end
+          on_complete()
+        end, state.column_field)
+      end
+
       return
     end
 
-    local change = created_changes[index]
+    local change = creates[index]
     local create_opts = {
       title = change.title,
       type = change.item_type or cfg.default_work_item_type,

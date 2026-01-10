@@ -89,6 +89,9 @@ local defaults = {
   -- UI options
   confirm_changes = true,
 
+  -- Debug mode (enables verbose logging)
+  debug = false,
+
   -- Cache settings
   cache = {
     enabled = true,

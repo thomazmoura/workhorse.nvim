@@ -34,17 +34,22 @@ local function get_grouping_info(work_items, callback)
   local cfg = config.get()
 
   if cfg.grouping_mode == "board_column" then
-    -- Fetch board columns from API
+    -- Fetch board configuration from API (includes column field name)
     local board_name = cfg.default_board or "Stories"
 
-    boards.get_columns(board_name, function(data, err)
+    boards.get_board(board_name, function(data, err)
       if err then
-        vim.notify("Workhorse: Failed to fetch board columns: " .. (err or "unknown") .. ". Falling back to state grouping.", vim.log.levels.WARN)
+        vim.notify("Workhorse: Failed to fetch board: " .. (err or "unknown") .. ". Falling back to state grouping.", vim.log.levels.WARN)
         -- Fallback to state grouping
         callback({ mode = "state", values = get_available_states(work_items) })
         return
       end
-      callback({ mode = "board_column", values = data.order, columns = data.columns })
+      callback({
+        mode = "board_column",
+        values = data.order,
+        columns = data.columns,
+        column_field = data.column_field, -- WEF field name for this board
+      })
     end)
   else
     -- Use state grouping (default behavior)
@@ -96,6 +101,7 @@ function M.create(opts)
       available_states = grouping_info.mode == "state" and grouping_info.values or nil,
       available_columns = grouping_info.mode == "board_column" and grouping_info.values or nil,
       column_definitions = grouping_info.columns,
+      column_field = grouping_info.column_field, -- WEF field name for the board
     }
 
     -- Render based on mode
@@ -291,17 +297,61 @@ function M.on_write(bufnr)
   end
 end
 
--- Get the required state for a column based on work item type and column definitions
-local function get_state_for_column(column_name, work_item_type, column_definitions)
-  if not column_definitions then
-    return nil
-  end
-  for _, col in ipairs(column_definitions) do
-    if col.name == column_name and col.stateMappings then
-      return col.stateMappings[work_item_type]
+-- Group changes by work item ID and merge field updates (including description and tags)
+local function group_and_merge_changes(changes, column_definitions, desc_changes, tag_changes, side_panels)
+  local creates = {}
+  local deletes = {}
+  local updates_by_id = {} -- { [id] = { fields = {}, work_item = item } }
+
+  for _, change in ipairs(changes) do
+    if change.type == changes_mod.ChangeType.CREATED then
+      table.insert(creates, change)
+    elseif change.type == changes_mod.ChangeType.DELETED then
+      table.insert(deletes, change)
+    else
+      -- Group field updates by work item ID
+      local id = change.id
+      if id then
+        if not updates_by_id[id] then
+          updates_by_id[id] = { fields = {} }
+        end
+
+        if change.type == changes_mod.ChangeType.UPDATED then
+          updates_by_id[id].fields.title = change.title
+        elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
+          updates_by_id[id].fields.board_column = change.new_column
+          -- Note: Do NOT set state_for_column here - Azure DevOps handles state
+          -- transitions automatically when the board column is updated.
+          -- Explicitly setting State causes TF401320 errors due to workflow rules.
+        elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
+          updates_by_id[id].fields.stack_rank = change.new_rank
+        end
+      end
     end
   end
-  return nil
+
+  -- Merge description changes into updates_by_id
+  for _, desc_change in ipairs(desc_changes or {}) do
+    local id = desc_change.id
+    if not updates_by_id[id] then
+      updates_by_id[id] = { fields = {} }
+    end
+    updates_by_id[id].fields.description = desc_change.description
+    updates_by_id[id].desc_change = desc_change
+  end
+
+  -- Merge tag changes into updates_by_id
+  for _, tag_change in ipairs(tag_changes or {}) do
+    local id = tag_change.id
+    if not updates_by_id[id] then
+      updates_by_id[id] = { fields = {} }
+    end
+    -- Convert tags array to semicolon-separated string
+    updates_by_id[id].fields.tags = table.concat(tag_change.tags, "; ")
+    updates_by_id[id].tag_change = tag_change
+  end
+
+  return creates, deletes, updates_by_id
 end
 
 -- Apply changes to Azure DevOps
@@ -315,7 +365,17 @@ function M.apply_changes(bufnr, changes, area_path)
   local desc_changes = side_panels.get_pending_description_changes()
   local tag_changes = side_panels.get_pending_tag_changes()
 
-  local total = #changes + #desc_changes + #tag_changes
+  -- Group and merge ALL changes by work item ID (including description and tags)
+  local creates, deletes, updates_by_id = group_and_merge_changes(
+    changes, state.column_definitions, desc_changes, tag_changes, side_panels
+  )
+
+  -- Count total operations
+  local update_count = 0
+  for _ in pairs(updates_by_id) do
+    update_count = update_count + 1
+  end
+  local total = #creates + #deletes + update_count
   local completed = 0
   local errors = {}
 
@@ -343,104 +403,65 @@ function M.apply_changes(bufnr, changes, area_path)
     return
   end
 
-  -- Apply description changes
-  for _, desc_change in ipairs(desc_changes) do
-    workitems.update_description(desc_change.id, desc_change.description, function(item, err)
-      if err then
-        table.insert(errors, "Description #" .. desc_change.id .. " failed: " .. (err or "unknown error"))
-      else
-        side_panels.mark_description_saved(desc_change.id)
-      end
-      on_complete()
-    end)
-  end
-
-  -- Apply tag changes
-  for _, tag_change in ipairs(tag_changes) do
-    workitems.update_tags(tag_change.id, tag_change.tags, function(item, err)
-      if err then
-        table.insert(errors, "Tags #" .. tag_change.id .. " failed: " .. (err or "unknown error"))
-      else
-        side_panels.mark_tags_saved(tag_change.id)
-      end
-      on_complete()
-    end)
-  end
-
-  for _, change in ipairs(changes) do
-    if change.type == changes_mod.ChangeType.CREATED then
-      -- Create new work item (optionally with initial state and area)
-      local create_opts = {
-        title = change.title,
-        type = cfg.default_work_item_type,
-        area_path = area_path,
-      }
-      if change.new_state then
-        create_opts.state = change.new_state
-      elseif change.new_column then
-        -- In board_column mode, use default state (items start as New)
-        create_opts.state = cfg.default_new_state or "New"
-      end
-      workitems.create(create_opts, function(item, err)
-        if err then
-          table.insert(errors, "Create failed: " .. (err or "unknown error"))
-          on_complete()
-        elseif change.new_column and item then
-          -- In board_column mode, update the column after creation
-          local state_for_col = get_state_for_column(change.new_column, item.type, state.column_definitions)
-          workitems.update_board_column(item.id, change.new_column, function(_, col_err)
-            if col_err then
-              table.insert(errors, "Column update for new item failed: " .. (col_err or "unknown error"))
-            end
-            on_complete()
-          end, state_for_col)
-        else
-          on_complete()
-        end
-      end)
-    elseif change.type == changes_mod.ChangeType.UPDATED then
-      -- Update title
-      workitems.update_title(change.id, change.title, function(item, err)
-        if err then
-          table.insert(errors, "Update #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.DELETED then
-      -- Soft delete (change state to Removed)
-      workitems.soft_delete(change.id, function(item, err)
-        if err then
-          table.insert(errors, "Delete #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.STATE_CHANGED then
-      -- Update state
-      workitems.update_state(change.id, change.new_state, function(item, err)
-        if err then
-          table.insert(errors, "State change #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
-    elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
-      -- Update board column (with state mapping for column transition)
-      local work_item_type = change.work_item and change.work_item.type
-      local state_for_col = get_state_for_column(change.new_column, work_item_type, state.column_definitions)
-      workitems.update_board_column(change.id, change.new_column, function(item, err)
-        if err then
-          table.insert(errors, "Column change #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end, state_for_col)
-    elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
-      -- Update stack rank
-      workitems.update_stack_rank(change.id, change.new_rank, function(item, err)
-        if err then
-          table.insert(errors, "Order change #" .. change.id .. " failed: " .. (err or "unknown error"))
-        end
-        on_complete()
-      end)
+  -- Apply creates
+  for _, change in ipairs(creates) do
+    local create_opts = {
+      title = change.title,
+      type = cfg.default_work_item_type,
+      area_path = area_path,
+    }
+    if change.new_state then
+      create_opts.state = change.new_state
+    elseif change.new_column then
+      -- In board_column mode, use default state (items start as New)
+      create_opts.state = cfg.default_new_state or "New"
     end
+    workitems.create(create_opts, function(item, err)
+      if err then
+        table.insert(errors, "Create failed: " .. (err or "unknown error"))
+        on_complete()
+      elseif change.new_column and item then
+        -- In board_column mode, update the column after creation
+        -- Note: Don't pass state - let Azure DevOps handle state transitions automatically
+        workitems.update_board_column(item.id, change.new_column, function(_, col_err)
+          if col_err then
+            table.insert(errors, "Column update for new item failed: " .. (col_err or "unknown error"))
+          end
+          on_complete()
+        end)
+      else
+        on_complete()
+      end
+    end)
+  end
+
+  -- Apply deletes
+  for _, change in ipairs(deletes) do
+    workitems.soft_delete(change.id, function(item, err)
+      if err then
+        table.insert(errors, "Delete #" .. change.id .. " failed: " .. (err or "unknown error"))
+      end
+      on_complete()
+    end)
+  end
+
+  -- Apply merged field updates (single request per work item, includes description and tags)
+  for id, update_info in pairs(updates_by_id) do
+    -- Pass the correct column field name from board API (if available)
+    workitems.update_fields(id, update_info.fields, function(item, err)
+      if err then
+        table.insert(errors, "Update #" .. id .. " failed: " .. (err or "unknown error"))
+      else
+        -- Mark side panel changes as saved if they were included
+        if update_info.desc_change then
+          side_panels.mark_description_saved(id)
+        end
+        if update_info.tag_change then
+          side_panels.mark_tags_saved(id)
+        end
+      end
+      on_complete()
+    end, state.column_field)
   end
 end
 
@@ -460,6 +481,7 @@ function M.refresh_buffer(bufnr, work_items)
     buf_state.available_states = grouping_info.mode == "state" and grouping_info.values or nil
     buf_state.available_columns = grouping_info.mode == "board_column" and grouping_info.values or nil
     buf_state.column_definitions = grouping_info.columns
+    buf_state.column_field = grouping_info.column_field
 
     -- Re-render based on mode
     local lines, line_map
