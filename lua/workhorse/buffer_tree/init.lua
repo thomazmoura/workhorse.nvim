@@ -126,7 +126,19 @@ local function show_column_menu(bufnr)
         state.column_overrides[item.id] = choice
       end
 
-      item.board_column = choice
+      -- Create undo point with invisible buffer modification
+      local line_num = vim.api.nvim_win_get_cursor(0)[1]
+      local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+      if line and #line > 0 then
+        local first_char = line:sub(1, 1)
+        vim.api.nvim_buf_set_text(bufnr, line_num - 1, 0, line_num - 1, 1, { first_char })
+      end
+
+      -- Store snapshot at new undo sequence
+      local new_seq = vim.fn.undotree().seq_cur
+      state.column_overrides_history[new_seq] = vim.deepcopy(state.column_overrides)
+      state.last_undo_seq = new_seq
+
       render.apply_column_virtual_text(bufnr, state.line_map, state.column_overrides, cfg.column_colors, state.original_items)
       render.apply_indent_highlights(bufnr, state.line_map, cfg.tree_indent_hl)
       render.apply_column_line_highlights(bufnr, state.line_map, state.column_overrides, cfg.column_colors)
@@ -177,6 +189,8 @@ function M.create(opts)
     levels = levels,
     level_types = level_types,
     column_overrides = {},
+    column_overrides_history = {},  -- { [undo_seq] = column_overrides_snapshot }
+    last_undo_seq = nil,
     nodes = nodes,
     column_order = nil,
     column_definitions = nil,
@@ -197,6 +211,10 @@ function M.create(opts)
       render.apply_column_line_highlights(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, line_map)
       render.apply_type_decorations(bufnr, line_map)
+      -- Initialize undo history tracking
+      local initial_seq = vim.fn.undotree().seq_cur
+      buffers[bufnr].column_overrides_history[initial_seq] = {}
+      buffers[bufnr].last_undo_seq = initial_seq
     else
       buffers[bufnr].column_order = data.order or {}
       buffers[bufnr].column_definitions = data.columns or {}
@@ -212,6 +230,10 @@ function M.create(opts)
       render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, line_map)
       render.apply_type_decorations(bufnr, line_map)
+      -- Initialize undo history tracking
+      local initial_seq = vim.fn.undotree().seq_cur
+      buffers[bufnr].column_overrides_history[initial_seq] = {}
+      buffers[bufnr].last_undo_seq = initial_seq
     end
     vim.bo[bufnr].modified = false
   end)
@@ -237,6 +259,28 @@ function M.setup_autocmds(bufnr)
     group = group,
     buffer = bufnr,
     callback = function()
+      local state = buffers[bufnr]
+      if state then
+        -- Check for undo/redo
+        local current_seq = vim.fn.undotree().seq_cur
+        if state.last_undo_seq and current_seq ~= state.last_undo_seq then
+          -- Find best matching snapshot (exact or closest lower)
+          local best_seq = nil
+          for seq, _ in pairs(state.column_overrides_history) do
+            if seq <= current_seq and (not best_seq or seq > best_seq) then
+              best_seq = seq
+            end
+          end
+
+          if best_seq then
+            state.column_overrides = vim.deepcopy(state.column_overrides_history[best_seq])
+          else
+            state.column_overrides = {}
+          end
+          state.last_undo_seq = current_seq
+        end
+      end
+
       M.update_virtual_text(bufnr)
     end,
   })
@@ -624,6 +668,11 @@ function M.refresh_buffer(bufnr, work_items, relations)
   buf_state.level_types = level_types
   buf_state.column_overrides = {}
   buf_state.nodes = nodes
+  -- Reset undo history on refresh
+  buf_state.column_overrides_history = {}
+  local initial_seq = vim.fn.undotree().seq_cur
+  buf_state.column_overrides_history[initial_seq] = {}
+  buf_state.last_undo_seq = initial_seq
 
   local cfg = config.get()
 
