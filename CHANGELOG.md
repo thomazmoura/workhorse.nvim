@@ -2,6 +2,18 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [b5b1a7d] - 2026-01-12
+
+### Added
+- `column_order` config option for prioritizing board columns in `board_column` grouping mode
+- Columns listed in `column_order` appear first, remaining columns from the API follow
+
+## [ef315e7] - 2026-01-12
+
+### Added
+- Undo/redo support for column changes in tree buffer
+- Column changes via menu (`<leader>ws`) can now be undone with `u` and redone with `Ctrl+r`
+
 ## [fb4c5a0] - 2026-01-10
 
 ### Fixed
