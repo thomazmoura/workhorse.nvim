@@ -57,6 +57,11 @@ local defaults = {
   -- Example: column_order = { "In Progress", "Done", "To Do" }
   column_order = {},
 
+  -- Column sorting per board column (used when grouping_mode = "board_column")
+  -- Supported values: "stack_rank" (default), "closed_date_desc", "closed_date_asc"
+  -- Example: column_sorting = { default = "stack_rank", ["Done"] = "closed_date_desc" }
+  column_sorting = { default = "stack_rank" },
+
   -- Work item type display (text and color independently configurable)
   work_item_type_display = {
     ["Epic"] = { text = "[Epic]", color = "WorkhorseTypeEpic" },

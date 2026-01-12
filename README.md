@@ -133,6 +133,10 @@ require("workhorse").setup({
   -- Remaining columns from the board appear after in their API order.
   column_order = {},  -- e.g., { "In Progress", "Done", "To Do" }
 
+  -- Column sorting per board column (used when grouping_mode = "board_column")
+  -- Supported values: "stack_rank" (default), "closed_date_desc", "closed_date_asc"
+  column_sorting = { default = "stack_rank" }, -- e.g., { ["Done"] = "closed_date_desc" }
+
   -- Tag-based title colors (Work Item Type -> Tag -> Highlight Group)
   -- First matching tag wins for items with multiple tags
   tag_title_colors = {
@@ -169,9 +173,10 @@ require("workhorse").setup({
 
 In this mode:
 - Work items are grouped by their Kanban board column
-- Items within each column are sorted by Stack Rank (same order as the board)
+- Items within each column are sorted by Stack Rank (same order as the board) unless overridden
 - Moving items between sections changes their board column
 - Use `column_order` to control which columns appear first
+- Use `column_sorting` to override ordering per column (e.g., sort "Done" by closed date)
 
 ## Usage
 

@@ -23,6 +23,7 @@ local FIELDS = {
   "System.BoardColumn",
   "System.BoardColumnDone",
   "System.Tags",
+  "Microsoft.VSTS.Common.ClosedDate",
   "Microsoft.VSTS.Common.StackRank",
 }
 
@@ -42,6 +43,7 @@ local function parse_work_item(item)
     url = item.url,
     board_column = fields["System.BoardColumn"] or "",
     board_column_done = fields["System.BoardColumnDone"] or false,
+    closed_date = fields["Microsoft.VSTS.Common.ClosedDate"],
     stack_rank = fields["Microsoft.VSTS.Common.StackRank"],
   }
 end

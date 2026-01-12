@@ -119,14 +119,64 @@ local function group_by_board_column(work_items)
   return groups
 end
 
+local function compare_stack_rank(a, b)
+  local rank_a = a.stack_rank or math.huge
+  local rank_b = b.stack_rank or math.huge
+  if rank_a == rank_b then
+    return (a.id or 0) < (b.id or 0)
+  end
+  return rank_a < rank_b
+end
+
 -- Sort items by stack rank (lower rank = higher on board)
 local function sort_by_stack_rank(items)
+  table.sort(items, compare_stack_rank)
+  return items
+end
+
+local function sort_by_closed_date(items, direction)
   table.sort(items, function(a, b)
-    local rank_a = a.stack_rank or math.huge
-    local rank_b = b.stack_rank or math.huge
-    return rank_a < rank_b
+    local date_a = a.closed_date or ""
+    local date_b = b.closed_date or ""
+
+    if date_a == "" and date_b == "" then
+      return compare_stack_rank(a, b)
+    end
+    if date_a == "" then
+      return false
+    end
+    if date_b == "" then
+      return true
+    end
+    if date_a == date_b then
+      return compare_stack_rank(a, b)
+    end
+
+    if direction == "asc" then
+      return date_a < date_b
+    end
+    return date_a > date_b
   end)
   return items
+end
+
+local function get_column_sorter(column)
+  local cfg = require("workhorse.config").get()
+  local sorting = cfg.column_sorting or {}
+  local key = sorting[column] or sorting.default or "stack_rank"
+
+  if key == "closed_date_desc" then
+    return function(items)
+      return sort_by_closed_date(items, "desc")
+    end
+  end
+  if key == "closed_date_asc" then
+    return function(items)
+      return sort_by_closed_date(items, "asc")
+    end
+  end
+
+  return sort_by_stack_rank
 end
 
 -- Render work items grouped by state with headers
@@ -172,7 +222,7 @@ function M.render_grouped_lines(work_items, available_states)
   return lines, line_map
 end
 
--- Render work items grouped by board column with headers, sorted by stack rank
+-- Render work items grouped by board column with headers
 -- Returns: lines (array), line_map (line_num -> { type = "header"|"item", column, item })
 function M.render_grouped_by_column(work_items, column_order)
   local lines = {}
@@ -180,13 +230,14 @@ function M.render_grouped_by_column(work_items, column_order)
   local groups = group_by_board_column(work_items)
 
   for _, column in ipairs(column_order) do
+    local sorter = get_column_sorter(column)
     -- Add header line
     table.insert(lines, make_header(column))
     line_map[#lines] = { type = "header", column = column }
 
-    -- Add work items in this column, sorted by stack rank
+    -- Add work items in this column, sorted by configured ordering
     local items = groups[column] or {}
-    items = sort_by_stack_rank(items)
+    items = sorter(items)
 
     for _, item in ipairs(items) do
       local type_text = get_type_text(item.type)
@@ -202,10 +253,11 @@ function M.render_grouped_by_column(work_items, column_order)
 
   -- Add "Unknown" column for items without board_column
   if groups["Unknown"] and #groups["Unknown"] > 0 then
+    local sorter = get_column_sorter("Unknown")
     table.insert(lines, make_header("Unknown"))
     line_map[#lines] = { type = "header", column = "Unknown" }
 
-    local items = sort_by_stack_rank(groups["Unknown"])
+    local items = sorter(groups["Unknown"])
     for _, item in ipairs(items) do
       local type_text = get_type_text(item.type)
       local line = string.format("%s #%d | %s", type_text, item.id, item.title)
