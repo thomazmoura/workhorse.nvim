@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [0e9dedc] - 2026-01-12
+
+### Added
+- `column_sorting` config option for per-column ordering in `board_column` mode
+- `ClosedDate` field support for sorting completed columns by date
+
+### Changed
+- Flat board-column buffer can now override stack rank sorting per column
+
 ## [b5b1a7d] - 2026-01-12
 
 ### Added
