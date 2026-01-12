@@ -28,6 +28,39 @@ local function get_available_states(work_items)
   return states
 end
 
+-- Apply user's column order preference to API order
+-- User-specified columns appear first, remaining API columns follow
+local function apply_column_order_preference(api_order, user_order)
+  if not user_order or #user_order == 0 then
+    return api_order
+  end
+
+  -- Create set of API columns for fast lookup
+  local api_set = {}
+  for _, col in ipairs(api_order) do
+    api_set[col] = true
+  end
+
+  -- Start with user-specified columns (only those that exist in API)
+  local result = {}
+  local used = {}
+  for _, col in ipairs(user_order) do
+    if api_set[col] then
+      table.insert(result, col)
+      used[col] = true
+    end
+  end
+
+  -- Append remaining API columns in their original order
+  for _, col in ipairs(api_order) do
+    if not used[col] then
+      table.insert(result, col)
+    end
+  end
+
+  return result
+end
+
 -- Get grouping info (states or board columns) based on configuration
 -- Calls callback with { mode = "state"|"board_column", values = [...], columns = [...] }
 local function get_grouping_info(work_items, callback)
@@ -44,9 +77,11 @@ local function get_grouping_info(work_items, callback)
         callback({ mode = "state", values = get_available_states(work_items) })
         return
       end
+      -- Apply user's column order preference
+      local final_order = apply_column_order_preference(data.order, cfg.column_order)
       callback({
         mode = "board_column",
-        values = data.order,
+        values = final_order,
         columns = data.columns,
         column_field = data.column_field, -- WEF field name for this board
       })

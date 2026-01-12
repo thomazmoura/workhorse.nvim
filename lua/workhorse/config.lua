@@ -51,6 +51,12 @@ local defaults = {
   -- Board column colors (highlight group names, used when grouping_mode = "board_column")
   column_colors = {},
 
+  -- Column order priority (used when grouping_mode = "board_column")
+  -- Columns listed here appear first in the specified order.
+  -- Remaining columns from the board appear after in their API order.
+  -- Example: column_order = { "In Progress", "Done", "To Do" }
+  column_order = {},
+
   -- Work item type display (text and color independently configurable)
   work_item_type_display = {
     ["Epic"] = { text = "[Epic]", color = "WorkhorseTypeEpic" },

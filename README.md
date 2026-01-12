@@ -128,6 +128,11 @@ require("workhorse").setup({
   -- Keys are column names, values are highlight group names
   column_colors = {},
 
+  -- Column order priority (used when grouping_mode = "board_column")
+  -- Columns listed here appear first in the specified order.
+  -- Remaining columns from the board appear after in their API order.
+  column_order = {},  -- e.g., { "In Progress", "Done", "To Do" }
+
   -- Tag-based title colors (Work Item Type -> Tag -> Highlight Group)
   -- First matching tag wins for items with multiple tags
   tag_title_colors = {
@@ -166,6 +171,7 @@ In this mode:
 - Work items are grouped by their Kanban board column
 - Items within each column are sorted by Stack Rank (same order as the board)
 - Moving items between sections changes their board column
+- Use `column_order` to control which columns appear first
 
 ## Usage
 
