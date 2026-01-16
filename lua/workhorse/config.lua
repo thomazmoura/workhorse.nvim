@@ -57,6 +57,11 @@ local defaults = {
   -- Example: column_order = { "In Progress", "Done", "To Do" }
   column_order = {},
 
+  -- Boards to merge for column definitions (used when grouping_mode = "board_column")
+  -- Default includes standard boards so columns from Features/Epics are available.
+  -- Example: column_boards = { "Stories", "Features", "Epics" }
+  column_boards = { "Stories", "Features", "Epics" },
+
   -- Column sorting per board column (used when grouping_mode = "board_column")
   -- Supported values: "stack_rank" (default), "closed_date_desc", "closed_date_asc"
   -- Example: column_sorting = { default = "stack_rank", ["Done"] = "closed_date_desc" }

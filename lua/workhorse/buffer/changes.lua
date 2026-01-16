@@ -194,6 +194,9 @@ function M.detect(original_items, current_items, grouping_mode, available_sectio
             new_column = new_col,
             line_number = current.line_number,
             work_item = orig,
+            -- Include area_path and type for WEF field resolution
+            area_path = orig.area_path,
+            work_item_type = orig.type,
           })
         end
       else

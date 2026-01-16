@@ -133,6 +133,10 @@ require("workhorse").setup({
   -- Remaining columns from the board appear after in their API order.
   column_order = {},  -- e.g., { "In Progress", "Done", "To Do" }
 
+  -- Boards to merge for column definitions (used when grouping_mode = "board_column")
+  -- Default includes standard boards so columns from Features/Epics are available.
+  column_boards = { "Stories", "Features", "Epics" },
+
   -- Column sorting per board column (used when grouping_mode = "board_column")
   -- Supported values: "stack_rank" (default), "closed_date_desc", "closed_date_asc"
   column_sorting = { default = "stack_rank" }, -- e.g., { ["Done"] = "closed_date_desc" }
@@ -176,6 +180,7 @@ In this mode:
 - Items within each column are sorted by Stack Rank (same order as the board) unless overridden
 - Moving items between sections changes their board column
 - Use `column_order` to control which columns appear first
+- Use `column_boards` to merge columns from multiple boards (e.g., Stories + Features + Epics)
 - Use `column_sorting` to override ordering per column (e.g., sort "Done" by closed date)
 
 ## Usage

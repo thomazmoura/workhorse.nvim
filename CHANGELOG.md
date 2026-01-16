@@ -2,6 +2,19 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [PENDING] - 2026-01-15
+
+### Fixed
+- Board column updates now correctly resolve WEF field per work item type and area
+- Fixes failures when columns with the same name exist across different areas/work item types
+- Each work item's column update now uses the correct board-specific WEF field based on its type (User Story, Feature, Epic, etc.) and area path
+
+### Added
+- `column_fields_by_type` map in board state for area+type specific WEF field resolution
+- `boards.resolve_column_field()` function for determining correct WEF field
+- `boards.build_wef_key()` helper for creating area+type lookup keys
+- Improved error messages when WEF field cannot be determined, including work item type and area path
+
 ## [0e9dedc] - 2026-01-12
 
 ### Added

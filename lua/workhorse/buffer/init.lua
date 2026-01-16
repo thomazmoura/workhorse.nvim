@@ -28,6 +28,39 @@ local function get_available_states(work_items)
   return states
 end
 
+local function get_board_names()
+  local cfg = config.get()
+  local names = {}
+  local seen = {}
+
+  local function add(name)
+    if name and name ~= "" and not seen[name] then
+      table.insert(names, name)
+      seen[name] = true
+    end
+  end
+
+  add(cfg.default_board or "Stories")
+  for _, name in ipairs(cfg.column_boards or {}) do
+    add(name)
+  end
+
+  return names
+end
+
+local function merge_board_errors(errors)
+  if not errors or not next(errors) then
+    return nil
+  end
+
+  local parts = {}
+  for name, err in pairs(errors) do
+    table.insert(parts, name .. ": " .. tostring(err))
+  end
+
+  return table.concat(parts, "; ")
+end
+
 -- Apply user's column order preference to API order
 -- User-specified columns appear first, remaining API columns follow
 local function apply_column_order_preference(api_order, user_order)
@@ -68,22 +101,37 @@ local function get_grouping_info(work_items, callback)
 
   if cfg.grouping_mode == "board_column" then
     -- Fetch board configuration from API (includes column field name)
-    local board_name = cfg.default_board or "Stories"
+    local board_names = get_board_names()
 
-    boards.get_board(board_name, function(data, err)
-      if err then
-        vim.notify("Workhorse: Failed to fetch board: " .. (err or "unknown") .. ". Falling back to state grouping.", vim.log.levels.WARN)
+    boards.get_boards(board_names, function(data_list, errors)
+      if not data_list or #data_list == 0 then
+        local error_summary = merge_board_errors(errors)
+        vim.notify(
+          "Workhorse: Failed to fetch board columns"
+            .. (error_summary and (": " .. error_summary) or "")
+            .. ". Falling back to state grouping.",
+          vim.log.levels.WARN
+        )
         -- Fallback to state grouping
         callback({ mode = "state", values = get_available_states(work_items) })
         return
       end
+
+      -- Get area path for WEF mapping (use configured team area or first work item's area)
+      local area_path = cfg.default_area_path
+      if not area_path and work_items and #work_items > 0 then
+        area_path = work_items[1].area_path
+      end
+
+      local merged = boards.merge_boards(data_list, area_path)
       -- Apply user's column order preference
-      local final_order = apply_column_order_preference(data.order, cfg.column_order)
+      local final_order = apply_column_order_preference(merged.order, cfg.column_order)
       callback({
         mode = "board_column",
         values = final_order,
-        columns = data.columns,
-        column_field = data.column_field, -- WEF field name for this board
+        columns = merged.columns,
+        column_field = merged.column_field, -- WEF field name when consistent across boards
+        column_fields_by_type = merged.column_fields_by_type, -- WEF mapping by area+type
       })
     end)
   else
@@ -136,7 +184,8 @@ function M.create(opts)
       available_states = grouping_info.mode == "state" and grouping_info.values or nil,
       available_columns = grouping_info.mode == "board_column" and grouping_info.values or nil,
       column_definitions = grouping_info.columns,
-      column_field = grouping_info.column_field, -- WEF field name for the board
+      column_field = grouping_info.column_field, -- WEF field name for the board (legacy)
+      column_fields_by_type = grouping_info.column_fields_by_type, -- WEF mapping by area+type
     }
 
     -- Render based on mode
@@ -336,7 +385,7 @@ end
 local function group_and_merge_changes(changes, column_definitions, desc_changes, tag_changes, side_panels)
   local creates = {}
   local deletes = {}
-  local updates_by_id = {} -- { [id] = { fields = {}, work_item = item } }
+  local updates_by_id = {} -- { [id] = { fields = {}, work_item = item, area_path = ..., work_item_type = ... } }
 
   for _, change in ipairs(changes) do
     if change.type == changes_mod.ChangeType.CREATED then
@@ -355,6 +404,9 @@ local function group_and_merge_changes(changes, column_definitions, desc_changes
           updates_by_id[id].fields.title = change.title
         elseif change.type == changes_mod.ChangeType.COLUMN_CHANGED then
           updates_by_id[id].fields.board_column = change.new_column
+          -- Store area_path and work_item_type for WEF field resolution
+          updates_by_id[id].area_path = change.area_path
+          updates_by_id[id].work_item_type = change.work_item_type
           -- Note: Do NOT set state_for_column here - Azure DevOps handles state
           -- transitions automatically when the board column is updated.
           -- Explicitly setting State causes TF401320 errors due to workflow rules.
@@ -482,7 +534,31 @@ function M.apply_changes(bufnr, changes, area_path)
 
   -- Apply merged field updates (single request per work item, includes description and tags)
   for id, update_info in pairs(updates_by_id) do
-    -- Pass the correct column field name from board API (if available)
+    -- Resolve the correct WEF field for this work item based on area and type
+    local kanban_field = nil
+    if update_info.fields.board_column then
+      -- First try to resolve using the area+type map
+      kanban_field = boards.resolve_column_field(
+        state.column_fields_by_type,
+        update_info.area_path,
+        update_info.work_item_type
+      )
+      -- Fallback to the legacy single column_field if resolution fails
+      if not kanban_field then
+        kanban_field = state.column_field
+      end
+      -- If still no field, notify user but continue (workitems.update_fields will try to discover it)
+      if not kanban_field and update_info.work_item_type then
+        vim.notify(
+          string.format(
+            "Workhorse: Could not determine board column field for #%d (%s in %s). Will attempt auto-discovery.",
+            id, update_info.work_item_type or "Unknown type", update_info.area_path or "Unknown area"
+          ),
+          vim.log.levels.WARN
+        )
+      end
+    end
+
     workitems.update_fields(id, update_info.fields, function(item, err)
       if err then
         table.insert(errors, "Update #" .. id .. " failed: " .. (err or "unknown error"))
@@ -496,7 +572,7 @@ function M.apply_changes(bufnr, changes, area_path)
         end
       end
       on_complete()
-    end, state.column_field)
+    end, kanban_field)
   end
 end
 
@@ -517,6 +593,7 @@ function M.refresh_buffer(bufnr, work_items)
     buf_state.available_columns = grouping_info.mode == "board_column" and grouping_info.values or nil
     buf_state.column_definitions = grouping_info.columns
     buf_state.column_field = grouping_info.column_field
+    buf_state.column_fields_by_type = grouping_info.column_fields_by_type
 
     -- Re-render based on mode
     local lines, line_map

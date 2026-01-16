@@ -80,6 +80,26 @@ local function infer_level_types(nodes)
   return level_types
 end
 
+local function get_board_names()
+  local cfg = config.get()
+  local names = {}
+  local seen = {}
+
+  local function add(name)
+    if name and name ~= "" and not seen[name] then
+      table.insert(names, name)
+      seen[name] = true
+    end
+  end
+
+  add(cfg.default_board or "Stories")
+  for _, name in ipairs(cfg.column_boards or {}) do
+    add(name)
+  end
+
+  return names
+end
+
 local function show_column_menu(bufnr)
   local state = buffers[bufnr]
   if not state then
@@ -93,7 +113,7 @@ local function show_column_menu(bufnr)
   end
 
   local cfg = config.get()
-  local board_name = cfg.default_board or "Stories"
+  local board_names = get_board_names()
   local original_column = nil
   for _, orig in ipairs(state.original_items or {}) do
     if orig.id == item.id then
@@ -102,14 +122,23 @@ local function show_column_menu(bufnr)
     end
   end
 
-  boards.get_columns(board_name, function(data, err)
-    if err then
-      vim.notify("Workhorse: Failed to fetch board columns: " .. (err or "unknown error"), vim.log.levels.ERROR)
+  boards.get_boards(board_names, function(data_list, errors)
+    if not data_list or #data_list == 0 then
+      local error_summary = ""
+      if errors and next(errors) then
+        local parts = {}
+        for name, err in pairs(errors) do
+          table.insert(parts, name .. ": " .. tostring(err))
+        end
+        error_summary = " (" .. table.concat(parts, "; ") .. ")"
+      end
+      vim.notify("Workhorse: Failed to fetch board columns" .. error_summary, vim.log.levels.ERROR)
       return
     end
 
+    local merged = boards.merge_boards(data_list)
     local columns = {}
-    for _, col in ipairs(data.order or {}) do
+    for _, col in ipairs(merged.order or {}) do
       table.insert(columns, col)
     end
 
@@ -198,10 +227,10 @@ function M.create(opts)
 
   -- Fetch board columns and render with grouping
   local cfg = config.get()
-  local board_name = cfg.default_board or "Stories"
+  local board_names = get_board_names()
 
-  boards.get_board(board_name, function(data, err)
-    if err then
+  boards.get_boards(board_names, function(data_list, errors)
+    if not data_list or #data_list == 0 then
       -- Fallback to regular rendering without column grouping
       local lines, line_map = render.render(nodes)
       buffers[bufnr].line_map = line_map
@@ -216,11 +245,12 @@ function M.create(opts)
       buffers[bufnr].column_overrides_history[initial_seq] = {}
       buffers[bufnr].last_undo_seq = initial_seq
     else
-      buffers[bufnr].column_order = data.order or {}
-      buffers[bufnr].column_definitions = data.columns or {}
-      buffers[bufnr].column_field = data.column_field -- WEF field name for this board
+      local merged = boards.merge_boards(data_list)
+      buffers[bufnr].column_order = merged.order or {}
+      buffers[bufnr].column_definitions = merged.columns or {}
+      buffers[bufnr].column_field = merged.column_field -- WEF field name when consistent across boards
 
-      local lines, line_map = render.render_grouped_by_column(nodes, data.order, parent_by_id)
+      local lines, line_map = render.render_grouped_by_column(nodes, merged.order, parent_by_id)
       buffers[bufnr].line_map = line_map
 
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)

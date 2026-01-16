@@ -312,6 +312,7 @@ function M.update_fields(id, fields, callback, kanban_field_name)
       M.update(id, field_changes, callback)
     else
       -- Fallback: scan work item fields to find a Kanban column field
+      debug_log("update_fields: no kanban_field_name provided, scanning work item fields for #" .. id)
       get_all_fields(id, function(all_fields, err)
         if err then
           if callback then
@@ -323,7 +324,14 @@ function M.update_fields(id, fields, callback, kanban_field_name)
         local current_column = all_fields and all_fields["System.BoardColumn"]
         local kanban_field = find_kanban_column_field(all_fields, current_column)
         if not kanban_field then
-          local msg = "No writable Kanban column field found for work item"
+          local work_item_type = all_fields and all_fields["System.WorkItemType"] or "Unknown"
+          local area_path = all_fields and all_fields["System.AreaPath"] or "Unknown"
+          local msg = string.format(
+            "Could not find a Kanban column field for work item #%d (%s in area '%s'). "
+              .. "This may happen if the work item's area is not associated with the configured team's board. "
+              .. "Check that the work item's area path matches the team configuration.",
+            id, work_item_type, area_path
+          )
           vim.notify("Workhorse: " .. msg, vim.log.levels.ERROR)
           if callback then
             callback(nil, msg)
