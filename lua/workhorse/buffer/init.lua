@@ -354,7 +354,7 @@ function M.on_write(bufnr)
 
   -- Helper to proceed with confirmation and apply
   local function proceed_with_changes(area_path)
-    if cfg.confirm_changes then
+    if config.should_confirm(changes, changes_mod.ChangeType) then
       require("workhorse.ui.confirm").show(changes, function()
         M.apply_changes(bufnr, changes, area_path)
       end)

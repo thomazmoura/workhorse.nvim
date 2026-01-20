@@ -103,7 +103,7 @@ local defaults = {
   tree_indent_hl = "LspCodeLens",
 
   -- UI options
-  confirm_changes = true,
+  confirm_changes = "Always",  -- "None", "Always", or "OnlyOnRemovals"
 
   -- Debug mode (enables verbose logging)
   debug = false,
@@ -176,6 +176,35 @@ end
 -- Check if grouping mode is board_column
 function M.is_board_column_mode()
   return config.grouping_mode == "board_column"
+end
+
+-- Get normalized confirm_changes mode (handles boolean backward compatibility)
+function M.get_confirm_mode()
+  local value = config.confirm_changes
+  if value == true then
+    return "Always"
+  elseif value == false then
+    return "None"
+  end
+  return value
+end
+
+-- Check if confirmation should be shown based on mode and changes
+function M.should_confirm(changes, ChangeType)
+  local mode = M.get_confirm_mode()
+  if mode == "None" then
+    return false
+  elseif mode == "Always" then
+    return true
+  elseif mode == "OnlyOnRemovals" then
+    for _, change in ipairs(changes) do
+      if change.type == ChangeType.DELETED then
+        return true
+      end
+    end
+    return false
+  end
+  return true  -- Default to confirm for unknown modes
 end
 
 return M

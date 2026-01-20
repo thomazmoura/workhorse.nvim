@@ -152,7 +152,11 @@ require("workhorse").setup({
   },
 
   -- UI options
-  confirm_changes = true,  -- Show confirmation dialog before saving
+  -- Confirmation mode: "Always", "None", or "OnlyOnRemovals"
+  -- "Always" - always show confirmation dialog (default)
+  -- "None" - apply changes without confirmation
+  -- "OnlyOnRemovals" - only confirm when deleting items
+  confirm_changes = "Always",
 
   -- Cache settings
   cache = {

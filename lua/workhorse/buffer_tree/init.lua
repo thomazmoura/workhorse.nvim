@@ -446,7 +446,7 @@ function M.on_write(bufnr)
   end
 
   local function proceed_with_changes(area_path)
-    if cfg.confirm_changes then
+    if config.should_confirm(changes, changes_mod.ChangeType) then
       show_confirm(changes, function()
         M.apply_changes(bufnr, changes, area_path)
       end)
