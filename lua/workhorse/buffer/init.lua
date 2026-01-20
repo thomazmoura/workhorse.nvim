@@ -149,16 +149,9 @@ function M.create(opts)
   -- Create new buffer
   local bufnr = vim.api.nvim_create_buf(true, false)
 
-  -- Set buffer name
-  local buf_name = "workhorse://" .. query_name:gsub("[^%w]", "_")
-  -- Ensure unique buffer name
-  local suffix = 1
-  local final_name = buf_name
-  while vim.fn.bufexists(final_name) == 1 do
-    final_name = buf_name .. "_" .. suffix
-    suffix = suffix + 1
-  end
-  vim.api.nvim_buf_set_name(bufnr, final_name)
+  -- Set buffer name (query_id makes it unique, no suffix needed)
+  local buf_name = "Workhorse|" .. query_name:gsub("[^%w]", "_") .. "|" .. query_id
+  vim.api.nvim_buf_set_name(bufnr, buf_name)
 
   -- Set buffer options
   vim.bo[bufnr].buftype = "nofile"
@@ -305,6 +298,16 @@ function M.get_current()
     return bufnr, buffers[bufnr]
   end
   return nil, nil
+end
+
+-- Find existing buffer by query_id
+function M.find_by_query_id(query_id)
+  for bufnr, state in pairs(buffers) do
+    if state.query_id == query_id and vim.api.nvim_buf_is_valid(bufnr) then
+      return bufnr
+    end
+  end
+  return nil
 end
 
 -- Handle buffer write / apply

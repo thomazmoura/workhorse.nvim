@@ -2,18 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
-## [PENDING] - 2026-01-15
-
-### Fixed
-- Board column updates now correctly resolve WEF field per work item type and area
-- Fixes failures when columns with the same name exist across different areas/work item types
-- Each work item's column update now uses the correct board-specific WEF field based on its type (User Story, Feature, Epic, etc.) and area path
+## [0f669ab] - 2026-01-20
 
 ### Added
-- `column_fields_by_type` map in board state for area+type specific WEF field resolution
-- `boards.resolve_column_field()` function for determining correct WEF field
-- `boards.build_wef_key()` helper for creating area+type lookup keys
-- Improved error messages when WEF field cannot be determined, including work item type and area path
+- Buffer reuse for `:Workhorse query [id]`: reuses existing buffer if one already exists for the same query ID, switching to it and refreshing
+- New buffer name format: `Workhorse|[QueryName]|[QueryId]` (query_id makes it unique)
+- `find_by_query_id()` function in both buffer and buffer_tree modules
+- `queries.get_info()` API function to fetch query metadata (name, path) by ID
+- Auto-fetch query name when `:Workhorse query [id]` is called without a name
 
 ## [0e9dedc] - 2026-01-12
 

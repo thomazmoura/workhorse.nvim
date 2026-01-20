@@ -22,6 +22,30 @@ function M.list(callback)
   })
 end
 
+-- Get query metadata (name, path, etc.) by ID
+function M.get_info(query_id, callback)
+  local cfg = config.get()
+  local path = "/" .. cfg.project .. "/_apis/wit/queries/" .. query_id .. "?api-version=7.1"
+
+  client.get(path, {
+    on_success = function(data)
+      if callback then
+        callback({
+          id = data.id,
+          name = data.name,
+          path = data.path,
+          query_type = data.queryType,
+        })
+      end
+    end,
+    on_error = function(err)
+      if callback then
+        callback(nil, err)
+      end
+    end,
+  })
+end
+
 -- Execute a saved query by ID, returns work item IDs
 function M.execute(query_id, callback)
   local cfg = config.get()

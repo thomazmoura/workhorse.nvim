@@ -57,53 +57,77 @@ function M.open_query(query_id, query_name)
   local buffer = require("workhorse.buffer")
   local buffer_tree = require("workhorse.buffer_tree")
 
-  vim.notify("Workhorse: Loading query...", vim.log.levels.INFO)
+  -- Check for existing buffer with this query_id (flat or tree)
+  local existing_bufnr = buffer.find_by_query_id(query_id) or buffer_tree.find_by_query_id(query_id)
+  if existing_bufnr then
+    vim.api.nvim_set_current_buf(existing_bufnr)
+    M.refresh()
+    return
+  end
 
-  -- Execute query to get work item IDs
-  queries.execute(query_id, function(result, err)
-    if err then
-      vim.notify("Workhorse: Failed to execute query: " .. (err or "unknown error"), vim.log.levels.ERROR)
-      return
-    end
+  -- Helper function that does the actual loading after we have the query name
+  local function load_query(name)
+    vim.notify("Workhorse: Loading query...", vim.log.levels.INFO)
 
-    local ids = result and result.ids or {}
-    if not ids or #ids == 0 then
-      vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
-      return
-    end
-
-    -- Fetch work item details
-    workitems.get_by_ids(ids, function(items, fetch_err)
-      if fetch_err then
-        vim.notify("Workhorse: Failed to fetch work items: " .. (fetch_err or "unknown error"), vim.log.levels.ERROR)
+    -- Execute query to get work item IDs
+    queries.execute(query_id, function(result, err)
+      if err then
+        vim.notify("Workhorse: Failed to execute query: " .. (err or "unknown error"), vim.log.levels.ERROR)
         return
       end
 
-      local use_tree = is_tree_result(result)
-      local bufnr
-      if use_tree then
-        bufnr = buffer_tree.create({
-          query_id = query_id,
-          query_name = query_name or "Query",
-          work_items = items,
-          relations = result.relations,
-        })
-      else
-        bufnr = buffer.create({
-          query_id = query_id,
-          query_name = query_name or "Query",
-          work_items = items,
-        })
+      local ids = result and result.ids or {}
+      if not ids or #ids == 0 then
+        vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
+        return
       end
 
-      -- Save for resume
-      require("workhorse.session").save_last_query(query_id, query_name or "Query")
+      -- Fetch work item details
+      workitems.get_by_ids(ids, function(items, fetch_err)
+        if fetch_err then
+          vim.notify("Workhorse: Failed to fetch work items: " .. (fetch_err or "unknown error"), vim.log.levels.ERROR)
+          return
+        end
 
-      -- Switch to the buffer
-      vim.api.nvim_set_current_buf(bufnr)
-      vim.notify("Workhorse: Loaded " .. #items .. " work items", vim.log.levels.INFO)
+        local use_tree = is_tree_result(result)
+        local bufnr
+        if use_tree then
+          bufnr = buffer_tree.create({
+            query_id = query_id,
+            query_name = name,
+            work_items = items,
+            relations = result.relations,
+          })
+        else
+          bufnr = buffer.create({
+            query_id = query_id,
+            query_name = name,
+            work_items = items,
+          })
+        end
+
+        -- Save for resume
+        require("workhorse.session").save_last_query(query_id, name)
+
+        -- Switch to the buffer
+        vim.api.nvim_set_current_buf(bufnr)
+        vim.notify("Workhorse: Loaded " .. #items .. " work items", vim.log.levels.INFO)
+      end)
     end)
-  end)
+  end
+
+  -- If query_name not provided, fetch it first
+  if not query_name then
+    queries.get_info(query_id, function(info, err)
+      if err then
+        vim.notify("Workhorse: Failed to get query info: " .. (err or "unknown error"), vim.log.levels.ERROR)
+        return
+      end
+      load_query(info.name or "Query")
+    end)
+  else
+    load_query(query_name)
+  end
 end
 
 -- Open Telescope picker for saved queries

@@ -187,14 +187,9 @@ function M.create(opts)
 
   local bufnr = vim.api.nvim_create_buf(true, false)
 
-  local buf_name = "workhorse://tree/" .. query_name:gsub("[^%w]", "_")
-  local suffix = 1
-  local final_name = buf_name
-  while vim.fn.bufexists(final_name) == 1 do
-    final_name = buf_name .. "_" .. suffix
-    suffix = suffix + 1
-  end
-  vim.api.nvim_buf_set_name(bufnr, final_name)
+  -- Set buffer name (query_id makes it unique, no suffix needed)
+  local buf_name = "Workhorse|" .. query_name:gsub("[^%w]", "_") .. "|" .. query_id
+  vim.api.nvim_buf_set_name(bufnr, buf_name)
 
   vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].filetype = "workhorse"
@@ -354,6 +349,16 @@ function M.get_current()
     return bufnr, buffers[bufnr]
   end
   return nil, nil
+end
+
+-- Find existing buffer by query_id
+function M.find_by_query_id(query_id)
+  for bufnr, state in pairs(buffers) do
+    if state.query_id == query_id and vim.api.nvim_buf_is_valid(bufnr) then
+      return bufnr
+    end
+  end
+  return nil
 end
 
 local function show_confirm(changes, on_confirm, on_cancel)
