@@ -100,6 +100,36 @@ local function get_board_names()
   return names
 end
 
+-- Apply user's column order preference to API order
+-- User-specified columns appear first, remaining API columns follow
+local function apply_column_order_preference(api_order, user_order)
+  if not user_order or #user_order == 0 then
+    return api_order
+  end
+
+  local api_set = {}
+  for _, col in ipairs(api_order) do
+    api_set[col] = true
+  end
+
+  local result = {}
+  local used = {}
+  for _, col in ipairs(user_order) do
+    if api_set[col] then
+      table.insert(result, col)
+      used[col] = true
+    end
+  end
+
+  for _, col in ipairs(api_order) do
+    if not used[col] then
+      table.insert(result, col)
+    end
+  end
+
+  return result
+end
+
 local function show_column_menu(bufnr)
   local state = buffers[bufnr]
   if not state then
@@ -241,11 +271,12 @@ function M.create(opts)
       buffers[bufnr].last_undo_seq = initial_seq
     else
       local merged = boards.merge_boards(data_list)
-      buffers[bufnr].column_order = merged.order or {}
+      local final_order = apply_column_order_preference(merged.order, cfg.column_order)
+      buffers[bufnr].column_order = final_order
       buffers[bufnr].column_definitions = merged.columns or {}
       buffers[bufnr].column_field = merged.column_field -- WEF field name when consistent across boards
 
-      local lines, line_map = render.render_grouped_by_column(nodes, merged.order, parent_by_id)
+      local lines, line_map = render.render_grouped_by_column(nodes, final_order, parent_by_id)
       buffers[bufnr].line_map = line_map
 
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
