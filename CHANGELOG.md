@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [a161811] - 2026-01-20
+
+### Fixed
+- Tree buffer now respects `column_order` configuration (was only applied to flat buffer)
+
 ## [0f669ab] - 2026-01-20
 
 ### Added
