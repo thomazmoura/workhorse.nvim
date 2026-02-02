@@ -130,6 +130,39 @@ local function apply_column_order_preference(api_order, user_order)
   return result
 end
 
+local function fetch_foreign_items(original_items, current_items, callback)
+  local original_id_set = {}
+  for _, item in ipairs(original_items or {}) do
+    original_id_set[item.id] = true
+  end
+
+  local foreign_ids = {}
+  local seen = {}
+  for _, item in ipairs(current_items or {}) do
+    if item.id and not original_id_set[item.id] and not seen[item.id] then
+      table.insert(foreign_ids, item.id)
+      seen[item.id] = true
+    end
+  end
+
+  if #foreign_ids == 0 then
+    callback(original_items)
+    return
+  end
+
+  local workitems = require("workhorse.api.workitems")
+  workitems.get_by_ids(foreign_ids, function(fetched, err)
+    if err then
+      vim.notify("Workhorse: Failed to fetch copied work items: " .. tostring(err), vim.log.levels.ERROR)
+      callback(nil, err)
+      return
+    end
+    local augmented = vim.deepcopy(original_items or {})
+    vim.list_extend(augmented, fetched or {})
+    callback(augmented)
+  end)
+end
+
 local function show_column_menu(bufnr)
   local state = buffers[bufnr]
   if not state then
@@ -445,74 +478,92 @@ function M.on_write(bufnr)
   else
     current_items = parser.parse_buffer(bufnr)
   end
-  local changes, errors = changes_mod.detect(state, current_items, state.column_overrides, state.column_order, state.column_definitions)
+  fetch_foreign_items(state.original_items, current_items, function(augmented_originals, err)
+    if err then
+      return
+    end
 
-  local has_panel_changes = side_panels.has_pending_changes()
+    local augmented_state = {
+      original_items = augmented_originals,
+      levels = state.levels,
+      parent_by_id = state.parent_by_id,
+    }
 
-  if #errors > 0 then
-    vim.notify("Workhorse: Fix errors before applying:\n" .. table.concat(errors, "\n"), vim.log.levels.WARN)
-    return
-  end
+    local changes, errors = changes_mod.detect(
+      augmented_state,
+      current_items,
+      state.column_overrides,
+      state.column_order,
+      state.column_definitions
+    )
 
-  if #changes == 0 and not has_panel_changes then
-    vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
-    vim.bo[bufnr].modified = false
-    return
-  end
+    local has_panel_changes = side_panels.has_pending_changes()
 
-  for _, change in ipairs(changes) do
-    if change.type == changes_mod.ChangeType.CREATED then
-      local level_type = state.level_types and state.level_types[change.level]
-      if not level_type then
-        -- Fall back to hierarchy config
-        local hierarchy = cfg.work_item_type_hierarchy or {}
-        level_type = hierarchy[change.level + 1] -- Lua is 1-indexed
-      end
-      change.item_type = level_type or cfg.default_work_item_type
-      -- Check if parent is missing (neither existing ID nor new item line)
-      if change.level > 0 and not change.parent_id and not change.parent_line_number then
-        table.insert(errors, "Missing parent for new item: " .. change.title)
+    if #errors > 0 then
+      vim.notify("Workhorse: Fix errors before applying:\n" .. table.concat(errors, "\n"), vim.log.levels.WARN)
+      return
+    end
+
+    if #changes == 0 and not has_panel_changes then
+      vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
+      vim.bo[bufnr].modified = false
+      return
+    end
+
+    for _, change in ipairs(changes) do
+      if change.type == changes_mod.ChangeType.CREATED then
+        local level_type = state.level_types and state.level_types[change.level]
+        if not level_type then
+          -- Fall back to hierarchy config
+          local hierarchy = cfg.work_item_type_hierarchy or {}
+          level_type = hierarchy[change.level + 1] -- Lua is 1-indexed
+        end
+        change.item_type = level_type or cfg.default_work_item_type
+        -- Check if parent is missing (neither existing ID nor new item line)
+        if change.level > 0 and not change.parent_id and not change.parent_line_number then
+          table.insert(errors, "Missing parent for new item: " .. change.title)
+        end
       end
     end
-  end
 
-  if #errors > 0 then
-    vim.notify("Workhorse: Fix errors before applying:\n" .. table.concat(errors, "\n"), vim.log.levels.WARN)
-    return
-  end
+    if #errors > 0 then
+      vim.notify("Workhorse: Fix errors before applying:\n" .. table.concat(errors, "\n"), vim.log.levels.WARN)
+      return
+    end
 
-  local function proceed_with_changes(area_path)
-    if config.should_confirm(changes, changes_mod.ChangeType) then
-      show_confirm(changes, function()
+    local function proceed_with_changes(area_path)
+      if config.should_confirm(changes, changes_mod.ChangeType) then
+        show_confirm(changes, function()
+          M.apply_changes(bufnr, changes, area_path)
+        end)
+      else
         M.apply_changes(bufnr, changes, area_path)
-      end)
-    else
-      M.apply_changes(bufnr, changes, area_path)
+      end
     end
-  end
 
-  local has_new = false
-  for _, change in ipairs(changes) do
-    if change.type == changes_mod.ChangeType.CREATED then
-      has_new = true
-      break
+    local has_new = false
+    for _, change in ipairs(changes) do
+      if change.type == changes_mod.ChangeType.CREATED then
+        has_new = true
+        break
+      end
     end
-  end
 
-  if has_new then
-    -- Use default_area_path if configured, otherwise show picker
-    if cfg.default_area_path then
-      proceed_with_changes(cfg.default_area_path)
+    if has_new then
+      -- Use default_area_path if configured, otherwise show picker
+      if cfg.default_area_path then
+        proceed_with_changes(cfg.default_area_path)
+      else
+        require("workhorse.ui.area_picker").show(function(selected_area)
+          proceed_with_changes(selected_area)
+        end, function()
+          vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
+        end)
+      end
     else
-      require("workhorse.ui.area_picker").show(function(selected_area)
-        proceed_with_changes(selected_area)
-      end, function()
-        vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
-      end)
+      proceed_with_changes(nil)
     end
-  else
-    proceed_with_changes(nil)
-  end
+  end)
 end
 
 -- Group changes by work item ID and merge field updates (including description and tags)

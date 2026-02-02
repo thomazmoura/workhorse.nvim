@@ -297,6 +297,9 @@ function M.update_fields(id, fields, callback, kanban_field_name)
     if fields.tags ~= nil then
       field_changes["System.Tags"] = fields.tags
     end
+    if fields.state and fields.state ~= "" then
+      field_changes["System.State"] = fields.state
+    end
   end
 
   -- If board_column is specified, we need the correct Kanban field name

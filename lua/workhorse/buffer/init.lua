@@ -140,6 +140,39 @@ local function get_grouping_info(work_items, callback)
   end
 end
 
+local function fetch_foreign_items(original_items, current_items, callback)
+  local original_id_set = {}
+  for _, item in ipairs(original_items or {}) do
+    original_id_set[item.id] = true
+  end
+
+  local foreign_ids = {}
+  local seen = {}
+  for _, item in ipairs(current_items or {}) do
+    if item.id and not original_id_set[item.id] and not seen[item.id] then
+      table.insert(foreign_ids, item.id)
+      seen[item.id] = true
+    end
+  end
+
+  if #foreign_ids == 0 then
+    callback(original_items)
+    return
+  end
+
+  local workitems = require("workhorse.api.workitems")
+  workitems.get_by_ids(foreign_ids, function(fetched, err)
+    if err then
+      vim.notify("Workhorse: Failed to fetch copied work items: " .. tostring(err), vim.log.levels.ERROR)
+      callback(nil, err)
+      return
+    end
+    local augmented = vim.deepcopy(original_items or {})
+    vim.list_extend(augmented, fetched or {})
+    callback(augmented)
+  end)
+end
+
 -- Create a new workhorse buffer for displaying work items
 function M.create(opts)
   local query_id = opts.query_id
@@ -323,65 +356,71 @@ function M.on_write(bufnr)
   -- Parse current buffer contents with section tracking
   local current_items = parser.parse_buffer_with_sections(bufnr)
 
-  -- Detect changes (including state/column changes)
-  local available_sections = state.grouping_mode == "board_column"
-    and state.available_columns
-    or state.available_states
-  local changes = changes_mod.detect(
-    state.original_items,
-    current_items,
-    state.grouping_mode,
-    available_sections,
-    state.column_definitions
-  )
-
-  -- Check for description and tag changes too
-  local has_panel_changes = side_panels.has_pending_changes()
-
-  if #changes == 0 and not has_panel_changes then
-    vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
-    vim.bo[bufnr].modified = false
-    return
-  end
-
-  -- Check if there are new items that need an area path
-  local has_new = false
-  for _, change in ipairs(changes) do
-    if change.type == changes_mod.ChangeType.CREATED then
-      has_new = true
-      break
+  fetch_foreign_items(state.original_items, current_items, function(augmented_originals, err)
+    if err then
+      return
     end
-  end
 
-  local cfg = config.get()
+    -- Detect changes (including state/column changes)
+    local available_sections = state.grouping_mode == "board_column"
+      and state.available_columns
+      or state.available_states
+    local changes = changes_mod.detect(
+      augmented_originals,
+      current_items,
+      state.grouping_mode,
+      available_sections,
+      state.column_definitions
+    )
 
-  -- Helper to proceed with confirmation and apply
-  local function proceed_with_changes(area_path)
-    if config.should_confirm(changes, changes_mod.ChangeType) then
-      require("workhorse.ui.confirm").show(changes, function()
+    -- Check for description and tag changes too
+    local has_panel_changes = side_panels.has_pending_changes()
+
+    if #changes == 0 and not has_panel_changes then
+      vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
+      vim.bo[bufnr].modified = false
+      return
+    end
+
+    -- Check if there are new items that need an area path
+    local has_new = false
+    for _, change in ipairs(changes) do
+      if change.type == changes_mod.ChangeType.CREATED then
+        has_new = true
+        break
+      end
+    end
+
+    local cfg = config.get()
+
+    -- Helper to proceed with confirmation and apply
+    local function proceed_with_changes(area_path)
+      if config.should_confirm(changes, changes_mod.ChangeType) then
+        require("workhorse.ui.confirm").show(changes, function()
+          M.apply_changes(bufnr, changes, area_path)
+        end)
+      else
         M.apply_changes(bufnr, changes, area_path)
-      end)
-    else
-      M.apply_changes(bufnr, changes, area_path)
+      end
     end
-  end
 
-  if has_new then
-    -- Use default_area_path if configured, otherwise show picker
-    if cfg.default_area_path then
-      proceed_with_changes(cfg.default_area_path)
+    if has_new then
+      -- Use default_area_path if configured, otherwise show picker
+      if cfg.default_area_path then
+        proceed_with_changes(cfg.default_area_path)
+      else
+        require("workhorse.ui.area_picker").show(function(selected_area)
+          proceed_with_changes(selected_area)
+        end, function()
+          -- Cancelled - don't apply changes
+          vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
+        end)
+      end
     else
-      require("workhorse.ui.area_picker").show(function(selected_area)
-        proceed_with_changes(selected_area)
-      end, function()
-        -- Cancelled - don't apply changes
-        vim.notify("Workhorse: Area selection cancelled", vim.log.levels.INFO)
-      end)
+      -- No new items, proceed normally
+      proceed_with_changes(nil)
     end
-  else
-    -- No new items, proceed normally
-    proceed_with_changes(nil)
-  end
+  end)
 end
 
 -- Group changes by work item ID and merge field updates (including description and tags)
@@ -415,6 +454,8 @@ local function group_and_merge_changes(changes, column_definitions, desc_changes
           -- Explicitly setting State causes TF401320 errors due to workflow rules.
         elseif change.type == changes_mod.ChangeType.STACK_RANK_CHANGED then
           updates_by_id[id].fields.stack_rank = change.new_rank
+        elseif change.type == changes_mod.ChangeType.STATE_CHANGED then
+          updates_by_id[id].fields.state = change.new_state
         end
       end
     end
