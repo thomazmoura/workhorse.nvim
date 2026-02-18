@@ -4,15 +4,21 @@ local changes_mod = require("workhorse.buffer.changes")
 
 -- Show confirmation dialog for pending changes using vim.ui.select
 function M.show(changes, on_confirm, on_cancel)
-  local description_mod = require("workhorse.buffer.description")
+  local side_panels = require("workhorse.buffer.side_panels")
 
   -- Build description of changes
   local formatted = changes_mod.format_for_display(changes)
 
   -- Add description changes
-  local desc_changes = description_mod.get_pending_changes()
+  local desc_changes = side_panels.get_pending_description_changes()
   for _, desc_change in ipairs(desc_changes) do
     table.insert(formatted, "  ~ #" .. desc_change.id .. ": description updated")
+  end
+
+  -- Add tag changes
+  local tag_changes = side_panels.get_pending_tag_changes()
+  for _, tag_change in ipairs(tag_changes) do
+    table.insert(formatted, "  ~ #" .. tag_change.id .. ": tags updated")
   end
 
   local description = table.concat(formatted, "\n")
@@ -25,6 +31,7 @@ function M.show(changes, on_confirm, on_cancel)
   local column_changed = 0
   local order_changed = 0
   local desc_updated = #desc_changes
+  local tags_updated = #tag_changes
 
   for _, change in ipairs(changes) do
     if change.type == "created" then
@@ -64,6 +71,9 @@ function M.show(changes, on_confirm, on_cancel)
   end
   if desc_updated > 0 then
     table.insert(summary_parts, desc_updated .. " description changes")
+  end
+  if tags_updated > 0 then
+    table.insert(summary_parts, tags_updated .. " tag changes")
   end
   local summary = table.concat(summary_parts, ", ")
 

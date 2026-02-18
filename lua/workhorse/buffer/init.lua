@@ -639,6 +639,12 @@ function M.refresh_buffer(bufnr, work_items)
     buf_state.column_field = grouping_info.column_field
     buf_state.column_fields_by_type = grouping_info.column_fields_by_type
 
+    -- Sync side panels with refreshed server data (only updates non-modified edits)
+    local side_panels = require("workhorse.buffer.side_panels")
+    for _, item in ipairs(work_items) do
+      side_panels.update_from_item(item)
+    end
+
     -- Re-render based on mode
     local lines, line_map
     if grouping_info.mode == "board_column" then
