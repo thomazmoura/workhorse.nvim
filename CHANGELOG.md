@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c47a17c] - 2026-02-18
+
+### Fixed
+- Confirmation dialog now correctly shows description and tag changes (was reading from legacy empty module)
+- After applying changes and refreshing, re-opening the description side panel no longer shows stale/empty content
+
+### Removed
+- Legacy `buffer/description.lua` module (fully superseded by `buffer/side_panels.lua`)
+
 ## [a161811] - 2026-01-20
 
 ### Fixed
