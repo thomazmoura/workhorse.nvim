@@ -355,24 +355,30 @@ function M.open(work_item)
   save_description_to_memory()
   save_tags_to_memory()
 
-  -- Initialize description edit storage if needed
+  -- Initialize description edit storage if needed, or re-sync from server if unmodified
+  local plain_text = html_to_text(work_item.description or "")
   if not description_edits[item_id] then
-    local plain_text = html_to_text(work_item.description or "")
     description_edits[item_id] = {
       description = plain_text,
       original = plain_text,
       modified = false,
     }
+  elseif not description_edits[item_id].modified then
+    description_edits[item_id].description = plain_text
+    description_edits[item_id].original = plain_text
   end
 
-  -- Initialize tags edit storage if needed
+  -- Initialize tags edit storage if needed, or re-sync from server if unmodified
+  local tags_array = parse_tags(work_item.tags or "")
   if not tags_edits[item_id] then
-    local tags_array = parse_tags(work_item.tags or "")
     tags_edits[item_id] = {
       tags = vim.deepcopy(tags_array),
       original = vim.deepcopy(tags_array),
       modified = false,
     }
+  elseif not tags_edits[item_id].modified then
+    tags_edits[item_id].tags = vim.deepcopy(tags_array)
+    tags_edits[item_id].original = vim.deepcopy(tags_array)
   end
 
   -- Open/focus the windows

@@ -785,6 +785,13 @@ function M.refresh_buffer(bufnr, work_items, relations)
   buf_state.level_types = level_types
   buf_state.column_overrides = {}
   buf_state.nodes = nodes
+
+  -- Sync side panels with refreshed server data (only updates non-modified edits)
+  local side_panels = require("workhorse.buffer.side_panels")
+  for _, item in ipairs(work_items) do
+    side_panels.update_from_item(item)
+  end
+
   -- Reset undo history on refresh
   buf_state.column_overrides_history = {}
   local initial_seq = vim.fn.undotree().seq_cur
