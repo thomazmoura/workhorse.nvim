@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [4167e9e] - 2026-03-03
+
+### Fixed
+- Description and tags side panels now correctly populate on subsequent opens (cache was being poisoned by autocmds firing on the empty buffer during window creation)
+- Tree buffer `refresh_buffer` now syncs side panel content with refreshed server data (matches flat buffer behavior)
+
 ## [c47a17c] - 2026-02-18
 
 ### Fixed
