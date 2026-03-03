@@ -2,6 +2,13 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [3dab3f7] - 2026-03-03
+
+### Fixed
+- Description and tags side panels now correctly populate on every open — the root cause was `BufLeave` firing on the newly-created empty buffer during window setup (when `nvim_win_set_buf` replaces the buffer), which called `save_description_to_memory` and wrote `""` to the cache with `modified=true`, permanently blocking re-sync
+- `current_item_id` is now cleared before `open_or_focus_windows()` so autocmds triggered during window creation hit the early-return guard instead of corrupting the cache
+- `current_item_id` is also cleared at the end of `close_windows()` to prevent deferred `WinClosed`/`BufHidden` callbacks from writing stale content after the panel is torn down
+
 ## [4167e9e] - 2026-03-03
 
 ### Fixed
