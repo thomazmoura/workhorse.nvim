@@ -270,6 +270,10 @@ local function close_windows()
     vim.api.nvim_buf_delete(desc_buf, { force = true })
   end
 
+  -- Clear current item so deferred autocmds (BufHidden from buffer deletion,
+  -- WinClosed callbacks) cannot write stale empty content to the cache.
+  current_item_id = nil
+
   closing_in_progress = false
 end
 
@@ -380,6 +384,11 @@ function M.open(work_item)
     tags_edits[item_id].tags = vim.deepcopy(tags_array)
     tags_edits[item_id].original = vim.deepcopy(tags_array)
   end
+
+  -- Clear current item so that BufLeave autocmds triggered during window
+  -- creation (e.g. nvim_win_set_buf replacing the empty buffer) cannot call
+  -- save_*_to_memory and corrupt the freshly-synced cache entries above.
+  current_item_id = nil
 
   -- Open/focus the windows
   open_or_focus_windows()
