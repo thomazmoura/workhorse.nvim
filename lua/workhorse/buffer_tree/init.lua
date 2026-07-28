@@ -772,7 +772,8 @@ function M.apply_changes(bufnr, changes, area_path)
   process_created(1)
 end
 
-function M.refresh_buffer(bufnr, work_items, relations, focus_id)
+-- focus: optional { id = work item to land on, expected_line = only if cursor is still there }
+function M.refresh_buffer(bufnr, work_items, relations, focus)
   local buf_state = buffers[bufnr]
   if not buf_state then
     return
@@ -828,7 +829,9 @@ function M.refresh_buffer(bufnr, work_items, relations, focus_id)
   vim.bo[bufnr].modified = false
 
   -- Keep the cursor on the same work item across the re-render
-  require("workhorse.cursor").focus_deferred(bufnr, focus_id)
+  if focus then
+    require("workhorse.cursor").focus_deferred(bufnr, focus.id, focus.expected_line)
+  end
 end
 
 function M.update_virtual_text(bufnr)

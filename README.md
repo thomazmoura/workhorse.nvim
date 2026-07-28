@@ -233,6 +233,9 @@ The cursor follows the work item you were on, not the line number:
 - When the query already has an open buffer, Workhorse switches to it immediately (jumping to
   the work item in the currently rendered content) and jumps again once the refresh lands, in
   case the item moved.
+- Moving the cursor cancels that second jump: if you navigate somewhere else while the refresh
+  is in flight, Workhorse leaves you where you went instead of pulling you back to the
+  remembered work item. The same applies to a plain refresh.
 - If the work item is not present in the new content, the cursor is left where it is.
 
 ### Suggested Global Keymaps

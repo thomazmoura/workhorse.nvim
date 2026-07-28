@@ -55,9 +55,13 @@ function M.open_query(query_id, query_name)
   local existing_bufnr = buffer.find_by_query_id(query_id) or buffer_tree.find_by_query_id(query_id)
   if existing_bufnr then
     vim.api.nvim_set_current_buf(existing_bufnr)
-    -- Jump right away on the already-rendered content, then again once refreshed
-    cursor.focus(existing_bufnr, focus_id)
-    M.refresh({ focus_id = focus_id })
+    -- Jump right away on the already-rendered content, then again once refreshed --
+    -- but only if the user has not moved the cursor in the meantime
+    local landed = cursor.focus(existing_bufnr, focus_id)
+    M.refresh({
+      focus_id = focus_id,
+      expected_line = landed or vim.api.nvim_win_get_cursor(0)[1],
+    })
     return
   end
 
@@ -147,6 +151,7 @@ end
 
 -- Refresh current buffer from server
 -- opts.focus_id: work item to place the cursor on after the re-render
+-- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
   local buffer = require("workhorse.buffer")
   local buffer_tree = require("workhorse.buffer_tree")
@@ -164,7 +169,11 @@ function M.refresh(opts)
   end
 
   -- Capture before the async round-trip: get_item_at_cursor reads the current window
-  local focus_id = opts and opts.focus_id or cursor.capture()
+  local captured_id, captured_line = cursor.capture()
+  local focus = {
+    id = opts and opts.focus_id or captured_id,
+    expected_line = opts and opts.expected_line or captured_line,
+  }
 
   vim.notify("Workhorse: Refreshing...", vim.log.levels.INFO)
 
@@ -178,9 +187,9 @@ function M.refresh(opts)
     local ids = result and result.ids or {}
     if not ids or #ids == 0 then
       if buffer_tree.is_tree_buffer(bufnr) then
-        buffer_tree.refresh_buffer(bufnr, {}, result and result.relations or nil, focus_id)
+        buffer_tree.refresh_buffer(bufnr, {}, result and result.relations or nil, focus)
       else
-        buffer.refresh_buffer(bufnr, {}, focus_id)
+        buffer.refresh_buffer(bufnr, {}, focus)
       end
       vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
       return
@@ -194,9 +203,9 @@ function M.refresh(opts)
       end
 
       if buffer_tree.is_tree_buffer(bufnr) then
-        buffer_tree.refresh_buffer(bufnr, items, result and result.relations or nil, focus_id)
+        buffer_tree.refresh_buffer(bufnr, items, result and result.relations or nil, focus)
       else
-        buffer.refresh_buffer(bufnr, items, focus_id)
+        buffer.refresh_buffer(bufnr, items, focus)
       end
       vim.notify("Workhorse: Refreshed " .. #items .. " work items", vim.log.levels.INFO)
     end)

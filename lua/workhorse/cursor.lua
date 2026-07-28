@@ -15,62 +15,76 @@ function M.get_module(bufnr)
   return nil, nil
 end
 
--- Get the work item id under the cursor in the current buffer (nil if none)
+-- Get the work item id under the cursor in the current buffer (nil if none).
+-- Also returns the cursor line, usable as an `expected_line` baseline.
 function M.capture()
   local module, bufnr = M.get_module()
   if not module then
     return nil
   end
 
-  local item = module.get_item_at_cursor(bufnr)
-  return item and item.id or nil
+  local item, line = module.get_item_at_cursor(bufnr)
+  if not item then
+    return nil
+  end
+  return item.id, line
 end
 
 -- Move the cursor to the line holding work item `id`, if present.
--- Returns true when the cursor was moved, false otherwise.
-function M.focus(bufnr, id)
+-- When `expected_line` is given, the jump is skipped unless the cursor is still
+-- there: moving away is a deliberate act and must not be undone.
+-- Returns the line the cursor ended up on, or nil when it did not move.
+function M.focus(bufnr, id, expected_line)
   if not id or not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    return false
+    return nil
   end
 
   local module = M.get_module(bufnr)
   if not module or not module.find_line_by_id then
-    return false
+    return nil
   end
 
   local line = module.find_line_by_id(bufnr, id)
   if not line then
-    return false
+    return nil
   end
 
   local win = vim.fn.bufwinid(bufnr)
   if win == -1 then
-    return false
+    return nil
+  end
+
+  local current_line = vim.api.nvim_win_get_cursor(win)[1]
+
+  -- The user navigated away on purpose: leave them alone
+  if expected_line and current_line ~= expected_line then
+    return nil
   end
 
   -- Already there: leave the column untouched
-  if vim.api.nvim_win_get_cursor(win)[1] == line then
-    return true
+  if current_line == line then
+    return line
   end
 
   local ok = pcall(vim.api.nvim_win_set_cursor, win, { line, 0 })
   if not ok then
-    return false
+    return nil
   end
 
   vim.api.nvim_win_call(win, function()
     vim.cmd("normal! ^")
   end)
-  return true
+  return line
 end
 
--- Same as focus(), but deferred so it runs after the buffer is displayed
-function M.focus_deferred(bufnr, id)
+-- Same as focus(), but deferred so it runs after the buffer is displayed.
+-- The expected_line guard is evaluated when the jump actually happens.
+function M.focus_deferred(bufnr, id, expected_line)
   if not id then
     return
   end
   vim.schedule(function()
-    M.focus(bufnr, id)
+    M.focus(bufnr, id, expected_line)
   end)
 end
 
