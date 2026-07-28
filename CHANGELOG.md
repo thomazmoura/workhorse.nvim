@@ -10,6 +10,14 @@ All notable changes to workhorse.nvim are documented in this file.
 - When a query already has an open buffer, the cursor jumps on the currently rendered content immediately and again after the refresh lands, in case the item moved
 - New `workhorse.cursor` module (`capture`/`focus`/`focus_deferred`/`get_module`) plus `find_line_by_id` on both buffer modules
 
+## [a28934a] - 2026-07-28
+
+### Added
+- `<CR>` in normal mode inside the description or tags panel closes both side panels (insert mode keeps its default behavior)
+
+### Fixed
+- Tags panel now uses `belowright split` so it always opens below the description panel and becomes the current window regardless of the user's `splitbelow` setting — previously both window ids could end up pointing at the same window
+
 ## [3dab3f7] - 2026-03-03
 
 ### Fixed
