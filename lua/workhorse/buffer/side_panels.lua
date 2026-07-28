@@ -14,6 +14,9 @@ local tags_winid = nil
 local current_item_id = nil
 local closing_in_progress = false
 
+-- Forward declaration: defined below, but referenced by the panel keymaps
+local close_windows
+
 -- Header constants
 local DESC_HEADER = "═══ Description ═══"
 local TAGS_HEADER = "═══ Tags ═══"
@@ -171,6 +174,17 @@ local function setup_header_protection(bufnr, header_text, save_fn)
   })
 end
 
+-- Close both panels with <CR> in normal mode (insert mode keeps its default)
+local function setup_close_keymap(bufnr)
+  vim.keymap.set("n", "<CR>", function()
+    -- Defer: close_windows deletes this very buffer, which is unsafe to do
+    -- while the mapping is still executing in it
+    vim.schedule(function()
+      close_windows()
+    end)
+  end, { buffer = bufnr, silent = true, nowait = true })
+end
+
 -- Delete any existing buffer matching the given pattern
 local function delete_buffers_matching(pattern)
   local bufs = vim.api.nvim_list_bufs()
@@ -201,6 +215,7 @@ local function get_or_create_description_buffer()
   vim.bo[desc_bufnr].bufhidden = "hide"
 
   setup_header_protection(desc_bufnr, DESC_HEADER, save_description_to_memory)
+  setup_close_keymap(desc_bufnr)
 
   return desc_bufnr
 end
@@ -222,12 +237,13 @@ local function get_or_create_tags_buffer()
   vim.bo[tags_bufnr].bufhidden = "hide"
 
   setup_header_protection(tags_bufnr, TAGS_HEADER, save_tags_to_memory)
+  setup_close_keymap(tags_bufnr)
 
   return tags_bufnr
 end
 
 -- Close both windows
-local function close_windows()
+close_windows = function()
   -- Guard against re-entrant calls (from WinClosed autocommand)
   if closing_in_progress then
     return
@@ -309,9 +325,11 @@ local function open_or_focus_windows()
   vim.wo[desc_winid].wrap = true
   vim.wo[desc_winid].linebreak = true
 
-  -- Open a horizontal split below for tags
-  vim.cmd("split")
-  vim.cmd("wincmd j")
+  -- Open a horizontal split below for tags. "belowright" is explicit so the new
+  -- window lands below and becomes current regardless of the user's 'splitbelow'
+  -- (a plain "split" + "wincmd j" lands back on the description window when
+  -- 'splitbelow' is off, making both ids point at the same window).
+  vim.cmd("belowright split")
   tags_winid = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(tags_winid, tags_buf)
 

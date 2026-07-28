@@ -300,6 +300,7 @@ Press `<CR>` on any work item to open the description and tags side panels on th
 - **Tags panel**: Each tag on a separate line; add/remove tags by editing lines
 - **Headers**: The `═══ Description ═══` and `═══ Tags ═══` headers are readonly
 - **Toggle**: Press `<CR>` again on the same item to close the panels
+- **Close**: Press `<CR>` in normal mode inside either panel to close both (insert mode still inserts a newline)
 - **Save**: Changes are saved when you apply changes with `<leader><leader>`
 
 ### Example Workflow
