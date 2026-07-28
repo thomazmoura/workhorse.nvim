@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [38f73ba] - 2026-07-28
+
+### Added
+- Cursor now follows the work item instead of the line number: opening another query places the cursor on the same work item in the newly loaded buffer when it is present there, including across tree/flat view types
+- Refreshing (`<leader>R`, `:Workhorse refresh`, and the automatic refresh after applying changes) keeps the cursor on the work item it was on, even when re-rendering moves it to another section
+- When a query already has an open buffer, the cursor jumps on the currently rendered content immediately and again after the refresh lands, in case the item moved
+- New `workhorse.cursor` module (`capture`/`focus`/`focus_deferred`/`get_module`) plus `find_line_by_id` on both buffer modules
+
 ## [3dab3f7] - 2026-03-03
 
 ### Fixed
