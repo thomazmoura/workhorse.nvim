@@ -26,17 +26,7 @@ function M.setup(opts)
 end
 
 local function get_buffer_module(bufnr)
-  local buffer_tree = require("workhorse.buffer_tree")
-  local buffer_flat = require("workhorse.buffer")
-  local target = bufnr or vim.api.nvim_get_current_buf()
-
-  if buffer_tree.is_tree_buffer(target) then
-    return buffer_tree, target
-  end
-  if buffer_flat.is_workhorse_buffer(target) then
-    return buffer_flat, target
-  end
-  return nil, nil
+  return require("workhorse.cursor").get_module(bufnr)
 end
 
 local function is_tree_result(result)
@@ -56,12 +46,18 @@ function M.open_query(query_id, query_name)
   local workitems = require("workhorse.api.workitems")
   local buffer = require("workhorse.buffer")
   local buffer_tree = require("workhorse.buffer_tree")
+  local cursor = require("workhorse.cursor")
+
+  -- Remember the work item under the cursor so we can follow it into the new buffer
+  local focus_id = cursor.capture()
 
   -- Check for existing buffer with this query_id (flat or tree)
   local existing_bufnr = buffer.find_by_query_id(query_id) or buffer_tree.find_by_query_id(query_id)
   if existing_bufnr then
     vim.api.nvim_set_current_buf(existing_bufnr)
-    M.refresh()
+    -- Jump right away on the already-rendered content, then again once refreshed
+    cursor.focus(existing_bufnr, focus_id)
+    M.refresh({ focus_id = focus_id })
     return
   end
 
@@ -97,12 +93,14 @@ function M.open_query(query_id, query_name)
             query_name = name,
             work_items = items,
             relations = result.relations,
+            focus_id = focus_id,
           })
         else
           bufnr = buffer.create({
             query_id = query_id,
             query_name = name,
             work_items = items,
+            focus_id = focus_id,
           })
         end
 
@@ -148,11 +146,13 @@ function M.pick_query()
 end
 
 -- Refresh current buffer from server
-function M.refresh()
+-- opts.focus_id: work item to place the cursor on after the re-render
+function M.refresh(opts)
   local buffer = require("workhorse.buffer")
   local buffer_tree = require("workhorse.buffer_tree")
   local queries = require("workhorse.api.queries")
   local workitems = require("workhorse.api.workitems")
+  local cursor = require("workhorse.cursor")
 
   local bufnr, state = buffer.get_current()
   if not bufnr then
@@ -162,6 +162,9 @@ function M.refresh()
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
     return
   end
+
+  -- Capture before the async round-trip: get_item_at_cursor reads the current window
+  local focus_id = opts and opts.focus_id or cursor.capture()
 
   vim.notify("Workhorse: Refreshing...", vim.log.levels.INFO)
 
@@ -175,9 +178,9 @@ function M.refresh()
     local ids = result and result.ids or {}
     if not ids or #ids == 0 then
       if buffer_tree.is_tree_buffer(bufnr) then
-        buffer_tree.refresh_buffer(bufnr, {}, result and result.relations or nil)
+        buffer_tree.refresh_buffer(bufnr, {}, result and result.relations or nil, focus_id)
       else
-        buffer.refresh_buffer(bufnr, {})
+        buffer.refresh_buffer(bufnr, {}, focus_id)
       end
       vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
       return
@@ -191,9 +194,9 @@ function M.refresh()
       end
 
       if buffer_tree.is_tree_buffer(bufnr) then
-        buffer_tree.refresh_buffer(bufnr, items, result and result.relations or nil)
+        buffer_tree.refresh_buffer(bufnr, items, result and result.relations or nil, focus_id)
       else
-        buffer.refresh_buffer(bufnr, items)
+        buffer.refresh_buffer(bufnr, items, focus_id)
       end
       vim.notify("Workhorse: Refreshed " .. #items .. " work items", vim.log.levels.INFO)
     end)

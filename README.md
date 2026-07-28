@@ -14,6 +14,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Confirmation dialog** - Review changes before applying to Azure DevOps
 - **Side panels** - Edit work item description and tags in dedicated buffers
 - **Tag-based coloring** - Color work item titles based on type and tags
+- **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 
 ## Requirements
 
@@ -218,6 +219,21 @@ When in a workhorse buffer (tree queries):
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
 | `gw` | Open work item in browser |
+
+### Cursor Tracking
+
+The cursor follows the work item you were on, not the line number:
+
+- Opening another query while the cursor sits on a work item places the cursor on that same
+  work item in the newly loaded buffer, if it appears there. This works across view types, so
+  jumping from a tree query to a flat one (or back) keeps your place.
+- Refreshing (`<leader>R`, `:Workhorse refresh`, and the automatic refresh after applying
+  changes) keeps the cursor on the same work item even when re-rendering moves it to a
+  different section or line.
+- When the query already has an open buffer, Workhorse switches to it immediately (jumping to
+  the work item in the currently rendered content) and jumps again once the refresh lands, in
+  case the item moved.
+- If the work item is not present in the new content, the cursor is left where it is.
 
 ### Suggested Global Keymaps
 

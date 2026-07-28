@@ -325,6 +325,9 @@ function M.create(opts)
       buffers[bufnr].last_undo_seq = initial_seq
     end
     vim.bo[bufnr].modified = false
+
+    -- Follow the work item the user was on before this buffer loaded
+    require("workhorse.cursor").focus_deferred(bufnr, opts.focus_id)
   end)
 
   M.setup_autocmds(bufnr)
@@ -769,7 +772,7 @@ function M.apply_changes(bufnr, changes, area_path)
   process_created(1)
 end
 
-function M.refresh_buffer(bufnr, work_items, relations)
+function M.refresh_buffer(bufnr, work_items, relations, focus_id)
   local buf_state = buffers[bufnr]
   if not buf_state then
     return
@@ -823,6 +826,9 @@ function M.refresh_buffer(bufnr, work_items, relations)
   end
 
   vim.bo[bufnr].modified = false
+
+  -- Keep the cursor on the same work item across the re-render
+  require("workhorse.cursor").focus_deferred(bufnr, focus_id)
 end
 
 function M.update_virtual_text(bufnr)
@@ -919,6 +925,23 @@ function M.get_item_at_cursor(bufnr)
   for _, item in ipairs(state.work_items) do
     if item.id == parsed.id then
       return item, line_num
+    end
+  end
+
+  return nil
+end
+
+-- Find the buffer line (1-based) currently holding a work item id
+function M.find_line_by_id(bufnr, id)
+  if not id or not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  for i, line in ipairs(lines) do
+    local parsed = parser.parse_line(line)
+    if parsed and parsed.id == id then
+      return i
     end
   end
 

@@ -239,6 +239,9 @@ function M.create(opts)
 
     -- Set up keymaps for this buffer
     M.setup_keymaps(bufnr)
+
+    -- Follow the work item the user was on before this buffer loaded
+    require("workhorse.cursor").focus_deferred(bufnr, opts.focus_id)
   end)
 
   return bufnr
@@ -621,7 +624,7 @@ function M.apply_changes(bufnr, changes, area_path)
 end
 
 -- Refresh buffer with latest data from server
-function M.refresh_buffer(bufnr, work_items)
+function M.refresh_buffer(bufnr, work_items, focus_id)
   local buf_state = buffers[bufnr]
   if not buf_state then
     return
@@ -663,6 +666,9 @@ function M.refresh_buffer(bufnr, work_items)
 
     -- Mark as unmodified
     vim.bo[bufnr].modified = false
+
+    -- Keep the cursor on the same work item across the re-render
+    require("workhorse.cursor").focus_deferred(bufnr, focus_id)
   end)
 end
 
@@ -716,6 +722,23 @@ function M.get_item_at_cursor(bufnr)
   for _, item in ipairs(state.work_items) do
     if item.id == id then
       return item, line_num
+    end
+  end
+
+  return nil
+end
+
+-- Find the buffer line (1-based) currently holding a work item id
+function M.find_line_by_id(bufnr, id)
+  if not id or not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  for i, line in ipairs(lines) do
+    local parsed = parser.parse_line(line)
+    if parsed and parsed.id == id then
+      return i
     end
   end
 
