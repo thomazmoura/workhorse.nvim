@@ -2,6 +2,13 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c794e8b] - 2026-07-28
+
+### Changed
+- The post-refresh cursor jump is now skipped when the cursor has moved since the buffer was opened or the refresh started — navigating away while the request is in flight is treated as deliberate, so Workhorse no longer pulls you back to the remembered work item
+- `cursor.focus`/`focus_deferred` take an optional `expected_line` guard and return the line they settled on; `cursor.capture` returns the cursor line alongside the id
+- `refresh_buffer` on both buffer modules now takes a `focus` table (`{ id, expected_line }`) instead of a bare id
+
 ## [38f73ba] - 2026-07-28
 
 ### Added
