@@ -320,7 +320,8 @@ Press `<CR>` on any work item to open the description and tags side panels on th
 - **Headers**: The `═══ Description ═══` and `═══ Tags ═══` headers are readonly
 - **Toggle**: Press `<CR>` again on the same item to close the panels
 - **Close**: Press `<CR>` in normal mode inside either panel to close both (insert mode still inserts a newline)
-- **Save**: Changes are saved when you apply changes with `<leader><leader>`
+- **Apply**: Press `<leader><leader>` in normal mode inside either panel to close both and apply the pending changes
+- **Save**: Panel edits are kept in memory and are sent to Azure DevOps when you apply changes with `<leader><leader>`, from the panels or from the work item buffer
 
 ### Example Workflow
 

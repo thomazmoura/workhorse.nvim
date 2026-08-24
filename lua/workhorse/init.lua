@@ -292,7 +292,7 @@ function M.open_description()
     return
   end
 
-  side_panels.open(item)
+  side_panels.open(item, bufnr)
 end
 
 -- Resume the last opened query

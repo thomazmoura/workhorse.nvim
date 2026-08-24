@@ -12,6 +12,8 @@ local desc_winid = nil
 local tags_bufnr = nil
 local tags_winid = nil
 local current_item_id = nil
+-- Work item buffer (tree or flat) the panels were opened from
+local origin_bufnr = nil
 local closing_in_progress = false
 
 -- Forward declaration: defined below, but referenced by the panel keymaps
@@ -185,6 +187,57 @@ local function setup_close_keymap(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
 end
 
+-- Resolve the work item buffer the panels belong to. Falls back to any visible
+-- workhorse buffer when the origin was never recorded or is gone.
+local function resolve_origin_buffer()
+  local cursor = require("workhorse.cursor")
+
+  if origin_bufnr and vim.api.nvim_buf_is_valid(origin_bufnr) and cursor.get_module(origin_bufnr) then
+    return origin_bufnr
+  end
+
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if cursor.get_module(buf) then
+      return buf
+    end
+  end
+
+  return nil
+end
+
+-- Apply changes with <leader><leader>, just like the tree and flat buffers.
+-- The panels close first: applying refreshes the work item buffer afterwards,
+-- and that refresh resolves its target from the current buffer.
+local function setup_apply_keymap(bufnr)
+  vim.keymap.set("n", "<leader><leader>", function()
+    -- Defer: close_windows deletes this very buffer, which is unsafe to do
+    -- while the mapping is still executing in it
+    vim.schedule(function()
+      -- Resolve before closing: close_windows clears the module state
+      local owner = resolve_origin_buffer()
+
+      -- Also flushes both panels to memory
+      close_windows()
+
+      if not owner or not vim.api.nvim_buf_is_valid(owner) then
+        vim.notify("Workhorse: Work item buffer is no longer open", vim.log.levels.WARN)
+        return
+      end
+
+      local win = vim.fn.bufwinid(owner)
+      if win ~= -1 then
+        vim.api.nvim_set_current_win(win)
+      else
+        -- Buffer is loaded but hidden: show it so the post-apply refresh finds it
+        vim.api.nvim_set_current_buf(owner)
+      end
+
+      require("workhorse").apply()
+    end)
+  end, { buffer = bufnr, silent = true, nowait = true })
+end
+
 -- Delete any existing buffer matching the given pattern
 local function delete_buffers_matching(pattern)
   local bufs = vim.api.nvim_list_bufs()
@@ -216,6 +269,7 @@ local function get_or_create_description_buffer()
 
   setup_header_protection(desc_bufnr, DESC_HEADER, save_description_to_memory)
   setup_close_keymap(desc_bufnr)
+  setup_apply_keymap(desc_bufnr)
 
   return desc_bufnr
 end
@@ -238,6 +292,7 @@ local function get_or_create_tags_buffer()
 
   setup_header_protection(tags_bufnr, TAGS_HEADER, save_tags_to_memory)
   setup_close_keymap(tags_bufnr)
+  setup_apply_keymap(tags_bufnr)
 
   return tags_bufnr
 end
@@ -289,6 +344,7 @@ close_windows = function()
   -- Clear current item so deferred autocmds (BufHidden from buffer deletion,
   -- WinClosed callbacks) cannot write stale empty content to the cache.
   current_item_id = nil
+  origin_bufnr = nil
 
   closing_in_progress = false
 end
@@ -358,8 +414,9 @@ local function open_or_focus_windows()
   })
 end
 
--- Open side panels for a work item (toggle if same item)
-function M.open(work_item)
+-- Open side panels for a work item (toggle if same item).
+-- owner_bufnr is the work item buffer the panels were opened from.
+function M.open(work_item, owner_bufnr)
   if not work_item then
     vim.notify("Workhorse: No work item provided", vim.log.levels.WARN)
     return
@@ -411,8 +468,10 @@ function M.open(work_item)
   -- Open/focus the windows
   open_or_focus_windows()
 
-  -- Set current item
+  -- Set current item. Recorded after the windows exist: open_or_focus_windows
+  -- may run close_windows, which clears this state.
   current_item_id = item_id
+  origin_bufnr = owner_bufnr
 
   -- Load description content (add empty line only if no content)
   local desc_edit = description_edits[item_id]
