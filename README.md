@@ -236,6 +236,8 @@ The cursor follows the work item you were on, not the line number:
 - Moving the cursor cancels that second jump: if you navigate somewhere else while the refresh
   is in flight, Workhorse leaves you where you went instead of pulling you back to the
   remembered work item. The same applies to a plain refresh.
+- New work items are followed too: a line you just typed has no ID yet, so Workhorse
+  remembers its text and, after the save refresh, lands on the work item created from it.
 - If the work item is not present in the new content, the cursor is left where it is.
 
 ### Suggested Global Keymaps

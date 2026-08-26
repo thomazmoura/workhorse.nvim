@@ -15,36 +15,73 @@ function M.get_module(bufnr)
   return nil, nil
 end
 
+-- Describe the work item under the cursor as a focus descriptor:
+--   { id = number|nil, title = string|nil, expected_line = number }
+-- A line that has not been saved yet carries no id, so its title text is kept
+-- instead: after the save round-trip the item is found by matching that text.
+-- Returns nil outside a workhorse buffer, or on a header/blank line.
+function M.capture_focus()
+  local module, bufnr = M.get_module()
+  if not module or not module.get_entry_at_line then
+    return nil
+  end
+
+  local line = vim.api.nvim_win_get_cursor(0)[1]
+  local entry = module.get_entry_at_line(bufnr, line)
+  if not entry then
+    return nil
+  end
+
+  return {
+    id = entry.id,
+    title = (not entry.id) and entry.title or nil,
+    expected_line = line,
+  }
+end
+
 -- Get the work item id under the cursor in the current buffer (nil if none).
 -- Also returns the cursor line, usable as an `expected_line` baseline.
 function M.capture()
-  local module, bufnr = M.get_module()
-  if not module then
+  local focus = M.capture_focus()
+  if not focus or not focus.id then
     return nil
   end
-
-  local item, line = module.get_item_at_cursor(bufnr)
-  if not item then
-    return nil
-  end
-  return item.id, line
+  return focus.id, focus.expected_line
 end
 
--- Move the cursor to the line holding work item `id`, if present.
--- When `expected_line` is given, the jump is skipped unless the cursor is still
--- there: moving away is a deliberate act and must not be undone.
+-- Locate the line a focus descriptor points at, id first and title as fallback
+local function resolve_line(module, bufnr, focus)
+  if focus.id and module.find_line_by_id then
+    local line = module.find_line_by_id(bufnr, focus.id)
+    if line then
+      return line
+    end
+  end
+  if focus.title and module.find_line_by_title then
+    return module.find_line_by_title(bufnr, focus.title)
+  end
+  return nil
+end
+
+-- Move the cursor to the line holding the work item described by `focus`
+-- ({ id, title, expected_line }), if present.
+-- When `focus.expected_line` is given, the jump is skipped unless the cursor is
+-- still there: moving away is a deliberate act and must not be undone.
 -- Returns the line the cursor ended up on, or nil when it did not move.
-function M.focus(bufnr, id, expected_line)
-  if not id or not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+function M.focus(bufnr, focus)
+  if not focus or (not focus.id and not focus.title) then
+    return nil
+  end
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return nil
   end
 
   local module = M.get_module(bufnr)
-  if not module or not module.find_line_by_id then
+  if not module then
     return nil
   end
 
-  local line = module.find_line_by_id(bufnr, id)
+  local line = resolve_line(module, bufnr, focus)
   if not line then
     return nil
   end
@@ -57,7 +94,7 @@ function M.focus(bufnr, id, expected_line)
   local current_line = vim.api.nvim_win_get_cursor(win)[1]
 
   -- The user navigated away on purpose: leave them alone
-  if expected_line and current_line ~= expected_line then
+  if focus.expected_line and current_line ~= focus.expected_line then
     return nil
   end
 
@@ -79,12 +116,12 @@ end
 
 -- Same as focus(), but deferred so it runs after the buffer is displayed.
 -- The expected_line guard is evaluated when the jump actually happens.
-function M.focus_deferred(bufnr, id, expected_line)
-  if not id then
+function M.focus_deferred(bufnr, focus)
+  if not focus or (not focus.id and not focus.title) then
     return
   end
   vim.schedule(function()
-    M.focus(bufnr, id, expected_line)
+    M.focus(bufnr, focus)
   end)
 end
 

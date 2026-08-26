@@ -16,8 +16,12 @@ local function normalize_title(title)
     return ""
   end
   -- Trim leading/trailing whitespace and normalize internal whitespace
-  return vim.trim(title):gsub("%s+", " ")
+  local normalized = vim.trim(title):gsub("%s+", " ")
+  return normalized
 end
+
+-- Exposed so cursor lookups compare titles the same way change detection does
+M.normalize_title = normalize_title
 
 local function is_unknown_column(column)
   return column == nil or column == "" or column == "Unknown"

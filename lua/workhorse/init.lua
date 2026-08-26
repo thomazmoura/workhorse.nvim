@@ -57,7 +57,7 @@ function M.open_query(query_id, query_name)
     vim.api.nvim_set_current_buf(existing_bufnr)
     -- Jump right away on the already-rendered content, then again once refreshed --
     -- but only if the user has not moved the cursor in the meantime
-    local landed = cursor.focus(existing_bufnr, focus_id)
+    local landed = cursor.focus(existing_bufnr, { id = focus_id })
     M.refresh({
       focus_id = focus_id,
       expected_line = landed or vim.api.nvim_win_get_cursor(0)[1],
@@ -151,6 +151,7 @@ end
 
 -- Refresh current buffer from server
 -- opts.focus_id: work item to place the cursor on after the re-render
+-- opts.focus_title: title to land on when the item had no id yet (just created)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
   local buffer = require("workhorse.buffer")
@@ -168,12 +169,19 @@ function M.refresh(opts)
     return
   end
 
-  -- Capture before the async round-trip: get_item_at_cursor reads the current window
-  local captured_id, captured_line = cursor.capture()
-  local focus = {
-    id = opts and opts.focus_id or captured_id,
-    expected_line = opts and opts.expected_line or captured_line,
-  }
+  -- Capture before the async round-trip: capture_focus reads the current window
+  local focus
+  if opts and (opts.focus_id or opts.focus_title) then
+    -- The caller already knows what to follow (a save carries it across the
+    -- confirm dialog, which moves the cursor out of the buffer)
+    focus = {
+      id = opts.focus_id,
+      title = opts.focus_title,
+      expected_line = opts.expected_line,
+    }
+  else
+    focus = cursor.capture_focus() or {}
+  end
 
   vim.notify("Workhorse: Refreshing...", vim.log.levels.INFO)
 

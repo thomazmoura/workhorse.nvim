@@ -241,7 +241,7 @@ function M.create(opts)
     M.setup_keymaps(bufnr)
 
     -- Follow the work item the user was on before this buffer loaded
-    require("workhorse.cursor").focus_deferred(bufnr, opts.focus_id)
+    require("workhorse.cursor").focus_deferred(bufnr, { id = opts.focus_id })
   end)
 
   return bufnr
@@ -355,6 +355,10 @@ function M.on_write(bufnr)
     vim.notify("Workhorse: Buffer state not found", vim.log.levels.ERROR)
     return
   end
+
+  -- Remember the item under the cursor now: the confirm dialog and the area
+  -- picker take over the current window before the refresh gets to capture it
+  state.pending_focus = require("workhorse.cursor").capture_focus()
 
   -- Parse current buffer contents with section tracking
   local current_items = parser.parse_buffer_with_sections(bufnr)
@@ -526,8 +530,15 @@ function M.apply_changes(bufnr, changes, area_path)
         vim.notify("Workhorse: " .. total .. " changes applied", vim.log.levels.INFO)
       end
 
-      -- Refresh the buffer
-      require("workhorse").refresh()
+      -- Refresh the buffer, following the item the cursor was on when the save
+      -- started (by title when it had no id yet)
+      local focus = state.pending_focus
+      state.pending_focus = nil
+      require("workhorse").refresh(focus and {
+        focus_id = focus.id,
+        focus_title = focus.title,
+        expected_line = focus.expected_line,
+      } or nil)
     end
   end
 
@@ -670,7 +681,7 @@ function M.refresh_buffer(bufnr, work_items, focus)
 
     -- Keep the cursor on the same work item across the re-render
     if focus then
-      require("workhorse.cursor").focus_deferred(bufnr, focus.id, focus.expected_line)
+      require("workhorse.cursor").focus_deferred(bufnr, focus)
     end
   end)
 end
@@ -742,6 +753,69 @@ function M.find_line_by_id(bufnr, id)
     local parsed = parser.parse_line(line)
     if parsed and parsed.id == id then
       return i
+    end
+  end
+
+  return nil
+end
+
+-- Parse the entry ({ id, title }) rendered on a buffer line, nil for headers
+-- and blank lines. Lets cursor.lua read a line without knowing which parser
+-- this buffer uses.
+function M.get_entry_at_line(bufnr, line_num)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local line = vim.api.nvim_buf_get_lines(bufnr, line_num - 1, line_num, false)[1]
+  if not line then
+    return nil
+  end
+
+  return parser.parse_line(line)
+end
+
+-- Find the buffer line (1-based) whose title matches `title`. Used to follow a
+-- just-created item, which had no id to follow before it was saved.
+function M.find_line_by_title(bufnr, title)
+  if not title or not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local normalize = changes_mod.normalize_title
+  local wanted = normalize(title)
+  if wanted == "" then
+    return nil
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local entries = {}
+  for i, line in ipairs(lines) do
+    local parsed = parser.parse_line(line)
+    if parsed then
+      entries[#entries + 1] = { line = i, title = normalize(parsed.title), id = parsed.id }
+    end
+  end
+
+  -- An exact match anywhere beats a substring match: sweep for it first, and
+  -- prefer the entry that now carries an id (the saved item over the raw line)
+  local exact
+  for _, entry in ipairs(entries) do
+    if entry.title == wanted then
+      if entry.id then
+        return entry.line
+      end
+      exact = exact or entry.line
+    end
+  end
+  if exact then
+    return exact
+  end
+
+  -- The server may have decorated the title: fall back to containment
+  for _, entry in ipairs(entries) do
+    if entry.title:find(wanted, 1, true) then
+      return entry.line
     end
   end
 
