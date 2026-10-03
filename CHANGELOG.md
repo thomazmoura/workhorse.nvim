@@ -2,6 +2,20 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [bc9fecf] - 2026-10-03
+
+### Changed
+- Stages, jobs and steps are now one collapsible run tree buffer: everything loads at once, collapsed to the stage level; `<CR>` or `<Space>` toggles the level below a stage or job and opens a step's log. The separate steps buffer is gone
+- Run lines show `branch (date)  author  title` with per-section highlights (`WorkhorseBuildBranch`, `WorkhorseBuildDate`, `WorkhorseBuildAuthor`, `WorkhorseBuildMessage`)
+- Every build buffer starts with a header: the pipeline name, a tree of the current path indented two spaces per level, and a markview-style `── ◇ ──` separator (`WorkhorseBuildSeparator`) followed by a blank line
+- Status icons use Nerd Font circles: outlined for success/warning, solid for failure
+- Titles and header names are trimmed with `…` to fit the window and recalculated on resize, without new requests
+
+### Added
+- Header lines are links back to their level (runs list, or the run tree with that stage/job revealed)
+- `<Esc>` goes back to the previous level, like `-` and `<BS>`; going back lands on the item you came from
+- The log view opens with the cursor on the first log line, below the header
+
 ## [a1860b5] - 2026-10-03
 
 ### Added
