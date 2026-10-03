@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [7a6e405] - 2026-10-03
+
+### Added
+- Pipeline build browsing: `:Workhorse builds` opens a Telescope picker of pipeline definitions (`:Workhorse builds <id>` opens one directly)
+- Drill-down through read-only buffers: runs (with per-stage status icons filled in lazily) → stages/jobs → steps → step log; `<CR>` drills down, `-`/`<BS>` goes back, `gw` opens in the browser, `q` closes
+- Views of in-progress runs auto-refresh; logs fetch only new lines and follow the tail
+- New `builds` config section (`top`, `refresh_interval`, `strip_timestamps`, `max_concurrent`) and `WorkhorseBuild*`/`WorkhorseLog*` highlight groups
+- `silent` request option on the API client to suppress error notifications while polling
+
 ## [c794e8b] - 2026-07-28
 
 ### Changed
