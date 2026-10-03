@@ -349,25 +349,42 @@ Press `<CR>` on any work item to open the description and tags side panels on th
 ## Pipeline Builds
 
 `:Workhorse builds` opens a Telescope picker with every pipeline (build definition) of the
-project. Selecting one drills down through read-only buffers:
+project. Selecting one drills down through three read-only buffers: runs, the run tree, and a
+step's log. Every buffer starts with the pipeline name and a tree of where you are, indented
+two spaces per level. The buffer's own content continues the tree one level deeper. This is
+the log view, the deepest level:
 
 ```
-runs      ✓ #App-20261003.1 • Merge branch 'feature/x' into main  ⎇ main 8c2b005    ✓-✓-!
-stages    ✓ Build                                                              5m 54s
-              ✓ Compile and publish artifacts                                  5m 51s
-steps       ✓ Rodar Testes Unitários                                           1m 27s
-log       ##[section]Starting: Rodar Testes Unitários
+# MyApp-CI
+   main (03/10/26 00:00)  Jane Doe  Merge pull request #42 from feature/login         9m 1s
+     Build                                                                           5m 54s
+       Build and test                                                                5m 51s
+         Run unit tests                                                              1m 27s
+──────────────────────────────────────────── ◇ ─────────────────────────────────────────────
+
+##[section]Starting: Run unit tests
 ```
 
-- **Runs**: one line per run with its result, commit message, branch and commit. The per-stage
-  icons on the right are filled in as each run's timeline arrives.
-- **Stages/jobs**: stages as headers with their jobs below, with durations. `<CR>` on a stage
-  opens its first job.
-- **Steps**: the tasks of a job with durations. Steps that have not started yet are dimmed.
+The header lines are links: `<CR>` on the pipeline name opens the runs list, and on the run,
+stage or job line it opens the run tree with that line expanded into view and the cursor on it.
+
+- **Runs**: one line per run with its result, branch, queue date, author and title (the commit
+  message, trimmed to fit the window and re-trimmed when the window is resized). The per-stage icons on the right are filled in as each
+  run's timeline arrives.
+- **Run tree**: stages > jobs > steps, all loaded at once and collapsed to the stage level.
+  `<CR>` or `<Space>` on a stage or job expands or collapses the level below (`▸` collapsed,
+  `▾` expanded). On a step it opens the log. Steps that have not started yet are dimmed.
+  Collapsing a stage remembers which of its jobs were open.
 - **Log**: the step's log, with `##[error]`, `##[warning]` and `##[section]` lines highlighted.
 
-Status icons: `✓` succeeded, `!` partially succeeded, `✗` failed, `○` canceled/skipped,
-`◷` running, `·` pending.
+Run lines are colored per section through highlight groups you can override:
+`WorkhorseBuildBranch` and `WorkhorseBuildDate` (stronger), and `WorkhorseBuildAuthor` and
+`WorkhorseBuildMessage` (muted). The rule that closes each header uses `WorkhorseBuildSeparator`.
+
+Status icons use Nerd Font circles, so a [Nerd Font](https://www.nerdfonts.com/) is required.
+Success and warning are outlined, failure is solid: `` succeeded (`nf-fa-check_circle_o`),
+`󰗖` partially succeeded (`nf-md-alert_circle_outline`), `` failed (`nf-fa-times_circle`), `` canceled/skipped
+(`nf-fa-minus_circle`), `` running (`nf-fa-play_circle`), `` pending (`nf-fa-circle_o`).
 
 While a run is in progress its views refresh every `builds.refresh_interval` ms. Logs only
 fetch new lines, and they follow the tail when the cursor is on the last line. Polling pauses
@@ -375,8 +392,8 @@ while the buffer is hidden and stops when the run (or step) completes.
 
 | Key | Action |
 |-----|--------|
-| `<CR>` | Open the run / job / step under the cursor |
-| `-` or `<BS>` | Go back to the previous level |
+| `<CR>` or `<Space>` | Open the run / step log under the cursor, toggle a stage or job; on a header line, jump back to that level |
+| `-`, `<BS>` or `<Esc>` | Go back to the previous level |
 | `<leader>R` | Refresh |
 | `gw` | Open the run, job or step in the browser |
 | `q` | Close the buffer |

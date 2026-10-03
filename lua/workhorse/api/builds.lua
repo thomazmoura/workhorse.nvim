@@ -187,6 +187,19 @@ function M.find(records, id)
   end
 end
 
+-- Top-level ancestor of a record (its stage, or top-level phase in classic pipelines)
+function M.stage_of(records, record)
+  local current = record
+  while current and current.parentId do
+    local parent = M.find(records, current.parentId)
+    if not parent then
+      break
+    end
+    current = parent
+  end
+  return current
+end
+
 -- Formatting helpers -------------------------------------------------------
 
 -- Parse an ISO-8601 UTC timestamp into seconds. The value is interpreted as
@@ -213,6 +226,18 @@ local function utc_now()
   return os.time(now)
 end
 
+-- Local date of a timestamp, e.g. "03/10/26 00:06"
+function M.format_date(iso)
+  local t = parse_time(iso)
+  if not t then
+    return ""
+  end
+  -- parse_time and utc_now both read UTC fields as local time, so the difference
+  -- between the real clock and utc_now is the local UTC offset
+  local offset = os.time() - utc_now()
+  return os.date("%d/%m/%y %H:%M", math.floor(t + offset))
+end
+
 -- Duration between two timestamps; a missing finish means "still running"
 function M.format_duration(start_iso, finish_iso)
   local start = parse_time(start_iso)
@@ -236,16 +261,25 @@ function M.format_duration(start_iso, finish_iso)
   return s .. "s"
 end
 
+-- Nerd Font circle icons: outlined for success/warning, solid for failure.
+-- Font Awesome 4 has no outlined exclamation circle, so the warning uses Material Design
+local CHECK = "" -- nf-fa-check_circle_o
+local WARN = "󰗖" -- nf-md-alert_circle_outline
+local FAIL = "" -- nf-fa-times_circle
+local SKIP = "" -- nf-fa-minus_circle
+local RUNNING = "" -- nf-fa-play_circle
+local PENDING = "" -- nf-fa-circle_o
+
 local icons = {
-  succeeded = { "✓", "WorkhorseBuildSucceeded" },
-  partiallySucceeded = { "!", "WorkhorseBuildWarning" },
-  succeededWithIssues = { "!", "WorkhorseBuildWarning" },
-  failed = { "✗", "WorkhorseBuildFailed" },
-  canceled = { "○", "WorkhorseBuildCanceled" },
-  abandoned = { "○", "WorkhorseBuildCanceled" },
-  skipped = { "○", "WorkhorseBuildCanceled" },
-  running = { "◷", "WorkhorseBuildRunning" },
-  pending = { "·", "WorkhorseBuildPending" },
+  succeeded = { CHECK, "WorkhorseBuildSucceeded" },
+  partiallySucceeded = { WARN, "WorkhorseBuildWarning" },
+  succeededWithIssues = { WARN, "WorkhorseBuildWarning" },
+  failed = { FAIL, "WorkhorseBuildFailed" },
+  canceled = { SKIP, "WorkhorseBuildCanceled" },
+  abandoned = { SKIP, "WorkhorseBuildCanceled" },
+  skipped = { SKIP, "WorkhorseBuildCanceled" },
+  running = { RUNNING, "WorkhorseBuildRunning" },
+  pending = { PENDING, "WorkhorseBuildPending" },
 }
 
 -- Icon and highlight for a run (status/result) or timeline record (state/result)

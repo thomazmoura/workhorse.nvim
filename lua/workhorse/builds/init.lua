@@ -37,13 +37,39 @@ local function windows_of(bufnr)
   return vim.fn.win_findbuf(bufnr)
 end
 
+-- Width available for a view's lines (used to trim titles and size the separator).
+-- Remembered on the view so a resize only re-renders when the width really changed.
+local function view_width(bufnr)
+  local win = windows_of(bufnr)[1]
+  local width = win and vim.api.nvim_win_get_width(win) or vim.o.columns
+  if views[bufnr] then
+    views[bufnr].width = width
+  end
+  return width
+end
+
+-- Put the cursor of the current window on the line whose item has `key`
+local function focus_key(bufnr, key)
+  local state = views[bufnr]
+  for lnum, item in pairs(state and state.items or {}) do
+    if item.kind ~= "nav" and item_key(item) == key then
+      vim.api.nvim_win_set_cursor(0, { lnum, 0 })
+      return true
+    end
+  end
+  return false
+end
+
 local function apply_view(bufnr, view)
   local state = views[bufnr]
+  -- A pending focus (set when navigating here) wins over the remembered position
+  local focus = state.focus_key
+  state.focus_key = nil
   -- Remember what each window showing this buffer was on
   local cursors = {}
   for _, win in ipairs(windows_of(bufnr)) do
     local lnum = vim.api.nvim_win_get_cursor(win)[1]
-    cursors[win] = { lnum = lnum, key = item_key(state.items and state.items[lnum]) }
+    cursors[win] = { lnum = lnum, key = focus or item_key(state.items and state.items[lnum]) }
   end
 
   render.apply(bufnr, view)
@@ -53,16 +79,18 @@ local function apply_view(bufnr, view)
     local target = pos.lnum
     if pos.key then
       for lnum, item in pairs(view.items) do
-        if item_key(item) == pos.key then
+        if item.kind ~= "nav" and item_key(item) == pos.key then
           target = lnum
           break
         end
       end
     elseif not state.cursor_placed then
-      -- First render: start on the first selectable line
+      -- First render: start on the first line below the header
       target = math.huge
-      for lnum in pairs(view.items) do
-        target = math.min(target, lnum)
+      for lnum, item in pairs(view.items) do
+        if item.kind ~= "nav" then
+          target = math.min(target, lnum)
+        end
       end
       if target == math.huge then
         target = 1
@@ -150,34 +178,57 @@ end
 
 -- Runs view -----------------------------------------------------------------
 
--- Fill stage pips for each run line, at most `max_concurrent` timelines in flight.
--- Completed runs come from the cache, so re-renders only hit the API for running ones.
-local function load_pips(bufnr, view)
-  local queue = {}
-  for lnum, item in pairs(view.items) do
-    if item.kind == "run" then
-      table.insert(queue, { lnum = lnum, run = item.run })
+-- Line of a run in the rendered runs view
+local function run_line(state, run_id)
+  for lnum, item in pairs(state.items or {}) do
+    if item.kind == "run" and item.run.id == run_id then
+      return lnum
     end
   end
-  table.sort(queue, function(a, b)
-    return a.lnum < b.lnum
-  end)
+end
+
+-- Render the runs list from ctx.runs and restore the stage pips already known
+local function render_runs(bufnr)
+  local state = views[bufnr]
+  local ctx = state.ctx
+  local name = ctx.definition_name or ("Pipeline " .. ctx.definition_id)
+  apply_view(bufnr, render.render_runs(name, ctx.runs, view_width(bufnr)))
+  for run_id, chunks in pairs(ctx.pips) do
+    local lnum = run_line(state, run_id)
+    if lnum then
+      render.set_pips(bufnr, lnum, chunks)
+    end
+  end
+end
+
+-- Fill stage pips for each run, at most `max_concurrent` timelines in flight.
+-- Pips are kept per run id in ctx.pips, so re-renders (e.g. on resize) restore them.
+-- Completed runs come from the cache, so reloads only hit the API for running ones.
+local function load_pips(bufnr)
+  local ctx = views[bufnr].ctx
+  local runs = ctx.runs
+  local queue = vim.list_slice(runs)
 
   local in_flight = 0
   local function next_request()
     while in_flight < config.get().builds.max_concurrent and #queue > 0 do
-      local job = table.remove(queue, 1)
+      local run = table.remove(queue, 1)
       in_flight = in_flight + 1
-      fetch_timeline(job.run, function(records)
+      fetch_timeline(run, function(records)
         in_flight = in_flight - 1
         local state = views[bufnr]
-        -- Drop results for a view that has since been re-rendered with other runs
-        if state and state.items == view.items and records then
-          render.set_pips(bufnr, job.lnum, render.stage_pips(records))
+        -- Stop once a newer runs list replaced the one this queue was built from
+        if not state or state.ctx.runs ~= runs then
+          return
         end
-        if state and state.items == view.items then
-          next_request()
+        if records then
+          ctx.pips[run.id] = render.stage_pips(records)
+          local lnum = run_line(state, run.id)
+          if lnum then
+            render.set_pips(bufnr, lnum, ctx.pips[run.id])
+          end
         end
+        next_request()
       end, { silent = true })
     end
   end
@@ -201,12 +252,13 @@ loaders.runs = function(bufnr, opts)
     if not ctx.definition_name and runs[1] then
       ctx.definition_name = runs[1].definition_name
     end
-    local view = render.render_runs(ctx.definition_name or ("Pipeline " .. ctx.definition_id), runs)
     if not previous then
       require("workhorse.session").save_last_build(ctx.definition_id, ctx.definition_name)
     end
-    apply_view(bufnr, view)
-    load_pips(bufnr, view)
+    ctx.runs = runs
+    ctx.pips = ctx.pips or {}
+    render_runs(bufnr)
+    load_pips(bufnr)
 
     local any_running = false
     for _, run in ipairs(runs) do
@@ -261,24 +313,50 @@ local function load_run_and_timeline(bufnr, opts, on_loaded)
   end
 end
 
+-- Re-render the run tree from the timeline already in ctx (no request)
+local function render_tree(bufnr)
+  local ctx = views[bufnr].ctx
+  apply_view(bufnr, render.render_stages(ctx.run, ctx.records, view_width(bufnr), ctx.expanded))
+end
+
+-- Expand every ancestor of the record about to be focused, so it is visible
+local function reveal(ctx, records, id)
+  local record = id and builds_api.find(records, id)
+  while record and record.parentId do
+    ctx.expanded[record.parentId] = true
+    record = builds_api.find(records, record.parentId)
+  end
+end
+
 loaders.stages = function(bufnr, opts)
-  load_run_and_timeline(bufnr, opts, function(run, records)
-    apply_view(bufnr, render.render_stages(run, records))
+  load_run_and_timeline(bufnr, opts, function(_, records)
+    local state = views[bufnr]
+    state.ctx.records = records
+    reveal(state.ctx, records, state.focus_key)
+    render_tree(bufnr)
   end)
 end
 
-loaders.steps = function(bufnr, opts)
-  load_run_and_timeline(bufnr, opts, function(run, records)
-    local ctx = views[bufnr].ctx
-    ctx.job = builds_api.find(records, ctx.job.id) or ctx.job
-    apply_view(bufnr, render.render_steps(run, ctx.job, builds_api.steps_of_job(records, ctx.job)))
-  end)
+-- Expand or collapse the level below a stage/job line
+local function toggle(bufnr, item)
+  local ctx = views[bufnr].ctx
+  if not item.has_children or not ctx.records then
+    return
+  end
+  ctx.expanded[item.record.id] = not ctx.expanded[item.record.id] or nil
+  render_tree(bufnr)
 end
 
 -- Log view ------------------------------------------------------------------
 
+local function log_header(bufnr)
+  local ctx = views[bufnr].ctx
+  return render.render_log_header(ctx.run, ctx.stage or ctx.job, ctx.job, ctx.step, view_width(bufnr))
+end
+
 -- Fetch only the lines past what is already shown, following the tail when the
--- cursor sits on the last line
+-- cursor sits on the last line. The header (run > stage > job > step) is drawn
+-- with the first batch and refreshed in place afterwards.
 local function append_log(bufnr, opts, done)
   local state = views[bufnr]
   local ctx = state.ctx
@@ -301,12 +379,20 @@ local function append_log(bufnr, opts, done)
       following[win] = vim.api.nvim_win_get_cursor(win)[1] >= last
     end
 
+    local header = log_header(bufnr)
     if #lines > 0 then
-      local view = render.render_log(lines)
       if ctx.loaded == 0 then
-        render.apply(bufnr, view)
+        -- render_log appends into the header view, so measure the header first
+        local header_len = #header.lines
+        render.apply(bufnr, render.render_log(lines, header))
+        state.items = header.items -- header links; log lines carry no items
+        -- Start on the first log line, below the header
+        for _, win in ipairs(windows_of(bufnr)) do
+          vim.api.nvim_win_set_cursor(win, { header_len + 1, 0 })
+        end
       else
-        render.append(bufnr, view)
+        render.replace_top(bufnr, header)
+        render.append(bufnr, render.render_log(lines))
       end
       ctx.loaded = ctx.loaded + #lines
       local new_last = vim.api.nvim_buf_line_count(bufnr)
@@ -315,8 +401,11 @@ local function append_log(bufnr, opts, done)
           vim.api.nvim_win_set_cursor(win, { new_last, 0 })
         end
       end
-    elseif ctx.loaded == 0 and done then
-      render.apply(bufnr, { lines = { "(empty log)" }, hls = {}, virt = {}, items = {} })
+    elseif ctx.loaded == 0 then
+      render.apply(bufnr, render.render_log({ done and "(empty log)" or "Waiting for log..." }, header))
+      state.items = header.items
+    else
+      render.replace_top(bufnr, header)
     end
     set_polling(bufnr, not done)
   end, { start_line = ctx.loaded + 1, silent = opts and opts.polling })
@@ -343,6 +432,8 @@ loaders.log = function(bufnr, opts)
     end
     local step = builds_api.find(records, ctx.step.id) or ctx.step
     ctx.step = step
+    ctx.job = builds_api.find(records, ctx.job.id) or ctx.job
+    ctx.stage = builds_api.stage_of(records, ctx.job)
     ctx.step_done = builds_api.is_completed(step.state)
     if step.log then
       ctx.log_id = step.log.id
@@ -366,20 +457,25 @@ local function select_item(bufnr)
     return
   end
   local ctx = state.ctx
-  if item.kind == "run" then
-    M.open_run(item.run)
-  elseif item.kind == "stage" then
-    if item.first_job then
-      M.open_job(ctx.run, item.first_job)
+  if item.kind == "nav" then
+    -- Header line: jump back to the buffer of that level (no-op on the current one)
+    if item.target == state.kind then
+      return
+    elseif item.target == "runs" then
+      M.open_runs(ctx.run.definition_id, ctx.run.definition_name, ctx.run.id)
+    elseif item.target == "stages" then
+      M.open_run(ctx.run, item.record and item.record.id)
     end
-  elseif item.kind == "job" then
-    M.open_job(ctx.run, item.record)
+  elseif item.kind == "run" then
+    M.open_run(item.run)
+  elseif item.kind == "stage" or item.kind == "job" then
+    toggle(bufnr, item)
   elseif item.kind == "step" then
     if not item.record.log then
       vim.notify("Workhorse: No log for this step yet", vim.log.levels.INFO)
       return
     end
-    M.open_log(ctx.run, ctx.job, item.record)
+    M.open_log(ctx.run, item.job, item.record)
   end
 end
 
@@ -390,11 +486,9 @@ local function go_parent(bufnr)
   end
   local ctx = state.ctx
   if state.kind == "stages" then
-    M.open_runs(ctx.run.definition_id, ctx.run.definition_name)
-  elseif state.kind == "steps" then
-    M.open_run(ctx.run)
+    M.open_runs(ctx.run.definition_id, ctx.run.definition_name, ctx.run.id)
   elseif state.kind == "log" then
-    M.open_job(ctx.run, ctx.job)
+    M.open_run(ctx.run, ctx.step.id)
   end
 end
 
@@ -402,7 +496,7 @@ local function browser_url(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
   local item = current_item(bufnr)
-  if item and item.kind == "run" then
+  if item and item.run then
     return item.run.url
   end
   local run_url = ctx.run and ctx.run.url
@@ -421,13 +515,20 @@ end
 
 local function setup_buffer(bufnr)
   local opts = { buffer = bufnr, silent = true }
+  -- Enter and Space both activate: toggle a stage/job, open a step's log, follow a header link
   vim.keymap.set("n", "<CR>", function()
+    select_item(bufnr)
+  end, opts)
+  vim.keymap.set("n", "<Space>", function()
     select_item(bufnr)
   end, opts)
   vim.keymap.set("n", "-", function()
     go_parent(bufnr)
   end, opts)
   vim.keymap.set("n", "<BS>", function()
+    go_parent(bufnr)
+  end, opts)
+  vim.keymap.set("n", "<Esc>", function()
     go_parent(bufnr)
   end, opts)
   vim.keymap.set("n", "<leader>R", function()
@@ -455,10 +556,15 @@ local function setup_buffer(bufnr)
 end
 
 -- Open (or switch to) the buffer for a view and (re)load it
-local function open_view(key, name, kind, ctx)
+-- `focus` is the id of the record/run to put the cursor on
+local function open_view(key, name, kind, ctx, focus)
   local existing = buffers_by_key[key]
   if existing and vim.api.nvim_buf_is_valid(existing) then
     vim.api.nvim_set_current_buf(existing)
+    if focus then
+      focus_key(existing, focus)
+      views[existing].focus_key = focus
+    end
     loaders[kind](existing)
     return existing
   end
@@ -472,7 +578,7 @@ local function open_view(key, name, kind, ctx)
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading..." })
   vim.bo[bufnr].modifiable = false
 
-  views[bufnr] = { key = key, kind = kind, ctx = ctx }
+  views[bufnr] = { key = key, kind = kind, ctx = ctx, focus_key = focus }
   buffers_by_key[key] = bufnr
   setup_buffer(bufnr)
 
@@ -492,6 +598,38 @@ local function check_config()
   return true
 end
 
+-- Resize ------------------------------------------------------------------
+
+-- Redraw a view from the data it already holds (no request), so trimmed titles
+-- and the separator follow the new width
+local function rerender(bufnr)
+  local state = views[bufnr]
+  if not state.items then
+    return -- still loading; the first render will use the current width
+  end
+  if state.kind == "runs" and state.ctx.runs then
+    render_runs(bufnr)
+  elseif state.kind == "stages" and state.ctx.records then
+    render_tree(bufnr)
+  elseif state.kind == "log" then
+    render.replace_top(bufnr, log_header(bufnr))
+  end
+end
+
+vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
+  group = vim.api.nvim_create_augroup("workhorse_builds_resize", { clear = true }),
+  callback = function()
+    for bufnr, state in pairs(views) do
+      if vim.api.nvim_buf_is_valid(bufnr) and #windows_of(bufnr) > 0 then
+        local previous = state.width
+        if view_width(bufnr) ~= previous then
+          rerender(bufnr)
+        end
+      end
+    end
+  end,
+})
+
 -- Public API ----------------------------------------------------------------
 
 -- Fuzzy-pick a pipeline definition, then open its runs
@@ -502,7 +640,7 @@ function M.pick()
   require("workhorse.telescope.builds").pick()
 end
 
-function M.open_runs(definition_id, definition_name)
+function M.open_runs(definition_id, definition_name, focus_run_id)
   if not check_config() then
     return
   end
@@ -511,16 +649,11 @@ function M.open_runs(definition_id, definition_name)
   return open_view("runs:" .. definition_id, "builds|" .. buf_label, "runs", {
     definition_id = definition_id,
     definition_name = definition_name,
-  })
+  }, focus_run_id)
 end
 
-function M.open_run(run)
-  return open_view("stages:" .. run.id, "build|" .. run.id, "stages", { run = run })
-end
-
-function M.open_job(run, job)
-  return open_view("steps:" .. run.id .. ":" .. job.id, "build|" .. run.id .. "|" .. job.name:gsub("[%s/\\|]+", "_"),
-    "steps", { run = run, job = job })
+function M.open_run(run, focus_id)
+  return open_view("stages:" .. run.id, "build|" .. run.id, "stages", { run = run, expanded = {} }, focus_id)
 end
 
 function M.open_log(run, job, step)
