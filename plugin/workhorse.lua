@@ -15,6 +15,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     else
       require("workhorse").pick_query()
     end
+  elseif cmd == "builds" and args[2] == "resume" or cmd == "resume-build" then
+    require("workhorse").resume_build()
   elseif cmd == "builds" then
     if args[2] then
       require("workhorse").open_builds(args[2])
@@ -38,6 +40,7 @@ Workhorse commands:
   :Workhorse query [id]  - Open saved query (or picker if no id)
   :Workhorse resume      - Reopen the last query
   :Workhorse builds [id] - Browse pipeline runs (or picker if no id)
+  :Workhorse resume-build - Reopen the last pipeline (also :Workhorse builds resume)
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
   :Workhorse state       - Change state of item under cursor
@@ -51,7 +54,12 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "apply", "builds", "query", "refresh", "resume", "state", "test" })
+      end, { "apply", "builds", "query", "refresh", "resume", "resume-build", "state", "test" })
+    end
+    if #parts == 3 and parts[2] == "builds" then
+      return vim.tbl_filter(function(item)
+        return item:find(arg_lead, 1, true) == 1
+      end, { "resume" })
     end
     return {}
   end,
@@ -115,3 +123,11 @@ vim.api.nvim_create_autocmd("ColorScheme", {
 vim.keymap.set("n", "<leader>wQ", function()
   require("workhorse").resume()
 end, { silent = true, desc = "Workhorse: Resume last query" })
+
+vim.keymap.set("n", "<leader>wb", function()
+  require("workhorse").pick_build()
+end, { silent = true, desc = "Workhorse: Pick pipeline" })
+
+vim.keymap.set("n", "<leader>wB", function()
+  require("workhorse").resume_build()
+end, { silent = true, desc = "Workhorse: Resume last pipeline" })

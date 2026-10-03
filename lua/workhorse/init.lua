@@ -159,6 +159,11 @@ function M.open_builds(definition_id, definition_name)
   require("workhorse.builds").open_runs(definition_id, definition_name)
 end
 
+-- Reopen the runs of the last opened pipeline
+function M.resume_build()
+  require("workhorse.builds").resume()
+end
+
 -- Refresh current buffer from server
 -- opts.focus_id: work item to place the cursor on after the re-render
 -- opts.focus_title: title to land on when the item had no id yet (just created)

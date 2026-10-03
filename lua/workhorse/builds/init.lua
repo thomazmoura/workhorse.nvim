@@ -202,6 +202,9 @@ loaders.runs = function(bufnr, opts)
       ctx.definition_name = runs[1].definition_name
     end
     local view = render.render_runs(ctx.definition_name or ("Pipeline " .. ctx.definition_id), runs)
+    if not previous then
+      require("workhorse.session").save_last_build(ctx.definition_id, ctx.definition_name)
+    end
     apply_view(bufnr, view)
     load_pips(bufnr, view)
 
@@ -523,6 +526,16 @@ end
 function M.open_log(run, job, step)
   return open_view("log:" .. run.id .. ":" .. step.id, "build|" .. run.id .. "|log|" .. step.name:gsub("[%s/\\|]+", "_"),
     "log", { run = run, job = job, step = step, log_id = step.log.id, loaded = 0 })
+end
+
+-- Reopen the runs of the last opened pipeline, skipping the picker
+function M.resume()
+  local last = require("workhorse.session").get_last_build()
+  if not last then
+    vim.notify("Workhorse: No previous pipeline to resume", vim.log.levels.WARN)
+    return
+  end
+  return M.open_runs(last.id, last.name)
 end
 
 -- Reload the build view in `bufnr` (default: current buffer)

@@ -209,6 +209,7 @@ In this mode:
 | `:Workhorse state` | Change state of work item under cursor |
 | `:Workhorse builds` | Open Telescope picker to select a pipeline and browse its runs |
 | `:Workhorse builds <id>` | Browse the runs of a pipeline (build definition) by ID |
+| `:Workhorse resume-build` | Reopen the runs of the last opened pipeline (alias: `:Workhorse builds resume`) |
 
 ### Buffer Keymaps
 
@@ -256,7 +257,6 @@ The cursor follows the work item you were on, not the line number:
 ```lua
 vim.keymap.set("n", "<leader>wq", require("workhorse").pick_query, { desc = "Workhorse: Pick query" })
 vim.keymap.set("n", "<leader>wr", require("workhorse").refresh, { desc = "Workhorse: Refresh" })
-vim.keymap.set("n", "<leader>wb", require("workhorse").pick_build, { desc = "Workhorse: Pick pipeline" })
 ```
 
 ## Buffer Format
@@ -380,6 +380,10 @@ while the buffer is hidden and stops when the run (or step) completes.
 | `<leader>R` | Refresh |
 | `gw` | Open the run, job or step in the browser |
 | `q` | Close the buffer |
+
+Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`)
+and `<leader>wB` skips the picker and reopens the last opened pipeline
+(`:Workhorse resume-build`).
 
 ## Lualine Integration
 
