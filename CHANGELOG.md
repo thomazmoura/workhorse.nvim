@@ -2,6 +2,19 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [4685137] - 2026-10-03
+
+### Added
+- Live watching for build views: every `builds.live_interval` ms (5s by default) the run tree and log views open the log of the latest step that has one, so a finished step hands over to the next on the following refresh. Stops once the run completes
+- Toggle it with `<leader>wu` (in build buffers), `:Workhorse live`, or `<CR>` on the right-aligned `Live watching enabled/disabled` header line (`WorkhorseBuildLive`)
+- Logs opened while live watching start with the cursor on the last line and keep following the tail
+
+### Changed
+- The log header is pinned in its own split above the log, so it stays visible while scrolling; its links and keymaps work from there. The log view no longer shows the `── ◇ ──` separator
+
+### Fixed
+- Opening logs of two steps with the same name (e.g. `Finalize Job` in different jobs) no longer fails with `E95: Buffer with this name already exists`
+
 ## [bc9fecf] - 2026-10-03
 
 ### Changed
