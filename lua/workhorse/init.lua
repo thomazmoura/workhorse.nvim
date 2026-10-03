@@ -164,6 +164,16 @@ function M.resume_build()
   require("workhorse.builds").resume()
 end
 
+-- Open the "Run new build" form of a pipeline (default: the one of the current build buffer)
+function M.new_build(definition_id)
+  require("workhorse.builds").new_run(definition_id)
+end
+
+-- Cancel the running build of the current build buffer
+function M.cancel_build()
+  require("workhorse.builds").cancel()
+end
+
 -- Toggle live watching of build logs (follows the latest step's log)
 function M.toggle_build_live()
   require("workhorse.builds").toggle_live()

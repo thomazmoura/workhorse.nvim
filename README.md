@@ -15,7 +15,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Side panels** - Edit work item description and tags in dedicated buffers
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
-- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress
+- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters) and cancel running ones
 
 ## Requirements
 
@@ -171,8 +171,15 @@ require("workhorse").setup({
     top = 30,                -- number of runs listed per pipeline
     refresh_interval = 5000, -- auto-refresh interval (ms) while a run is in progress
     live_interval = 5000,    -- refresh interval (ms) while live watching
+    live_on_running = true,  -- enable live watching when opening a running build
     strip_timestamps = true, -- hide the ISO timestamp prefix on log lines
     max_concurrent = 4,      -- parallel requests when filling the per-stage icons
+    run_form = {             -- "Run new build" form
+      layout = "float",      -- "float" (centered popup) or "full" (in place of the current buffer)
+      width = 0.8,           -- fraction of the editor (<= 1) or columns
+      height = 0.8,          -- fraction of the editor (<= 1) or lines
+      border = "rounded",
+    },
   },
 })
 ```
@@ -212,6 +219,8 @@ In this mode:
 | `:Workhorse builds <id>` | Browse the runs of a pipeline (build definition) by ID |
 | `:Workhorse live` | Toggle live watching of build logs (see "Pipeline Builds") |
 | `:Workhorse resume-build` | Reopen the runs of the last opened pipeline (alias: `:Workhorse builds resume`) |
+| `:Workhorse builds new [id]` | Run a new build of a pipeline (default: the pipeline of the current build buffer) |
+| `:Workhorse builds cancel` | Cancel the running build of the current build buffer |
 
 ### Buffer Keymaps
 
@@ -408,14 +417,61 @@ it, as do `<leader>wu` (in build buffers) and `:Workhorse live`. The setting is 
 carries over to every build buffer. While it is enabled the views jump to the latest log on
 each refresh, so turn it off to browse other steps.
 
+Opening a running build from the runs list (or the run you just queued) enables live watching
+and jumps to the latest log, even if you turned it off earlier. Going back up from a log does
+not, so turning it off to browse a run's steps sticks until you open a running build again.
+Set `builds.live_on_running = false` to keep it off until you toggle it.
+
 | Key | Action |
 |-----|--------|
 | `<CR>` or `<Space>` | Open the run / step log under the cursor, toggle a stage or job; on a header line, jump back to that level |
 | `-`, `<BS>` or `<Esc>` | Go back to the previous level |
 | `<leader>R` | Refresh |
 | `<leader>wu` | Toggle live watching |
+| `<leader>wn` | Run a new build of the pipeline (see "Running a new build") |
+| `<leader>wx` | Cancel the running build (the run under the cursor on the runs list), after confirming |
 | `gw` | Open the run, job or step in the browser |
 | `q` | Close the buffer |
+
+### Running a new build
+
+The runs list has a `Run new build` line under the pipeline name. `<CR>` on it, `<leader>wn` in
+any build buffer, or `:Workhorse builds new [id]` opens a form with everything that can be set
+when queuing a run:
+
+```
+# Run new build: CI-CD - Application pools
+Branch: master                                                                  Infra
+
+## Parameters
+Environment name
+environment_name: Homologação          string · Intranet | DMZ Corp | Homologação
+Application pools, comma separated
+application_pools:                     string  required
+
+## Variables
+system.debug: false
+```
+
+- **Branch**: starts on the repository's default branch.
+- **Parameters**: the runtime parameters declared in the pipeline's YAML file (`parameters:`),
+  with their defaults. The display name sits above each line, and the type, allowed values
+  and `required` (no default) on the right. `object` parameters are edited as one line of JSON.
+  Parameters are read from the YAML file on the default branch; after changing the branch,
+  `<leader>R` reloads them from that branch, keeping the values you changed.
+- **Variables**: the pipeline variables marked "settable at queue time".
+
+`<Tab>`/`<S-Tab>` move between the values, and `<C-x><C-o>` completes branches, allowed values
+and booleans. `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
+tree. Values are checked first (required, allowed values, booleans and numbers), and only
+values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form.
+Runtime parameters are only read from Azure Repos Git repositories.
+
+### Cancelling a build
+
+The run tree and log headers of a running build show a `Cancel build` line. `<CR>` on it,
+`<leader>wx` (on the runs list: for the run under the cursor) or `:Workhorse builds cancel`
+cancels the run after a confirmation. The line shows `Cancelling…` until the run stops.
 
 Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`)
 and `<leader>wB` skips the picker and reopens the last opened pipeline

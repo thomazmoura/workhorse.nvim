@@ -90,6 +90,117 @@ function M.get_build(build_id, callback, opts)
   })
 end
 
+-- Get a definition with what queuing a run needs: its repository (id, type,
+-- default branch), YAML file (nil for classic pipelines) and the variables that
+-- can be set at queue time (allowOverride), as { name, value, secret }
+function M.get_definition(definition_id, callback)
+  client.get(project_path("definitions/" .. definition_id .. "?api-version=7.1"), {
+    on_success = function(data)
+      data = strip_nulls(data or {})
+      local repo = data.repository or {}
+      local process = data.process or {}
+      local variables = {}
+      for name, v in pairs(type(data.variables) == "table" and data.variables or {}) do
+        strip_nulls(v)
+        if v.allowOverride then
+          table.insert(variables, { name = name, value = v.value or "", secret = v.isSecret == true })
+        end
+      end
+      table.sort(variables, function(a, b)
+        return a.name:lower() < b.name:lower()
+      end)
+      callback({
+        id = data.id,
+        name = data.name,
+        repository = { id = repo.id, type = repo.type, name = repo.name, default_branch = repo.defaultBranch },
+        yaml_file = process.yamlFilename ~= vim.NIL and process.yamlFilename or nil,
+        variables = variables,
+      })
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Percent-encode a query string value (slashes kept, as in file paths)
+local function url_encode(text)
+  return (text:gsub("[^%w%-%._~/]", function(c)
+    return string.format("%%%02X", c:byte())
+  end))
+end
+
+-- Content of a file of an Azure Repos Git repository at a branch
+function M.get_file(repository_id, path, branch, callback)
+  local url = "/" .. config.get().project .. "/_apis/git/repositories/" .. repository_id .. "/items?path="
+    .. url_encode("/" .. path:gsub("^/", ""))
+    .. "&versionDescriptor.version=" .. url_encode((branch:gsub("^refs/heads/", "")))
+    .. "&versionDescriptor.versionType=branch&includeContent=true&api-version=7.1"
+  client.get(url, {
+    silent = true,
+    on_success = function(data)
+      callback(data and data.content or "")
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Branch names (without refs/heads/) of an Azure Repos Git repository
+function M.list_branches(repository_id, callback)
+  client.get("/" .. config.get().project .. "/_apis/git/repositories/" .. repository_id
+    .. "/refs?filter=heads/&api-version=7.1", {
+    silent = true,
+    on_success = function(data)
+      local branches = {}
+      for _, ref in ipairs(data and data.value or {}) do
+        table.insert(branches, (ref.name:gsub("^refs/heads/", "")))
+      end
+      callback(branches)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Queue a run of a definition. opts: { branch = "refs/heads/...", variables = { name = value },
+-- parameters = { name = value } } (parameters are the YAML runtime parameters)
+function M.queue_build(definition_id, opts, callback)
+  local body = { definition = { id = definition_id }, sourceBranch = opts.branch }
+  if opts.variables and next(opts.variables) then
+    -- The Build API takes queue-time variables as a JSON string
+    body.parameters = vim.json.encode(opts.variables)
+  end
+  if opts.parameters and next(opts.parameters) then
+    body.templateParameters = opts.parameters
+  end
+  client.post(project_path("builds?api-version=7.1"), body, {
+    on_success = function(data)
+      callback(data and map_run(data))
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Request cancellation of a running build; the run moves to "cancelling", then completes as canceled
+function M.cancel_build(build_id, callback)
+  client.request({
+    path = project_path("builds/" .. build_id .. "?api-version=7.1"),
+    method = "PATCH",
+    body = { status = "cancelling" },
+    on_success = function(data)
+      callback(data and map_run(data))
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Get the timeline (stages, phases, jobs, tasks) of a run as a flat record list
 function M.get_timeline(build_id, callback, opts)
   client.get(project_path("builds/" .. build_id .. "/timeline?api-version=7.1"), {

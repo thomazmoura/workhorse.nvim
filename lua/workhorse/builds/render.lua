@@ -145,11 +145,21 @@ local function add_header(view, definition_name, run, path, width, live)
     add_line(view, record_segments(record, i + 1, width), { kind = "nav", target = path_targets[i], record = record },
       duration_virt(record))
   end
+  -- The runs list offers queuing a new run; <CR> on the line opens the form
+  if not run then
+    add_line(view, { { "" } }, { kind = "nav", target = "new_run" }, { { " Run new build", "WorkhorseBuildRunning" } })
+  end
   -- Live watching status of a run, right-aligned on its own line; <CR> anywhere on it toggles it
   if run then
     local status = live and { " Live watching enabled", "WorkhorseBuildLive" }
       or { " Live watching disabled", "WorkhorseBuildMeta" }
     add_line(view, { { "" } }, { kind = "nav", target = "live" }, { status })
+    -- A running run offers cancelling it; <CR> on the line asks for confirmation
+    if run.status == "cancelling" then
+      add_line(view, { { "" } }, nil, { { " Cancelling…", "WorkhorseBuildMeta" } })
+    elseif not builds_api.is_completed(run.status) then
+      add_line(view, { { "" } }, { kind = "nav", target = "cancel" }, { { " Cancel build", "WorkhorseBuildFailed" } })
+    end
   end
 end
 

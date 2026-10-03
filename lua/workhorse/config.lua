@@ -119,8 +119,16 @@ local defaults = {
     top = 30, -- number of runs listed per pipeline
     refresh_interval = 5000, -- auto-refresh interval (ms) while a run is in progress
     live_interval = 5000, -- refresh interval (ms) while live watching (follows the latest step's log)
+    live_on_running = true, -- enable live watching when opening a running build (or a run just queued)
     strip_timestamps = true, -- hide the ISO timestamp prefix on log lines
     max_concurrent = 4, -- parallel timeline requests when filling stage icons
+    -- "Run new build" form: "float" (centered popup) or "full" (in place of the current buffer)
+    run_form = {
+      layout = "float",
+      width = 0.8, -- fraction of the editor (<= 1) or columns
+      height = 0.8, -- fraction of the editor (<= 1) or lines
+      border = "rounded",
+    },
   },
 
   -- Lualine integration settings

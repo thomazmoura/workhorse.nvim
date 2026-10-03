@@ -17,6 +17,10 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     end
   elseif cmd == "builds" and args[2] == "resume" or cmd == "resume-build" then
     require("workhorse").resume_build()
+  elseif cmd == "builds" and args[2] == "new" then
+    require("workhorse").new_build(args[3])
+  elseif cmd == "builds" and args[2] == "cancel" then
+    require("workhorse").cancel_build()
   elseif cmd == "builds" then
     if args[2] then
       require("workhorse").open_builds(args[2])
@@ -43,6 +47,8 @@ Workhorse commands:
   :Workhorse resume      - Reopen the last query
   :Workhorse builds [id] - Browse pipeline runs (or picker if no id)
   :Workhorse resume-build - Reopen the last pipeline (also :Workhorse builds resume)
+  :Workhorse builds new [id] - Run a new build of a pipeline (default: the current one)
+  :Workhorse builds cancel - Cancel the running build of the current build buffer
   :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
@@ -62,7 +68,7 @@ end, {
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "resume" })
+      end, { "cancel", "new", "resume" })
     end
     return {}
   end,
@@ -101,6 +107,10 @@ local function setup_highlights()
     WorkhorseBuildDate = { link = "Constant" },
     WorkhorseBuildAuthor = { link = "NonText" },
     WorkhorseBuildMessage = { link = "Comment" },
+    WorkhorseRunKey = { link = "Identifier" },
+    WorkhorseRunSection = { link = "Title" },
+    WorkhorseRunHint = { link = "Comment" },
+    WorkhorseRunRequired = { link = "DiagnosticWarn" },
     WorkhorseLogError = { link = "DiagnosticError" },
     WorkhorseLogWarning = { link = "DiagnosticWarn" },
     WorkhorseLogSection = { link = "Title" },

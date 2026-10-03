@@ -379,7 +379,10 @@ loaders.stages = function(bufnr, opts)
   load_run_and_timeline(bufnr, opts, function(_, records)
     local state = views[bufnr]
     state.ctx.records = records
-    if live and opts and opts.polling and follow_latest(bufnr, records) then
+    -- Opening a running build with live watching on jumps straight to its latest log
+    local follow_now = state.ctx.follow_once
+    state.ctx.follow_once = nil
+    if live and ((opts and opts.polling) or follow_now) and follow_latest(bufnr, records) then
       return
     end
     reveal(state.ctx, records, state.focus_key)
@@ -611,6 +614,10 @@ local function select_item(bufnr)
     -- Header line: jump back to the buffer of that level (no-op on the current one)
     if item.target == "live" then
       M.toggle_live()
+    elseif item.target == "cancel" then
+      M.cancel(bufnr)
+    elseif item.target == "new_run" then
+      M.new_run(nil, bufnr)
     elseif item.target == state.kind then
       return
     elseif item.target == "runs" then
@@ -619,7 +626,7 @@ local function select_item(bufnr)
       M.open_run(ctx.run, item.record and item.record.id)
     end
   elseif item.kind == "run" then
-    M.open_run(item.run)
+    M.open_run(item.run, nil, { watch = true })
   elseif item.kind == "stage" or item.kind == "job" then
     toggle(bufnr, item)
   elseif item.kind == "step" then
@@ -688,6 +695,12 @@ local function set_keymaps(target, bufnr)
     M.refresh(bufnr)
   end, opts)
   vim.keymap.set("n", "<leader>wu", M.toggle_live, opts)
+  vim.keymap.set("n", "<leader>wx", function()
+    M.cancel(bufnr)
+  end, opts)
+  vim.keymap.set("n", "<leader>wn", function()
+    M.new_run(nil, bufnr)
+  end, opts)
   vim.keymap.set("n", "gw", function()
     open_url(browser_url(bufnr))
   end, opts)
@@ -844,8 +857,21 @@ function M.open_runs(definition_id, definition_name, focus_run_id)
   }, focus_run_id)
 end
 
-function M.open_run(run, focus_id)
-  return open_view("stages:" .. run.id, "build|" .. run.id, "stages", { run = run, expanded = {} }, focus_id)
+-- opts.watch: enable live watching when the run is still going (builds.live_on_running).
+-- Set when a run is opened from the runs list or right after queuing it, never when
+-- navigating back up from a log, so turning live watching off there sticks.
+function M.open_run(run, focus_id, opts)
+  local watch = opts and opts.watch and config.get().builds.live_on_running
+    and not builds_api.is_completed(run.status)
+  if watch then
+    live = true
+    local existing = buffers_by_key["stages:" .. run.id]
+    if existing and views[existing] then
+      views[existing].ctx.follow_once = true
+    end
+  end
+  return open_view("stages:" .. run.id, "build|" .. run.id, "stages", { run = run, expanded = {}, follow_once = watch or nil },
+    focus_id)
 end
 
 function M.open_log(run, job, step)
@@ -902,6 +928,62 @@ function M.toggle_live()
       loaders[state.kind](bufnr, { polling = true })
     end
   end
+end
+
+-- Open the "Run new build" form of a pipeline; without an id, of the pipeline
+-- shown in build view `bufnr` (default: current buffer)
+function M.new_run(definition_id, bufnr)
+  if not check_config() then
+    return
+  end
+  if not definition_id then
+    local state = views[bufnr or vim.api.nvim_get_current_buf()]
+    local ctx = state and state.ctx
+    definition_id = ctx and (ctx.definition_id or (ctx.run and ctx.run.definition_id))
+    if not definition_id then
+      vim.notify("Workhorse: Not in a build buffer (use :Workhorse builds new <id>)", vim.log.levels.WARN)
+      return
+    end
+    local name = ctx.definition_name or (ctx.run and ctx.run.definition_name)
+    return require("workhorse.builds.new_run").open(definition_id, name)
+  end
+  require("workhorse.builds.new_run").open(definition_id)
+end
+
+-- Cancel the run of a build view (on the runs list: the run under the cursor), after confirming
+function M.cancel(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  if not state then
+    return
+  end
+  local item = current_item(bufnr)
+  local run = (item and item.run) or state.ctx.run
+  if not run then
+    vim.notify("Workhorse: No run under the cursor", vim.log.levels.WARN)
+    return
+  end
+  if builds_api.is_completed(run.status) or run.status == "cancelling" then
+    vim.notify("Workhorse: Run #" .. (run.build_number or run.id) .. " is not running", vim.log.levels.INFO)
+    return
+  end
+  local prompt = "Cancel run #" .. (run.build_number or run.id) .. " of " .. (run.definition_name or "this pipeline") .. "?"
+  if vim.fn.confirm(prompt, "&Cancel build\n&Keep running", 2) ~= 1 then
+    return
+  end
+  builds_api.cancel_build(run.id, function(updated, err)
+    if err then
+      vim.notify("Workhorse: Failed to cancel run: " .. err, vim.log.levels.ERROR)
+      return
+    end
+    vim.notify("Workhorse: Cancelling run #" .. (run.build_number or run.id), vim.log.levels.INFO)
+    if updated and views[bufnr] and views[bufnr].ctx.run and views[bufnr].ctx.run.id == updated.id then
+      views[bufnr].ctx.run = updated
+    end
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      M.refresh(bufnr)
+    end
+  end)
 end
 
 function M.is_build_buffer(bufnr)
