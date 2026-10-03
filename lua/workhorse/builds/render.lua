@@ -118,11 +118,9 @@ end
 -- View each header path level links back to: stage and job -> the run tree, step -> log
 local path_targets = { "stages", "stages", "log" }
 
--- Shared header: "# Definition", a rule, then the path from the run down to the
--- current level (path = { stage, job, step }, each one level deeper). Every header
--- line is a "nav" item linking back to the buffer of its level.
 -- Markview-style horizontal rule: "───── ◇ ─────" across the window, drawn as an
--- overlay on an empty line so it never ends up in yanks or searches
+-- overlay on an empty line so it never ends up in yanks or searches, then a blank
+-- line before the content. The log view has none: its header sits in its own window.
 local function add_separator(view, width)
   local side = math.max(math.floor((width - 3) / 2), 1)
   local lnum = add_line(view, { { "" } })
@@ -131,9 +129,13 @@ local function add_separator(view, width)
     { " ◇ ", "WorkhorseBuildSeparator" },
     { string.rep("─", width - 3 - side), "WorkhorseBuildSeparator" },
   }
+  add_line(view, { { "" } })
 end
 
-local function add_header(view, definition_name, run, path, width)
+-- Shared header: "# Definition", then the path from the run down to the current
+-- level (path = { stage, job, step }, each one level deeper). Every header line is
+-- a "nav" item linking back to the buffer of its level.
+local function add_header(view, definition_name, run, path, width, live)
   local title = "# " .. definition_name
   add_line(view, { { title, "WorkhorseBuildHeader" } }, { kind = "nav", target = "runs" })
   if run then
@@ -143,8 +145,12 @@ local function add_header(view, definition_name, run, path, width)
     add_line(view, record_segments(record, i + 1, width), { kind = "nav", target = path_targets[i], record = record },
       duration_virt(record))
   end
-  add_separator(view, width)
-  add_line(view, { { "" } })
+  -- Live watching status of a run, right-aligned on its own line; <CR> anywhere on it toggles it
+  if run then
+    local status = live and { " Live watching enabled", "WorkhorseBuildLive" }
+      or { " Live watching disabled", "WorkhorseBuildMeta" }
+    add_line(view, { { "" } }, { kind = "nav", target = "live" }, { status })
+  end
 end
 
 local function definition_of(run)
@@ -154,6 +160,7 @@ end
 function M.render_runs(definition_name, runs, width)
   local view = new_view()
   add_header(view, definition_name, nil, nil, width)
+  add_separator(view, width)
   for _, run in ipairs(runs) do
     add_line(view, run_segments(run, 1, width), { kind = "run", run = run })
   end
@@ -173,9 +180,10 @@ end
 
 -- Run tree: stages > jobs > steps. `expanded` is a set of record ids whose
 -- children are shown; everything starts collapsed to the stage level.
-function M.render_stages(run, records, width, expanded)
+function M.render_stages(run, records, width, expanded, live)
   local view = new_view()
-  add_header(view, definition_of(run), run, nil, width)
+  add_header(view, definition_of(run), run, nil, width, live)
+  add_separator(view, width)
   for _, stage in ipairs(builds_api.stages(records)) do
     local jobs = builds_api.jobs_of_stage(records, stage)
     local stage_open = expanded[stage.id]
@@ -200,10 +208,10 @@ function M.render_stages(run, records, width, expanded)
   return view
 end
 
--- Header of the log view; its separator line divides it from the log
-function M.render_log_header(run, stage, job, step, width)
+-- Header of the log view, pinned in its own window above the log
+function M.render_log_header(run, stage, job, step, width, live)
   local view = new_view()
-  add_header(view, definition_of(run), run, { stage, job, step }, width)
+  add_header(view, definition_of(run), run, { stage, job, step }, width, live)
   return view
 end
 
@@ -268,18 +276,6 @@ function M.append(bufnr, view)
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].modified = false
   apply_decorations(bufnr, view, first)
-end
-
--- Replace the first lines of the buffer with `view` (refreshes the log header in
--- place; the header keeps the same line count, so log lines never shift)
-function M.replace_top(bufnr, view)
-  local count = #view.lines
-  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, count)
-  vim.bo[bufnr].modifiable = true
-  vim.api.nvim_buf_set_lines(bufnr, 0, count, false, view.lines)
-  vim.bo[bufnr].modifiable = false
-  vim.bo[bufnr].modified = false
-  apply_decorations(bufnr, view)
 end
 
 -- Set the stage pips of one run line

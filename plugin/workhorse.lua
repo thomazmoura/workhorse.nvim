@@ -23,6 +23,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     else
       require("workhorse").pick_build()
     end
+  elseif cmd == "live" then
+    require("workhorse").toggle_build_live()
   elseif cmd == "refresh" then
     require("workhorse").refresh()
   elseif cmd == "state" then
@@ -41,6 +43,7 @@ Workhorse commands:
   :Workhorse resume      - Reopen the last query
   :Workhorse builds [id] - Browse pipeline runs (or picker if no id)
   :Workhorse resume-build - Reopen the last pipeline (also :Workhorse builds resume)
+  :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
   :Workhorse state       - Change state of item under cursor
@@ -54,7 +57,7 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "apply", "builds", "query", "refresh", "resume", "resume-build", "state", "test" })
+      end, { "apply", "builds", "live", "query", "refresh", "resume", "resume-build", "state", "test" })
     end
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
@@ -93,6 +96,7 @@ local function setup_highlights()
     WorkhorseBuildTitle = { bold = true },
     WorkhorseBuildMeta = { link = "Comment" },
     WorkhorseBuildSeparator = { link = "Comment" },
+    WorkhorseBuildLive = { link = "DiagnosticOk" },
     WorkhorseBuildBranch = { link = "Function" },
     WorkhorseBuildDate = { link = "Constant" },
     WorkhorseBuildAuthor = { link = "NonText" },

@@ -118,6 +118,7 @@ local defaults = {
   builds = {
     top = 30, -- number of runs listed per pipeline
     refresh_interval = 5000, -- auto-refresh interval (ms) while a run is in progress
+    live_interval = 5000, -- refresh interval (ms) while live watching (follows the latest step's log)
     strip_timestamps = true, -- hide the ISO timestamp prefix on log lines
     max_concurrent = 4, -- parallel timeline requests when filling stage icons
   },

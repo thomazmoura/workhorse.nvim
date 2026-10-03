@@ -164,6 +164,11 @@ function M.resume_build()
   require("workhorse.builds").resume()
 end
 
+-- Toggle live watching of build logs (follows the latest step's log)
+function M.toggle_build_live()
+  require("workhorse.builds").toggle_live()
+end
+
 -- Refresh current buffer from server
 -- opts.focus_id: work item to place the cursor on after the re-render
 -- opts.focus_title: title to land on when the item had no id yet (just created)

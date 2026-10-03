@@ -170,6 +170,7 @@ require("workhorse").setup({
   builds = {
     top = 30,                -- number of runs listed per pipeline
     refresh_interval = 5000, -- auto-refresh interval (ms) while a run is in progress
+    live_interval = 5000,    -- refresh interval (ms) while live watching
     strip_timestamps = true, -- hide the ISO timestamp prefix on log lines
     max_concurrent = 4,      -- parallel requests when filling the per-stage icons
   },
@@ -209,6 +210,7 @@ In this mode:
 | `:Workhorse state` | Change state of work item under cursor |
 | `:Workhorse builds` | Open Telescope picker to select a pipeline and browse its runs |
 | `:Workhorse builds <id>` | Browse the runs of a pipeline (build definition) by ID |
+| `:Workhorse live` | Toggle live watching of build logs (see "Pipeline Builds") |
 | `:Workhorse resume-build` | Reopen the runs of the last opened pipeline (alias: `:Workhorse builds resume`) |
 
 ### Buffer Keymaps
@@ -352,18 +354,20 @@ Press `<CR>` on any work item to open the description and tags side panels on th
 project. Selecting one drills down through three read-only buffers: runs, the run tree, and a
 step's log. Every buffer starts with the pipeline name and a tree of where you are, indented
 two spaces per level. The buffer's own content continues the tree one level deeper. This is
-the log view, the deepest level:
+the run tree:
 
 ```
 # MyApp-CI
    main (03/10/26 00:00)  Jane Doe  Merge pull request #42 from feature/login         9m 1s
-     Build                                                                           5m 54s
-       Build and test                                                                5m 51s
-         Run unit tests                                                              1m 27s
+                                                                     Live watching disabled
 ──────────────────────────────────────────── ◇ ─────────────────────────────────────────────
 
-##[section]Starting: Run unit tests
+    ▾  Build                                                                         5m 54s
+      ▸  Build and test                                                              5m 51s
 ```
+
+In the log view the header (down to the step) sits in its own window pinned above the log,
+so it needs no separator and stays visible while you scroll.
 
 The header lines are links: `<CR>` on the pipeline name opens the runs list, and on the run,
 stage or job line it opens the run tree with that line expanded into view and the cursor on it.
@@ -376,6 +380,8 @@ stage or job line it opens the run tree with that line expanded into view and th
   `▾` expanded). On a step it opens the log. Steps that have not started yet are dimmed.
   Collapsing a stage remembers which of its jobs were open.
 - **Log**: the step's log, with `##[error]`, `##[warning]` and `##[section]` lines highlighted.
+  Its header is pinned in a small split above the log, so it stays visible while you scroll;
+  the header's links and keymaps work from that split too.
 
 Run lines are colored per section through highlight groups you can override:
 `WorkhorseBuildBranch` and `WorkhorseBuildDate` (stronger), and `WorkhorseBuildAuthor` and
@@ -390,11 +396,24 @@ While a run is in progress its views refresh every `builds.refresh_interval` ms.
 fetch new lines, and they follow the tail when the cursor is on the last line. Polling pauses
 while the buffer is hidden and stops when the run (or step) completes.
 
+### Live watching
+
+Live watching follows a running build from its run tree or log view: every
+`builds.live_interval` ms (5s by default) Workhorse opens the log of the latest step that has
+one, so when a step finishes the next refresh shows the step that started after it. When the
+run completes it stays on the last step's log and stops refreshing. Logs opened while live
+watching start with the cursor on the last line, so they keep following the tail. The run tree and log
+headers show `Live watching enabled` / `Live watching disabled`; `<CR>` on that line toggles
+it, as do `<leader>wu` (in build buffers) and `:Workhorse live`. The setting is global, so it
+carries over to every build buffer. While it is enabled the views jump to the latest log on
+each refresh, so turn it off to browse other steps.
+
 | Key | Action |
 |-----|--------|
 | `<CR>` or `<Space>` | Open the run / step log under the cursor, toggle a stage or job; on a header line, jump back to that level |
 | `-`, `<BS>` or `<Esc>` | Go back to the previous level |
 | `<leader>R` | Refresh |
+| `<leader>wu` | Toggle live watching |
 | `gw` | Open the run, job or step in the browser |
 | `q` | Close the buffer |
 

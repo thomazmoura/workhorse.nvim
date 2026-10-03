@@ -12,6 +12,9 @@ local buffers_by_key = {}
 
 local loaders = {}
 
+-- Live watching (global): run tree and log views follow the latest step's log
+local live = false
+
 local function open_url(url)
   if not url then
     vim.notify("Workhorse: No URL for this line", vim.log.levels.WARN)
@@ -139,7 +142,8 @@ local function set_polling(bufnr, running)
   if state.timer then
     return
   end
-  local interval = config.get().builds.refresh_interval
+  local opts = config.get().builds
+  local interval = (live and state.kind ~= "runs") and opts.live_interval or opts.refresh_interval
   state.timer = (vim.uv or vim.loop).new_timer()
   state.timer:start(interval, interval, vim.schedule_wrap(function()
     -- Skip ticks while hidden or mid-request; the timer resumes when visible again
@@ -174,6 +178,49 @@ local function load_error(bufnr, what, err, opts)
   if not (opts and opts.polling) then
     vim.notify("Workhorse: Failed to load " .. what .. ": " .. (err or "unknown error"), vim.log.levels.ERROR)
   end
+end
+
+-- Live watching -------------------------------------------------------------
+
+-- Step with a log that started last (the running one, or the last one to finish)
+local function latest_logged_step(records)
+  local latest, latest_job
+  for _, stage in ipairs(builds_api.stages(records)) do
+    for _, job in ipairs(builds_api.jobs_of_stage(records, stage)) do
+      for _, step in ipairs(builds_api.steps_of_job(records, job)) do
+        -- ISO timestamps compare as strings; on ties the later step in order wins
+        if step.log and (not latest or (step.startTime or "") >= (latest.startTime or "")) then
+          latest, latest_job = step, job
+        end
+      end
+    end
+  end
+  return latest_job, latest
+end
+
+local function timeline_running(records)
+  for _, record in ipairs(records) do
+    if not builds_api.is_completed(record.state) then
+      return true
+    end
+  end
+  return false
+end
+
+-- Switch the window showing `bufnr` to the latest step's log, unless it already
+-- shows it. Returns true when it switched.
+local function follow_latest(bufnr, records)
+  local state = views[bufnr]
+  local win = windows_of(bufnr)[1]
+  local job, step = latest_logged_step(records)
+  if not win or not step or (state.kind == "log" and state.ctx.step.id == step.id) then
+    return false
+  end
+  local run = state.ctx.run
+  vim.api.nvim_win_call(win, function()
+    M.open_log(run, job, step)
+  end)
+  return true
 end
 
 -- Runs view -----------------------------------------------------------------
@@ -316,7 +363,7 @@ end
 -- Re-render the run tree from the timeline already in ctx (no request)
 local function render_tree(bufnr)
   local ctx = views[bufnr].ctx
-  apply_view(bufnr, render.render_stages(ctx.run, ctx.records, view_width(bufnr), ctx.expanded))
+  apply_view(bufnr, render.render_stages(ctx.run, ctx.records, view_width(bufnr), ctx.expanded, live))
 end
 
 -- Expand every ancestor of the record about to be focused, so it is visible
@@ -332,6 +379,9 @@ loaders.stages = function(bufnr, opts)
   load_run_and_timeline(bufnr, opts, function(_, records)
     local state = views[bufnr]
     state.ctx.records = records
+    if live and opts and opts.polling and follow_latest(bufnr, records) then
+      return
+    end
     reveal(state.ctx, records, state.focus_key)
     render_tree(bufnr)
   end)
@@ -349,14 +399,101 @@ end
 
 -- Log view ------------------------------------------------------------------
 
-local function log_header(bufnr)
-  local ctx = views[bufnr].ctx
-  return render.render_log_header(ctx.run, ctx.stage or ctx.job, ctx.job, ctx.step, view_width(bufnr))
+-- The header (run > stage > job > step) lives in its own buffer, shown in a split
+-- pinned above every window of the log, so it stays in view while scrolling.
+-- Header window -> the log window it sits above
+local header_wins = {}
+
+local header_win_options = {
+  number = false,
+  relativenumber = false,
+  signcolumn = "no",
+  foldcolumn = "0",
+  foldenable = false,
+  statuscolumn = "",
+  cursorline = false,
+  list = false,
+  spell = false,
+  wrap = false,
+  winfixheight = true,
+  winfixbuf = true,
+}
+
+local function render_header(bufnr)
+  local state = views[bufnr]
+  local ctx = state.ctx
+  local header = render.render_log_header(ctx.run, ctx.stage or ctx.job, ctx.job, ctx.step, view_width(bufnr), live)
+  render.apply(state.header_buf, header)
+  state.header_items = header.items
+  for hwin in pairs(header_wins) do
+    if vim.api.nvim_win_is_valid(hwin) and vim.api.nvim_win_get_buf(hwin) == state.header_buf then
+      vim.api.nvim_win_set_height(hwin, #header.lines)
+    end
+  end
+end
+
+local function close_header_win(hwin)
+  header_wins[hwin] = nil
+  if vim.api.nvim_win_is_valid(hwin) and not pcall(vim.api.nvim_win_close, hwin, true) then
+    -- It is the last window left: keep the window, drop the header
+    vim.wo[hwin].winfixbuf = false
+    vim.api.nvim_win_set_buf(hwin, vim.api.nvim_create_buf(true, false))
+  end
+end
+
+-- Pin a header above each window showing a log, and close the headers whose log
+-- window was closed or switched to another buffer
+local function sync_headers()
+  for hwin, lwin in pairs(header_wins) do
+    local owner = vim.api.nvim_win_is_valid(lwin) and views[vim.api.nvim_win_get_buf(lwin)]
+    if not (vim.api.nvim_win_is_valid(hwin) and owner and owner.header_buf == vim.api.nvim_win_get_buf(hwin)) then
+      close_header_win(hwin)
+    end
+  end
+  local pinned = {}
+  for _, lwin in pairs(header_wins) do
+    pinned[lwin] = true
+  end
+  for bufnr, state in pairs(views) do
+    if state.header_buf then
+      for _, win in ipairs(windows_of(bufnr)) do
+        -- Floating windows have no room above them for a split
+        if not pinned[win] and vim.api.nvim_win_get_config(win).relative == "" then
+          local height = vim.api.nvim_buf_line_count(state.header_buf)
+          local hwin = vim.api.nvim_open_win(state.header_buf, false, { split = "above", win = win, height = height })
+          for option, value in pairs(header_win_options) do
+            vim.wo[hwin][option] = value
+          end
+          header_wins[hwin] = win
+        end
+      end
+    end
+  end
+end
+
+local sync_pending = false
+local function schedule_sync()
+  if not sync_pending then
+    sync_pending = true
+    vim.schedule(function()
+      sync_pending = false
+      sync_headers()
+    end)
+  end
+end
+
+vim.api.nvim_create_autocmd({ "BufWinEnter", "BufWinLeave", "WinClosed" }, {
+  group = vim.api.nvim_create_augroup("workhorse_builds_log_header", { clear = true }),
+  callback = schedule_sync,
+})
+
+-- A finished step's log stops polling, unless live watching waits for the next step
+local function keep_polling(bufnr, done)
+  return not done or (live and views[bufnr].ctx.run_active ~= false)
 end
 
 -- Fetch only the lines past what is already shown, following the tail when the
--- cursor sits on the last line. The header (run > stage > job > step) is drawn
--- with the first batch and refreshed in place afterwards.
+-- cursor sits on the last line. The header is redrawn with every batch.
 local function append_log(bufnr, opts, done)
   local state = views[bufnr]
   local ctx = state.ctx
@@ -369,7 +506,7 @@ local function append_log(bufnr, opts, done)
       if not (opts and opts.polling) and done then
         vim.notify("Workhorse: Failed to load log: " .. (err or "unknown error"), vim.log.levels.ERROR)
       end
-      set_polling(bufnr, not done)
+      set_polling(bufnr, keep_polling(bufnr, done))
       return
     end
 
@@ -379,19 +516,17 @@ local function append_log(bufnr, opts, done)
       following[win] = vim.api.nvim_win_get_cursor(win)[1] >= last
     end
 
-    local header = log_header(bufnr)
+    render_header(bufnr)
     if #lines > 0 then
       if ctx.loaded == 0 then
-        -- render_log appends into the header view, so measure the header first
-        local header_len = #header.lines
-        render.apply(bufnr, render.render_log(lines, header))
-        state.items = header.items -- header links; log lines carry no items
-        -- Start on the first log line, below the header
+        render.apply(bufnr, render.render_log(lines))
+        state.items = {} -- log lines carry no items
+        -- Live watching starts on the tail (and keeps following it); otherwise on the top
+        local target = live and vim.api.nvim_buf_line_count(bufnr) or 1
         for _, win in ipairs(windows_of(bufnr)) do
-          vim.api.nvim_win_set_cursor(win, { header_len + 1, 0 })
+          vim.api.nvim_win_set_cursor(win, { target, 0 })
         end
       else
-        render.replace_top(bufnr, header)
         render.append(bufnr, render.render_log(lines))
       end
       ctx.loaded = ctx.loaded + #lines
@@ -402,12 +537,10 @@ local function append_log(bufnr, opts, done)
         end
       end
     elseif ctx.loaded == 0 then
-      render.apply(bufnr, render.render_log({ done and "(empty log)" or "Waiting for log..." }, header))
-      state.items = header.items
-    else
-      render.replace_top(bufnr, header)
+      render.apply(bufnr, render.render_log({ done and "(empty log)" or "Waiting for log..." }))
+      state.items = {}
     end
-    set_polling(bufnr, not done)
+    set_polling(bufnr, keep_polling(bufnr, done))
   end, { start_line = ctx.loaded + 1, silent = opts and opts.polling })
 end
 
@@ -417,10 +550,13 @@ loaders.log = function(bufnr, opts)
     return
   end
   local ctx = state.ctx
-  if ctx.step_done then
+  -- Live ticks always check the timeline, to catch the next step starting
+  local follow = live and opts and opts.polling
+  if ctx.step_done and not follow then
     -- A finished step's log never changes; reopening only re-shows it
     if ctx.loaded > 0 then
       finish(bufnr)
+      set_polling(bufnr, keep_polling(bufnr, true))
       return
     end
     return append_log(bufnr, opts, true)
@@ -429,6 +565,16 @@ loaders.log = function(bufnr, opts)
   builds_api.get_timeline(ctx.run.id, function(records, err)
     if err or not records then
       return load_error(bufnr, "timeline", err, opts)
+    end
+    ctx.run_active = timeline_running(records)
+    if follow then
+      if not finish(bufnr) then
+        return
+      end
+      if follow_latest(bufnr, records) then
+        return
+      end
+      begin(bufnr)
     end
     local step = builds_api.find(records, ctx.step.id) or ctx.step
     ctx.step = step
@@ -446,8 +592,12 @@ end
 
 local function current_item(bufnr)
   local state = views[bufnr]
+  if not state then
+    return nil
+  end
   local lnum = vim.api.nvim_win_get_cursor(0)[1]
-  return state and state.items and state.items[lnum]
+  local items = vim.api.nvim_get_current_buf() == state.header_buf and state.header_items or state.items
+  return items and items[lnum]
 end
 
 local function select_item(bufnr)
@@ -459,7 +609,9 @@ local function select_item(bufnr)
   local ctx = state.ctx
   if item.kind == "nav" then
     -- Header line: jump back to the buffer of that level (no-op on the current one)
-    if item.target == state.kind then
+    if item.target == "live" then
+      M.toggle_live()
+    elseif item.target == state.kind then
       return
     elseif item.target == "runs" then
       M.open_runs(ctx.run.definition_id, ctx.run.definition_name, ctx.run.id)
@@ -513,8 +665,9 @@ local function browser_url(bufnr)
   return run_url .. "&view=logs&j=" .. record.id
 end
 
-local function setup_buffer(bufnr)
-  local opts = { buffer = bufnr, silent = true }
+-- Keymaps of view `bufnr`, set on `target` (the view's buffer, or its log header)
+local function set_keymaps(target, bufnr)
+  local opts = { buffer = target, silent = true }
   -- Enter and Space both activate: toggle a stage/job, open a step's log, follow a header link
   vim.keymap.set("n", "<CR>", function()
     select_item(bufnr)
@@ -534,13 +687,23 @@ local function setup_buffer(bufnr)
   vim.keymap.set("n", "<leader>R", function()
     M.refresh(bufnr)
   end, opts)
+  vim.keymap.set("n", "<leader>wu", M.toggle_live, opts)
   vim.keymap.set("n", "gw", function()
     open_url(browser_url(bufnr))
   end, opts)
   vim.keymap.set("n", "q", function()
+    -- Close the pinned header first, so the log window falls back to the previous buffer
+    for hwin in pairs(header_wins) do
+      if vim.api.nvim_win_is_valid(hwin) and vim.api.nvim_win_get_buf(hwin) == views[bufnr].header_buf then
+        close_header_win(hwin)
+      end
+    end
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end, opts)
+end
 
+local function setup_buffer(bufnr)
+  set_keymaps(bufnr, bufnr)
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = bufnr,
     once = true,
@@ -550,14 +713,36 @@ local function setup_buffer(bufnr)
         stop_timer(state)
         buffers_by_key[state.key] = nil
         views[bufnr] = nil
+        local header_buf = state.header_buf
+        if header_buf then
+          vim.schedule(function()
+            if vim.api.nvim_buf_is_valid(header_buf) then
+              vim.api.nvim_buf_delete(header_buf, { force = true })
+            end
+          end)
+        end
       end
     end,
   })
 end
 
+-- Scratch buffer holding a log view's header, with the view's keymaps
+local function create_header_buf(bufnr)
+  local header_buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[header_buf].filetype = "workhorse-build"
+  vim.bo[header_buf].modifiable = false
+  set_keymaps(header_buf, bufnr)
+  return header_buf
+end
+
 -- Open (or switch to) the buffer for a view and (re)load it
 -- `focus` is the id of the record/run to put the cursor on
 local function open_view(key, name, kind, ctx, focus)
+  -- From a log header, open the view in the log window below it
+  local below = header_wins[vim.api.nvim_get_current_win()]
+  if below and vim.api.nvim_win_is_valid(below) then
+    vim.api.nvim_set_current_win(below)
+  end
   local existing = buffers_by_key[key]
   if existing and vim.api.nvim_buf_is_valid(existing) then
     vim.api.nvim_set_current_buf(existing)
@@ -570,7 +755,10 @@ local function open_view(key, name, kind, ctx, focus)
   end
 
   local bufnr = vim.api.nvim_create_buf(true, false)
-  vim.api.nvim_buf_set_name(bufnr, "Workhorse|" .. name)
+  -- Steps of different jobs can share a name; the view key keeps their buffers apart
+  if not pcall(vim.api.nvim_buf_set_name, bufnr, "Workhorse|" .. name) then
+    vim.api.nvim_buf_set_name(bufnr, "Workhorse|" .. name .. "|" .. key)
+  end
   vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].bufhidden = "hide"
   vim.bo[bufnr].swapfile = false
@@ -583,6 +771,10 @@ local function open_view(key, name, kind, ctx, focus)
   setup_buffer(bufnr)
 
   vim.api.nvim_set_current_buf(bufnr)
+  if kind == "log" then
+    views[bufnr].header_buf = create_header_buf(bufnr)
+    render_header(bufnr)
+  end
   loaders[kind](bufnr)
   return bufnr
 end
@@ -612,7 +804,7 @@ local function rerender(bufnr)
   elseif state.kind == "stages" and state.ctx.records then
     render_tree(bufnr)
   elseif state.kind == "log" then
-    render.replace_top(bufnr, log_header(bufnr))
+    render_header(bufnr)
   end
 end
 
@@ -687,6 +879,29 @@ function M.refresh(bufnr)
   end
   loaders[state.kind](bufnr)
   return true
+end
+
+-- Toggle live watching: visible run tree and log views jump to the latest step's
+-- log, and every tick (builds.live_interval) follows it as steps start and finish
+function M.toggle_live()
+  live = not live
+  vim.notify("Workhorse: Live watching " .. (live and "enabled" or "disabled"), vim.log.levels.INFO)
+  -- Snapshot first: following a log opens new views, and cached timelines answer synchronously
+  local visible = {}
+  for bufnr, state in pairs(views) do
+    -- Timers restart with the interval of the new mode on the next load
+    stop_timer(state)
+    if vim.api.nvim_buf_is_valid(bufnr) and #windows_of(bufnr) > 0 then
+      table.insert(visible, bufnr)
+    end
+  end
+  for _, bufnr in ipairs(visible) do
+    local state = views[bufnr]
+    if state then
+      rerender(bufnr)
+      loaders[state.kind](bufnr, { polling = true })
+    end
+  end
 end
 
 function M.is_build_buffer(bufnr)
