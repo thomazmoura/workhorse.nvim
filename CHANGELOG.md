@@ -2,6 +2,16 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [e7bf0ac] - 2026-10-03
+
+### Added
+- Run new builds: a `Run new build` line on the runs list, `<leader>wn` in build buffers or `:Workhorse builds new [id]` opens a form (float by default, `builds.run_form`) with the branch, the YAML runtime parameters and the variables settable at queue time. `<Tab>`/`<S-Tab>` move between values, `<C-x><C-o>` completes branches and allowed values, `<leader>R` reloads the parameters from the typed branch, and `<leader><leader>` or `:w` validates and queues the run after a confirmation, sending only changed values, then opens its run tree
+- Runtime parameters are read from the pipeline's YAML file (Azure Repos) with a small built-in YAML reader; `object` parameters are edited as one line of JSON
+- Cancel builds: a `Cancel build` header line on running builds, `<leader>wx` or `:Workhorse builds cancel`, after a confirmation; the line shows `Cancelling…` until the run stops
+
+### Changed
+- Opening a running build from the runs list (or a run just queued) enables live watching and jumps to the latest log; going back up from a log does not re-enable it. Disable with `builds.live_on_running = false`
+
 ## [4685137] - 2026-10-03
 
 ### Added
