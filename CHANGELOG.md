@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [a1860b5] - 2026-10-03
+
+### Added
+- Default global keymaps: `<leader>wb` opens the pipeline picker, `<leader>wB` reopens the last opened pipeline without the picker
+- `:Workhorse resume-build` (alias `:Workhorse builds resume`) to reopen the last opened pipeline
+
+### Changed
+- The session file now stores the last query and the last pipeline side by side; saving one no longer overwrites the other
+
 ## [7a6e405] - 2026-10-03
 
 ### Added
