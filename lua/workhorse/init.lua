@@ -149,11 +149,25 @@ function M.pick_query()
   telescope_ext.pick()
 end
 
+-- Open Telescope picker for pipelines (build definitions)
+function M.pick_build()
+  require("workhorse.builds").pick()
+end
+
+-- Open the runs of a pipeline (build definition) by ID
+function M.open_builds(definition_id, definition_name)
+  require("workhorse.builds").open_runs(definition_id, definition_name)
+end
+
 -- Refresh current buffer from server
 -- opts.focus_id: work item to place the cursor on after the re-render
 -- opts.focus_title: title to land on when the item had no id yet (just created)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
+  if require("workhorse.builds").refresh() then
+    return
+  end
+
   local buffer = require("workhorse.buffer")
   local buffer_tree = require("workhorse.buffer_tree")
   local queries = require("workhorse.api.queries")

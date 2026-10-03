@@ -15,6 +15,12 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     else
       require("workhorse").pick_query()
     end
+  elseif cmd == "builds" then
+    if args[2] then
+      require("workhorse").open_builds(args[2])
+    else
+      require("workhorse").pick_build()
+    end
   elseif cmd == "refresh" then
     require("workhorse").refresh()
   elseif cmd == "state" then
@@ -31,6 +37,7 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
 Workhorse commands:
   :Workhorse query [id]  - Open saved query (or picker if no id)
   :Workhorse resume      - Reopen the last query
+  :Workhorse builds [id] - Browse pipeline runs (or picker if no id)
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
   :Workhorse state       - Change state of item under cursor
@@ -44,7 +51,7 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "apply", "query", "refresh", "resume", "state", "test" })
+      end, { "apply", "builds", "query", "refresh", "resume", "state", "test" })
     end
     return {}
   end,
@@ -67,6 +74,21 @@ local function setup_highlights()
     WorkhorseTypeUserStory = { link = "String" },
     WorkhorseTypeBug = { link = "DiagnosticError" },
     WorkhorseTypeTask = { link = "Identifier" },
+    -- Build (pipeline) views
+    WorkhorseBuildSucceeded = { link = "DiagnosticOk" },
+    WorkhorseBuildWarning = { link = "DiagnosticWarn" },
+    WorkhorseBuildFailed = { link = "DiagnosticError" },
+    WorkhorseBuildRunning = { link = "DiagnosticInfo" },
+    WorkhorseBuildCanceled = { link = "Comment" },
+    WorkhorseBuildPending = { link = "Comment" },
+    WorkhorseBuildHeader = { link = "Title" },
+    WorkhorseBuildTitle = { bold = true },
+    WorkhorseBuildMeta = { link = "Comment" },
+    WorkhorseLogError = { link = "DiagnosticError" },
+    WorkhorseLogWarning = { link = "DiagnosticWarn" },
+    WorkhorseLogSection = { link = "Title" },
+    WorkhorseLogCommand = { link = "Function" },
+    WorkhorseLogDebug = { link = "Comment" },
     -- Decoration-only highlights (for composability - no colors, only styles)
     WorkhorseBold = { bold = true },
     WorkhorseItalic = { italic = true },

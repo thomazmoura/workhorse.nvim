@@ -114,6 +114,14 @@ local defaults = {
     ttl = 300, -- 5 minutes
   },
 
+  -- Build (pipeline) views
+  builds = {
+    top = 30, -- number of runs listed per pipeline
+    refresh_interval = 5000, -- auto-refresh interval (ms) while a run is in progress
+    strip_timestamps = true, -- hide the ISO timestamp prefix on log lines
+    max_concurrent = 4, -- parallel timeline requests when filling stage icons
+  },
+
   -- Lualine integration settings
   lualine = {
     refresh_interval = 60000, -- 1 minute in ms

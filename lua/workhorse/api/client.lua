@@ -67,7 +67,9 @@ local function handle_response(response, opts)
         error_msg = error_msg .. " - " .. details
       end
 
-      vim.notify("Workhorse: " .. error_msg, vim.log.levels.ERROR)
+      if not opts.silent then
+        vim.notify("Workhorse: " .. error_msg, vim.log.levels.ERROR)
+      end
       if opts.on_error then
         opts.on_error(error_msg, response)
       end
@@ -82,7 +84,9 @@ local function handle_transport_error(err, opts)
   end
 
   vim.schedule(function()
-    vim.notify("Workhorse: " .. message, vim.log.levels.ERROR)
+    if not opts.silent then
+      vim.notify("Workhorse: " .. message, vim.log.levels.ERROR)
+    end
     if opts.on_error then
       opts.on_error(message, err)
     end

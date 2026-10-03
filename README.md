@@ -15,12 +15,13 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Side panels** - Edit work item description and tags in dedicated buffers
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
+- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress
 
 ## Requirements
 
 - Neovim >= 0.9.0
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
-- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query picker)
+- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query and pipeline pickers)
 - Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
 
 ## Installation
@@ -164,6 +165,14 @@ require("workhorse").setup({
     enabled = true,
     ttl = 300,  -- 5 minutes
   },
+
+  -- Pipeline build views (see "Pipeline Builds")
+  builds = {
+    top = 30,                -- number of runs listed per pipeline
+    refresh_interval = 5000, -- auto-refresh interval (ms) while a run is in progress
+    strip_timestamps = true, -- hide the ISO timestamp prefix on log lines
+    max_concurrent = 4,      -- parallel requests when filling the per-stage icons
+  },
 })
 ```
 
@@ -198,6 +207,8 @@ In this mode:
 | `:Workhorse query <id>` | Open a specific saved query by ID |
 | `:Workhorse refresh` | Refresh current buffer from Azure DevOps |
 | `:Workhorse state` | Change state of work item under cursor |
+| `:Workhorse builds` | Open Telescope picker to select a pipeline and browse its runs |
+| `:Workhorse builds <id>` | Browse the runs of a pipeline (build definition) by ID |
 
 ### Buffer Keymaps
 
@@ -245,6 +256,7 @@ The cursor follows the work item you were on, not the line number:
 ```lua
 vim.keymap.set("n", "<leader>wq", require("workhorse").pick_query, { desc = "Workhorse: Pick query" })
 vim.keymap.set("n", "<leader>wr", require("workhorse").refresh, { desc = "Workhorse: Refresh" })
+vim.keymap.set("n", "<leader>wb", require("workhorse").pick_build, { desc = "Workhorse: Pick pipeline" })
 ```
 
 ## Buffer Format
@@ -333,6 +345,41 @@ Press `<CR>` on any work item to open the description and tags side panels on th
 4. Edit titles, add new lines, or delete lines
 5. Press `:w` to save - a confirmation dialog shows pending changes
 6. Press `y` to apply changes to Azure DevOps
+
+## Pipeline Builds
+
+`:Workhorse builds` opens a Telescope picker with every pipeline (build definition) of the
+project. Selecting one drills down through read-only buffers:
+
+```
+runs      ✓ #App-20261003.1 • Merge branch 'feature/x' into main  ⎇ main 8c2b005    ✓-✓-!
+stages    ✓ Build                                                              5m 54s
+              ✓ Compile and publish artifacts                                  5m 51s
+steps       ✓ Rodar Testes Unitários                                           1m 27s
+log       ##[section]Starting: Rodar Testes Unitários
+```
+
+- **Runs**: one line per run with its result, commit message, branch and commit. The per-stage
+  icons on the right are filled in as each run's timeline arrives.
+- **Stages/jobs**: stages as headers with their jobs below, with durations. `<CR>` on a stage
+  opens its first job.
+- **Steps**: the tasks of a job with durations. Steps that have not started yet are dimmed.
+- **Log**: the step's log, with `##[error]`, `##[warning]` and `##[section]` lines highlighted.
+
+Status icons: `✓` succeeded, `!` partially succeeded, `✗` failed, `○` canceled/skipped,
+`◷` running, `·` pending.
+
+While a run is in progress its views refresh every `builds.refresh_interval` ms. Logs only
+fetch new lines, and they follow the tail when the cursor is on the last line. Polling pauses
+while the buffer is hidden and stops when the run (or step) completes.
+
+| Key | Action |
+|-----|--------|
+| `<CR>` | Open the run / job / step under the cursor |
+| `-` or `<BS>` | Go back to the previous level |
+| `<leader>R` | Refresh |
+| `gw` | Open the run, job or step in the browser |
+| `q` | Close the buffer |
 
 ## Lualine Integration
 
