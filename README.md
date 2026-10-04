@@ -463,8 +463,16 @@ system.debug: false
   `<leader>R` reloads them from that branch, keeping the values you changed.
 - **Variables**: the pipeline variables marked "settable at queue time".
 
-`<Tab>`/`<S-Tab>` move between the values, and `<C-x><C-o>` completes branches, allowed values
-and booleans. `<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
+`<Tab>`/`<S-Tab>` move between the values. Typing in a parameter with allowed values (or a
+boolean) opens a menu of the matching choices, like a dropdown — values that start with the text
+first, then those containing it. Nothing is selected until `<Tab>`, which inserts the items as
+it goes (`<S-Tab>` goes back), and `<CR>` takes the selected item, or the first one; `<C-x><C-o>`
+also completes branches. With [blink.cmp](https://github.com/saghen/blink.cmp) installed, the
+choices come from a blink.cmp source (only it runs on those fields, the usual sources everywhere
+else, unless `sources.per_filetype["workhorse-run"]` is configured, which it then adds to), and
+blink.cmp's own keymaps and selection settings apply; otherwise Neovim's completion menu is used.
+
+`<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
 tree. Values are checked first (required, allowed values, booleans and numbers), and only
 values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form.
 Runtime parameters are only read from Azure Repos Git repositories.

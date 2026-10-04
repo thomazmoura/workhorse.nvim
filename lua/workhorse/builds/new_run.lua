@@ -1,7 +1,7 @@
 -- "Run new build" form: a buffer with the branch, the YAML runtime parameters and
 -- the variables settable at queue time of a pipeline, one "name: value" line each.
--- <Tab>/<S-Tab> move between the values, <C-x><C-o> completes branches and allowed
--- values, and <CR>, <leader><leader> (or :w) queues the run after a confirmation.
+-- <Tab>/<S-Tab> move between the values, typing in a field with choices shows them
+-- (<C-x><C-o> also completes branches), and <CR>, <leader><leader> (or :w) queues the run after a confirmation.
 -- Only values that differ from the pipeline's defaults are sent.
 local M = {}
 
@@ -215,6 +215,89 @@ function M.omnifunc(findstart, base)
   return vim.list_extend(prefix, rest)
 end
 
+-- Whether line `lnum` is a parameter with allowed values (or a boolean)
+local function has_choices(bufnr, lnum)
+  local parsed = M.parse_lines(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  for name in pairs(parsed.params) do
+    if parsed.lnums["params:" .. name] == lnum then
+      local p = param_by_name(forms[bufnr], name)
+      return p ~= nil and (p.values ~= nil or p.type == "boolean")
+    end
+  end
+  return false
+end
+
+--- Choices matching the value typed before the cursor of the current window, for a field
+--- with choices: { start = 0-based column of the value, base = typed text, matches = {...} }
+--- or nil (another buffer, a free-text field, the cursor before the value)
+function M.choice_completion()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  if not forms[bufnr] or not has_choices(bufnr, cursor[1]) then
+    return nil
+  end
+  local start = M.omnifunc(1, "")
+  if start < 0 or cursor[2] < start then
+    return nil
+  end
+  local base = vim.api.nvim_get_current_line():sub(start + 1, cursor[2])
+  local matches = M.omnifunc(0, base)
+  -- Nothing to offer once the value is exactly the only match (e.g. right after accepting it)
+  if #matches == 1 and matches[1]:lower() == base:lower() then
+    matches = {}
+  end
+  return { start = start, base = base, matches = matches }
+end
+
+-- Whether blink.cmp drives the form's completion (see builds/blink_source.lua), loading it if
+-- installed but not loaded yet
+local function use_blink()
+  local ok, blink = pcall(require, "blink.cmp")
+  return ok and type(blink.add_source_provider) == "function"
+    and require("workhorse.builds.blink_source").register()
+end
+
+-- Native menu: open (or narrow) it while typing the value of a field with choices, so they
+-- show up like a dropdown; branches still need <C-x><C-o>
+local function autocomplete(bufnr)
+  local form = forms[bufnr]
+  if not form or form.engine ~= "native" or vim.fn.mode() ~= "i" then
+    return
+  end
+  local completion = M.choice_completion()
+  if not completion then
+    return
+  end
+  -- Moving through the menu inserts the selected item, and going back to the typed text
+  -- repeats it: neither is typing, so leave the menu as is
+  local typed = vim.api.nvim_win_get_cursor(0)[1] .. ":" .. completion.base
+  if vim.fn.pumvisible() == 1 then
+    if typed == form.completed or vim.fn.complete_info({ "selected" }).selected ~= -1 then
+      return
+    end
+  end
+  form.completed = typed
+  if #completion.matches > 0 or vim.fn.pumvisible() == 1 then
+    vim.fn.complete(completion.start + 1, completion.matches)
+  end
+end
+
+-- Pick the completion engine on the first insert: blink.cmp when available, the native
+-- menu otherwise (with blink.cmp, if loaded, kept out of the way)
+local function setup_engine(bufnr)
+  local form = forms[bufnr]
+  if not form or form.engine then
+    return
+  end
+  form.engine = use_blink() and "blink" or "native"
+  if form.engine == "native" then
+    -- Nothing selected until <Tab>, which inserts the item as it goes; <CR> takes the
+    -- first item when none is selected
+    vim.b[bufnr].completion = false
+    vim.bo[bufnr].completeopt = "menuone,noselect"
+  end
+end
+
 -- Navigation ------------------------------------------------------------------
 
 -- Lines holding a "name: value" field, in order
@@ -267,6 +350,18 @@ local function insert_tab(dir)
     end
     return ("<Cmd>lua require('workhorse.builds.new_run').jump(%d)<CR>"):format(dir)
   end
+end
+
+-- Insert-mode <CR>: accept the selected item, or the first one when none is selected
+local function insert_cr()
+  local blink = package.loaded["blink.cmp"]
+  if blink and blink.is_menu_visible and blink.is_menu_visible() then
+    return "<Cmd>lua require('blink.cmp').select_and_accept()<CR>"
+  end
+  if vim.fn.pumvisible() == 0 then
+    return "<CR>"
+  end
+  return vim.fn.complete_info({ "selected" }).selected == -1 and "<C-n><C-y>" or "<C-y>"
 end
 
 -- Window ----------------------------------------------------------------------
@@ -494,6 +589,7 @@ local function setup_keymaps(bufnr)
   end
   vim.keymap.set("i", "<Tab>", insert_tab(1), with_desc("next field", { expr = true }))
   vim.keymap.set("i", "<S-Tab>", insert_tab(-1), with_desc("previous field", { expr = true }))
+  vim.keymap.set("i", "<CR>", insert_cr, with_desc("accept the completion", { expr = true }))
   vim.keymap.set("n", "<Tab>", function()
     M.jump(1)
   end, with_desc("next field"))
@@ -544,6 +640,20 @@ local function create_buffer(form)
     buffer = bufnr,
     callback = function()
       decorate(bufnr)
+    end,
+  })
+  vim.api.nvim_create_autocmd("InsertEnter", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      setup_engine(bufnr)
+    end,
+  })
+  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      autocomplete(bufnr)
     end,
   })
   vim.api.nvim_create_autocmd("VimResized", {
