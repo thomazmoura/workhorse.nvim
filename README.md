@@ -464,7 +464,7 @@ system.debug: false
 - **Variables**: the pipeline variables marked "settable at queue time".
 
 `<Tab>`/`<S-Tab>` move between the values, and `<C-x><C-o>` completes branches, allowed values
-and booleans. `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
+and booleans. `<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
 tree. Values are checked first (required, allowed values, booleans and numbers), and only
 values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form.
 Runtime parameters are only read from Azure Repos Git repositories.

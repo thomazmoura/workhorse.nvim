@@ -1,7 +1,7 @@
 -- "Run new build" form: a buffer with the branch, the YAML runtime parameters and
 -- the variables settable at queue time of a pipeline, one "name: value" line each.
 -- <Tab>/<S-Tab> move between the values, <C-x><C-o> completes branches and allowed
--- values, and <leader><leader> (or :w) queues the run after a confirmation.
+-- values, and <CR>, <leader><leader> (or :w) queues the run after a confirmation.
 -- Only values that differ from the pipeline's defaults are sent.
 local M = {}
 
@@ -500,9 +500,11 @@ local function setup_keymaps(bufnr)
   vim.keymap.set("n", "<S-Tab>", function()
     M.jump(-1)
   end, with_desc("previous field"))
-  vim.keymap.set("n", "<leader><leader>", function()
-    M.submit(bufnr)
-  end, with_desc("queue the run"))
+  for _, lhs in ipairs({ "<CR>", "<leader><leader>" }) do
+    vim.keymap.set("n", lhs, function()
+      M.submit(bufnr)
+    end, with_desc("queue the run"))
+  end
   vim.keymap.set("n", "<leader>R", function()
     M.reload(bufnr)
   end, with_desc("reload parameters for the branch"))
