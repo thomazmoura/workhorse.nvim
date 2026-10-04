@@ -369,15 +369,6 @@ local function latest_logged_step(records)
   return latest_job, latest
 end
 
-local function timeline_running(records)
-  for _, record in ipairs(records) do
-    if not builds_api.is_completed(record.state) then
-      return true
-    end
-  end
-  return false
-end
-
 -- Switch the window showing `bufnr` to the latest step's log, unless it already
 -- shows it. Returns true when it switched.
 local function follow_latest(bufnr, records)
@@ -586,9 +577,25 @@ local function render_header(bufnr)
   update_pinned(bufnr, header)
 end
 
--- A finished step's log stops polling, unless live watching waits for the next step
+-- A finished step's log keeps polling only until the run itself completes, so
+-- the header picks up its final status (and live watching the next step)
 local function keep_polling(bufnr, done)
-  return not done or (live and views[bufnr].ctx.run_active ~= false)
+  return not done or not builds_api.is_completed(views[bufnr].ctx.run.status)
+end
+
+-- Refresh ctx.run while it is still going; its status lags behind the timeline
+-- (e.g. a cancelled run stays "cancelling" after its last step finished)
+local function refresh_run(bufnr, opts, callback)
+  local ctx = views[bufnr].ctx
+  if builds_api.is_completed(ctx.run.status) then
+    return callback()
+  end
+  builds_api.get_build(ctx.run.id, function(run)
+    if run and views[bufnr] then
+      views[bufnr].ctx.run = run
+    end
+    callback()
+  end, { silent = opts and opts.polling })
 end
 
 -- Fetch only the lines past what is already shown, following the tail when the
@@ -647,42 +654,48 @@ loaders.log = function(bufnr, opts)
     return
   end
   local ctx = state.ctx
-  -- Live ticks always check the timeline, to catch the next step starting
-  local follow = live and opts and opts.polling
-  if ctx.step_done and not follow then
-    -- A finished step's log never changes; reopening only re-shows it
-    if ctx.loaded > 0 then
-      finish(bufnr)
-      set_polling(bufnr, keep_polling(bufnr, true))
+  refresh_run(bufnr, opts, function()
+    if not views[bufnr] then
       return
     end
-    return append_log(bufnr, opts, true)
-  end
-  -- Check the step state first, so the final fetch after completion gets the tail
-  builds_api.get_timeline(ctx.run.id, function(records, err)
-    if err or not records then
-      return load_error(bufnr, "timeline", err, opts)
-    end
-    ctx.run_active = timeline_running(records)
-    if follow then
-      if not finish(bufnr) then
+    -- Live ticks always check the timeline, to catch the next step starting
+    local follow = live and opts and opts.polling
+    if ctx.step_done and not follow then
+      -- A finished step's log never changes; reopening only re-shows it (and the run status)
+      if ctx.loaded > 0 then
+        if finish(bufnr) then
+          render_header(bufnr)
+          set_polling(bufnr, keep_polling(bufnr, true))
+        end
         return
       end
-      if follow_latest(bufnr, records) then
-        return
+      return append_log(bufnr, opts, true)
+    end
+    -- Check the step state first, so the final fetch after completion gets the tail
+    builds_api.get_timeline(ctx.run.id, function(records, err)
+      if err or not records then
+        return load_error(bufnr, "timeline", err, opts)
       end
-      begin(bufnr)
-    end
-    local step = builds_api.find(records, ctx.step.id) or ctx.step
-    ctx.step = step
-    ctx.job = builds_api.find(records, ctx.job.id) or ctx.job
-    ctx.stage = builds_api.stage_of(records, ctx.job)
-    ctx.step_done = builds_api.is_completed(step.state)
-    if step.log then
-      ctx.log_id = step.log.id
-    end
-    append_log(bufnr, opts, ctx.step_done)
-  end, { silent = opts and opts.polling })
+      if follow then
+        if not finish(bufnr) then
+          return
+        end
+        if follow_latest(bufnr, records) then
+          return
+        end
+        begin(bufnr)
+      end
+      local step = builds_api.find(records, ctx.step.id) or ctx.step
+      ctx.step = step
+      ctx.job = builds_api.find(records, ctx.job.id) or ctx.job
+      ctx.stage = builds_api.stage_of(records, ctx.job)
+      ctx.step_done = builds_api.is_completed(step.state)
+      if step.log then
+        ctx.log_id = step.log.id
+      end
+      append_log(bufnr, opts, ctx.step_done)
+    end, { silent = opts and opts.polling })
+  end)
 end
 
 -- Buffer lifecycle ----------------------------------------------------------
