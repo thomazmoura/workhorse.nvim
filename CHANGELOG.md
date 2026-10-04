@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [ff887a6] - 2026-10-04
+
+### Changed
+- Build view headers (runs list, run tree and log) stay visible while scrolling through a non-focusable float pinned over the top of the window, like nvim-treesitter-context. The log view is a single buffer again, and the pinned copy shows the buffer's line numbers, ignores `winblend` and keeps the cursor from hiding under it
+- Build windows hide the sign and fold columns
+
 ## [e7bf0ac] - 2026-10-03
 
 ### Added
