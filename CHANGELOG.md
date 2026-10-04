@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [72ea9aa] - 2026-10-04
+
+### Added
+- `<CR>` in normal mode queues the run from the "Run new build" form, alongside `<leader><leader>` and `:w`
+
 ## [ff887a6] - 2026-10-04
 
 ### Changed
