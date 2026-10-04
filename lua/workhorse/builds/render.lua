@@ -120,7 +120,7 @@ local path_targets = { "stages", "stages", "log" }
 
 -- Markview-style horizontal rule: "───── ◇ ─────" across the window, drawn as an
 -- overlay on an empty line so it never ends up in yanks or searches, then a blank
--- line before the content. The log view has none: its header sits in its own window.
+-- line before the content. `view.rule` remembers where the header ends.
 local function add_separator(view, width)
   local side = math.max(math.floor((width - 3) / 2), 1)
   local lnum = add_line(view, { { "" } })
@@ -129,6 +129,7 @@ local function add_separator(view, width)
     { " ◇ ", "WorkhorseBuildSeparator" },
     { string.rep("─", width - 3 - side), "WorkhorseBuildSeparator" },
   }
+  view.rule = lnum
   add_line(view, { { "" } })
 end
 
@@ -218,11 +219,30 @@ function M.render_stages(run, records, width, expanded, live)
   return view
 end
 
--- Header of the log view, pinned in its own window above the log
+-- Header of the log view, at the top of the log buffer
 function M.render_log_header(run, stage, job, step, width, live)
   local view = new_view()
   add_header(view, definition_of(run), run, { stage, job, step }, width, live)
+  add_separator(view, width)
   return view
+end
+
+-- The header of a view down to its rule (without the blank line after it): the copy
+-- pinned over the window while the view scrolls
+function M.pinned(view)
+  local head = new_view()
+  for lnum = 1, view.rule or 0 do
+    head.lines[lnum] = view.lines[lnum]
+    head.items[lnum] = view.items[lnum]
+    head.virt[lnum] = view.virt[lnum]
+    head.overlay[lnum] = view.overlay[lnum]
+  end
+  for _, h in ipairs(view.hls) do
+    if h[1] < #head.lines then
+      table.insert(head.hls, h)
+    end
+  end
+  return head
 end
 
 local log_markers = {
@@ -274,6 +294,16 @@ function M.apply(bufnr, view)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   vim.api.nvim_buf_clear_namespace(bufnr, pips_ns, 0, -1)
   apply_decorations(bufnr, view)
+end
+
+-- Replace lines [first, last) (0-based, end-exclusive; -1 for the end) with a view
+function M.replace(bufnr, view, first, last)
+  vim.api.nvim_buf_clear_namespace(bufnr, ns, first, last)
+  vim.bo[bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(bufnr, first, last, false, view.lines)
+  vim.bo[bufnr].modifiable = false
+  vim.bo[bufnr].modified = false
+  apply_decorations(bufnr, view, first)
 end
 
 -- Append a view at the end of the buffer (used for streaming logs)

@@ -63,6 +63,176 @@ local function focus_key(bufnr, key)
   return false
 end
 
+-- Pinned header ---------------------------------------------------------------
+
+-- Every view starts with its header (pipeline > run > stage > job > step). Once it
+-- scrolls out of view, a copy of it (state.header_buf) is pinned over the top of
+-- the window in a non-focusable float, the way nvim-treesitter-context does.
+-- View window -> the float pinning its header
+local pinned = {}
+
+local function close_pinned(win)
+  local float = pinned[win]
+  pinned[win] = nil
+  if float and vim.api.nvim_win_is_valid(float) then
+    vim.api.nvim_win_close(float, true)
+  end
+end
+
+-- Statuscolumn of a pinned header, filled by M._pinned_number
+local PINNED_NUMBER = "%{%v:lua.require'workhorse.builds'._pinned_number()%}"
+
+-- Give the pinned header the gutter width of the log window under it, so its lines
+-- stay in the same columns as the real header lines
+local function set_pinned_gutter(float, textoff)
+  local gutter = textoff > 0
+  vim.wo[float].number = gutter
+  vim.wo[float].relativenumber = false
+  vim.wo[float].numberwidth = math.min(math.max(textoff, 1), 20)
+  vim.wo[float].statuscolumn = gutter and PINNED_NUMBER or ""
+end
+
+-- Show the pinned header over `win` while its own header is scrolled away
+local function pin_header(win)
+  local state = views[vim.api.nvim_win_get_buf(win)]
+  local height = state and state.header_buf and vim.api.nvim_buf_line_count(state.header_buf)
+  local info = vim.fn.getwininfo(win)[1]
+  -- At the top the real (actionable) header lines show; tiny windows keep the log visible
+  if not height or info.topline <= 1 or info.height <= height + 1 then
+    return close_pinned(win)
+  end
+  local float_config = {
+    relative = "win",
+    win = win,
+    row = 0,
+    col = 0,
+    width = info.width,
+    height = height,
+    focusable = false,
+    zindex = 20,
+  }
+  local float = pinned[win]
+  if float and vim.api.nvim_win_is_valid(float) then
+    if vim.api.nvim_win_get_buf(float) ~= state.header_buf then
+      vim.api.nvim_win_set_buf(float, state.header_buf)
+    end
+    vim.api.nvim_win_set_config(float, float_config)
+    set_pinned_gutter(float, info.textoff)
+    return
+  end
+  float_config.style = "minimal"
+  float_config.noautocmd = true
+  float = vim.api.nvim_open_win(state.header_buf, false, float_config)
+  vim.wo[float].wrap = false
+  vim.wo[float].winhighlight = "NormalFloat:Normal"
+  -- Opaque even with a global 'winblend': the log behind must not show through
+  vim.wo[float].winblend = 0
+  set_pinned_gutter(float, info.textoff)
+  pinned[win] = float
+end
+
+-- Refresh the pinned copy of a view's header from the view just rendered
+local function update_pinned(bufnr, view)
+  render.apply(views[bufnr].header_buf, render.pinned(view))
+  for _, win in ipairs(windows_of(bufnr)) do
+    pin_header(win)
+  end
+end
+
+-- Relative numbers change with the cursor of the view window, which does not redraw the float
+local function redraw_pinned_numbers(win)
+  local float = pinned[win]
+  if float and vim.api.nvim_win_is_valid(float) and vim.wo[win].relativenumber and vim.api.nvim__redraw then
+    vim.api.nvim__redraw({ win = float, statuscolumn = true })
+  end
+end
+
+-- Pin headers over the view windows scrolled past theirs, and drop the floats of
+-- windows that were closed or no longer show a view
+local function sync_pinned()
+  for win in pairs(pinned) do
+    local state = vim.api.nvim_win_is_valid(win) and views[vim.api.nvim_win_get_buf(win)]
+    if not (state and state.header_buf) then
+      close_pinned(win)
+    end
+  end
+  for bufnr, state in pairs(views) do
+    if state.header_buf then
+      for _, win in ipairs(windows_of(bufnr)) do
+        pin_header(win)
+      end
+    end
+  end
+end
+
+-- Keep the cursor of `win` off the rows its pinned header covers: `scroll` brings
+-- the view down to the cursor (moving up with k), otherwise the cursor moves down
+-- into view (scrolling with the wheel or <C-e>)
+local function uncover_cursor(win, scroll)
+  local float = pinned[win]
+  if not (float and vim.api.nvim_win_is_valid(float)) then
+    return
+  end
+  local height = vim.api.nvim_win_get_height(float)
+  vim.api.nvim_win_call(win, function()
+    -- Step one screen row at a time, so wrapped lines and folds count right
+    for _ = 1, height do
+      if vim.fn.winline() > height or vim.fn.line("w0") <= 1 then
+        return
+      end
+      vim.cmd(scroll and "normal! \25" or "normal! gj")
+    end
+  end)
+end
+
+local sync_pending = false
+local function schedule_sync()
+  if not sync_pending then
+    sync_pending = true
+    vim.schedule(function()
+      sync_pending = false
+      sync_pinned()
+    end)
+  end
+end
+
+local pin_group = vim.api.nvim_create_augroup("workhorse_builds_log_header", { clear = true })
+vim.api.nvim_create_autocmd({ "BufWinEnter", "BufWinLeave", "WinClosed" }, {
+  group = pin_group,
+  callback = schedule_sync,
+})
+-- Build windows have no sign or fold column, leaving the width to the content
+vim.api.nvim_create_autocmd("BufWinEnter", {
+  group = vim.api.nvim_create_augroup("workhorse_builds_gutter", { clear = true }),
+  callback = function(args)
+    if views[args.buf] then
+      local win = vim.api.nvim_get_current_win()
+      vim.api.nvim_set_option_value("signcolumn", "no", { scope = "local", win = win })
+      vim.api.nvim_set_option_value("foldcolumn", "0", { scope = "local", win = win })
+    end
+  end,
+})
+-- Scrolling updates right away, so the pinned header never lags a redraw behind
+vim.api.nvim_create_autocmd({ "WinScrolled", "WinResized" }, {
+  group = pin_group,
+  callback = function()
+    sync_pinned()
+    for win in pairs(pinned) do
+      uncover_cursor(win, false)
+    end
+  end,
+})
+vim.api.nvim_create_autocmd("CursorMoved", {
+  group = pin_group,
+  callback = function()
+    local win = vim.api.nvim_get_current_win()
+    if pinned[win] then
+      uncover_cursor(win, true)
+      redraw_pinned_numbers(win)
+    end
+  end,
+})
+
 local function apply_view(bufnr, view)
   local state = views[bufnr]
   -- A pending focus (set when navigating here) wins over the remembered position
@@ -77,6 +247,7 @@ local function apply_view(bufnr, view)
 
   render.apply(bufnr, view)
   state.items = view.items
+  update_pinned(bufnr, view)
 
   for win, pos in pairs(cursors) do
     local target = pos.lnum
@@ -402,93 +573,18 @@ end
 
 -- Log view ------------------------------------------------------------------
 
--- The header (run > stage > job > step) lives in its own buffer, shown in a split
--- pinned above every window of the log, so it stays in view while scrolling.
--- Header window -> the log window it sits above
-local header_wins = {}
-
-local header_win_options = {
-  number = false,
-  relativenumber = false,
-  signcolumn = "no",
-  foldcolumn = "0",
-  foldenable = false,
-  statuscolumn = "",
-  cursorline = false,
-  list = false,
-  spell = false,
-  wrap = false,
-  winfixheight = true,
-  winfixbuf = true,
-}
-
 local function render_header(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
-  local header = render.render_log_header(ctx.run, ctx.stage or ctx.job, ctx.job, ctx.step, view_width(bufnr), live)
-  render.apply(state.header_buf, header)
-  state.header_items = header.items
-  for hwin in pairs(header_wins) do
-    if vim.api.nvim_win_is_valid(hwin) and vim.api.nvim_win_get_buf(hwin) == state.header_buf then
-      vim.api.nvim_win_set_height(hwin, #header.lines)
-    end
-  end
+  local width = view_width(bufnr)
+  local stage = ctx.stage or ctx.job
+  local header = render.render_log_header(ctx.run, stage, ctx.job, ctx.step, width, live)
+  render.replace(bufnr, header, 0, state.head_count)
+  state.head_count = #header.lines
+  state.items = header.items
+  -- The header may have changed height (e.g. the Cancel line went away)
+  update_pinned(bufnr, header)
 end
-
-local function close_header_win(hwin)
-  header_wins[hwin] = nil
-  if vim.api.nvim_win_is_valid(hwin) and not pcall(vim.api.nvim_win_close, hwin, true) then
-    -- It is the last window left: keep the window, drop the header
-    vim.wo[hwin].winfixbuf = false
-    vim.api.nvim_win_set_buf(hwin, vim.api.nvim_create_buf(true, false))
-  end
-end
-
--- Pin a header above each window showing a log, and close the headers whose log
--- window was closed or switched to another buffer
-local function sync_headers()
-  for hwin, lwin in pairs(header_wins) do
-    local owner = vim.api.nvim_win_is_valid(lwin) and views[vim.api.nvim_win_get_buf(lwin)]
-    if not (vim.api.nvim_win_is_valid(hwin) and owner and owner.header_buf == vim.api.nvim_win_get_buf(hwin)) then
-      close_header_win(hwin)
-    end
-  end
-  local pinned = {}
-  for _, lwin in pairs(header_wins) do
-    pinned[lwin] = true
-  end
-  for bufnr, state in pairs(views) do
-    if state.header_buf then
-      for _, win in ipairs(windows_of(bufnr)) do
-        -- Floating windows have no room above them for a split
-        if not pinned[win] and vim.api.nvim_win_get_config(win).relative == "" then
-          local height = vim.api.nvim_buf_line_count(state.header_buf)
-          local hwin = vim.api.nvim_open_win(state.header_buf, false, { split = "above", win = win, height = height })
-          for option, value in pairs(header_win_options) do
-            vim.wo[hwin][option] = value
-          end
-          header_wins[hwin] = win
-        end
-      end
-    end
-  end
-end
-
-local sync_pending = false
-local function schedule_sync()
-  if not sync_pending then
-    sync_pending = true
-    vim.schedule(function()
-      sync_pending = false
-      sync_headers()
-    end)
-  end
-end
-
-vim.api.nvim_create_autocmd({ "BufWinEnter", "BufWinLeave", "WinClosed" }, {
-  group = vim.api.nvim_create_augroup("workhorse_builds_log_header", { clear = true }),
-  callback = schedule_sync,
-})
 
 -- A finished step's log stops polling, unless live watching waits for the next step
 local function keep_polling(bufnr, done)
@@ -522,10 +618,9 @@ local function append_log(bufnr, opts, done)
     render_header(bufnr)
     if #lines > 0 then
       if ctx.loaded == 0 then
-        render.apply(bufnr, render.render_log(lines))
-        state.items = {} -- log lines carry no items
-        -- Live watching starts on the tail (and keeps following it); otherwise on the top
-        local target = live and vim.api.nvim_buf_line_count(bufnr) or 1
+        render.replace(bufnr, render.render_log(lines), state.head_count, -1)
+        -- Live watching starts on the tail (and keeps following it); otherwise on the first log line
+        local target = live and vim.api.nvim_buf_line_count(bufnr) or state.head_count + 1
         for _, win in ipairs(windows_of(bufnr)) do
           vim.api.nvim_win_set_cursor(win, { target, 0 })
         end
@@ -540,8 +635,7 @@ local function append_log(bufnr, opts, done)
         end
       end
     elseif ctx.loaded == 0 then
-      render.apply(bufnr, render.render_log({ done and "(empty log)" or "Waiting for log..." }))
-      state.items = {}
+      render.replace(bufnr, render.render_log({ done and "(empty log)" or "Waiting for log..." }), state.head_count, -1)
     end
     set_polling(bufnr, keep_polling(bufnr, done))
   end, { start_line = ctx.loaded + 1, silent = opts and opts.polling })
@@ -599,8 +693,7 @@ local function current_item(bufnr)
     return nil
   end
   local lnum = vim.api.nvim_win_get_cursor(0)[1]
-  local items = vim.api.nvim_get_current_buf() == state.header_buf and state.header_items or state.items
-  return items and items[lnum]
+  return state.items and state.items[lnum]
 end
 
 local function select_item(bufnr)
@@ -672,9 +765,8 @@ local function browser_url(bufnr)
   return run_url .. "&view=logs&j=" .. record.id
 end
 
--- Keymaps of view `bufnr`, set on `target` (the view's buffer, or its log header)
-local function set_keymaps(target, bufnr)
-  local opts = { buffer = target, silent = true }
+local function set_keymaps(bufnr)
+  local opts = { buffer = bufnr, silent = true }
   -- Enter and Space both activate: toggle a stage/job, open a step's log, follow a header link
   vim.keymap.set("n", "<CR>", function()
     select_item(bufnr)
@@ -705,18 +797,12 @@ local function set_keymaps(target, bufnr)
     open_url(browser_url(bufnr))
   end, opts)
   vim.keymap.set("n", "q", function()
-    -- Close the pinned header first, so the log window falls back to the previous buffer
-    for hwin in pairs(header_wins) do
-      if vim.api.nvim_win_is_valid(hwin) and vim.api.nvim_win_get_buf(hwin) == views[bufnr].header_buf then
-        close_header_win(hwin)
-      end
-    end
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end, opts)
 end
 
 local function setup_buffer(bufnr)
-  set_keymaps(bufnr, bufnr)
+  set_keymaps(bufnr)
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = bufnr,
     once = true,
@@ -739,23 +825,17 @@ local function setup_buffer(bufnr)
   })
 end
 
--- Scratch buffer holding a log view's header, with the view's keymaps
-local function create_header_buf(bufnr)
+-- Scratch buffer holding the copy of a view's header pinned while scrolling
+local function create_header_buf()
   local header_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[header_buf].filetype = "workhorse-build"
   vim.bo[header_buf].modifiable = false
-  set_keymaps(header_buf, bufnr)
   return header_buf
 end
 
 -- Open (or switch to) the buffer for a view and (re)load it
 -- `focus` is the id of the record/run to put the cursor on
 local function open_view(key, name, kind, ctx, focus)
-  -- From a log header, open the view in the log window below it
-  local below = header_wins[vim.api.nvim_get_current_win()]
-  if below and vim.api.nvim_win_is_valid(below) then
-    vim.api.nvim_set_current_win(below)
-  end
   local existing = buffers_by_key[key]
   if existing and vim.api.nvim_buf_is_valid(existing) then
     vim.api.nvim_set_current_buf(existing)
@@ -783,9 +863,10 @@ local function open_view(key, name, kind, ctx, focus)
   buffers_by_key[key] = bufnr
   setup_buffer(bufnr)
 
+  views[bufnr].header_buf = create_header_buf()
   vim.api.nvim_set_current_buf(bufnr)
   if kind == "log" then
-    views[bufnr].header_buf = create_header_buf(bufnr)
+    views[bufnr].head_count = 0
     render_header(bufnr)
   end
   loaders[kind](bufnr)
@@ -984,6 +1065,24 @@ function M.cancel(bufnr)
       M.refresh(bufnr)
     end
   end)
+end
+
+-- Number column of a pinned header: the numbers the log window shows on those lines
+function M._pinned_number()
+  -- The statuscolumn is evaluated with the window being drawn as the current one
+  local float = vim.api.nvim_get_current_win()
+  for win, f in pairs(pinned) do
+    if f == float and vim.api.nvim_win_is_valid(win) then
+      local lnum = vim.v.lnum
+      local number = lnum
+      if vim.wo[win].relativenumber then
+        local cursor = vim.api.nvim_win_get_cursor(win)[1]
+        number = (cursor == lnum and vim.wo[win].number) and lnum or math.abs(cursor - lnum)
+      end
+      return "%#LineNrAbove#" .. string.format("%" .. (vim.wo[float].numberwidth - 1) .. "d ", number)
+    end
+  end
+  return ""
 end
 
 function M.is_build_buffer(bufnr)

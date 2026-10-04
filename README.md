@@ -375,8 +375,12 @@ the run tree:
       ▸  Build and test                                                              5m 51s
 ```
 
-In the log view the header (down to the step) sits in its own window pinned above the log,
-so it needs no separator and stays visible while you scroll.
+In the log view the header goes down to the step. In every view the header stays visible while
+you scroll: once its lines leave the window, a copy of it is pinned over the top of the window
+(like nvim-treesitter-context), with the same line numbers the buffer shows, and the cursor never
+hides under it. The pinned copy is not clickable: `gg` brings back the real header lines and their
+links, and the view keymaps (`-`, `gw`, live watching, cancel) work from anywhere in the buffer.
+Build windows hide the sign and fold columns to leave more room for the content.
 
 The header lines are links: `<CR>` on the pipeline name opens the runs list, and on the run,
 stage or job line it opens the run tree with that line expanded into view and the cursor on it.
@@ -389,8 +393,6 @@ stage or job line it opens the run tree with that line expanded into view and th
   `▾` expanded). On a step it opens the log. Steps that have not started yet are dimmed.
   Collapsing a stage remembers which of its jobs were open.
 - **Log**: the step's log, with `##[error]`, `##[warning]` and `##[section]` lines highlighted.
-  Its header is pinned in a small split above the log, so it stays visible while you scroll;
-  the header's links and keymaps work from that split too.
 
 Run lines are colored per section through highlight groups you can override:
 `WorkhorseBuildBranch` and `WorkhorseBuildDate` (stronger), and `WorkhorseBuildAuthor` and
