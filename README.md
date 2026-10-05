@@ -481,7 +481,7 @@ offers the tags of the VMs of the environment in the matching `environment_name`
 when it names none), with its default (e.g. `-`) first. Tags are a comma-separated list, each item
 completed on its own; the hint on the right says which environment the tags come from.
 
-`<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
+`<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation (`<CR>` accepts it), then opens its run
 tree. Values are checked first (required, allowed values, booleans and numbers), and only
 values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form, and so
 does leaving the floating form for another window (e.g. `<C-h>`).
@@ -491,7 +491,7 @@ Runtime parameters are only read from Azure Repos Git repositories.
 
 The run tree and log headers of a running build show a `Cancel build` line. `<CR>` on it,
 `<leader>wx` (on the runs list: for the run under the cursor) or `:Workhorse builds cancel`
-cancels the run after a confirmation. The line shows `Cancelling…` until the run stops.
+cancels the run after a confirmation (`<CR>` accepts it). The line shows `Cancelling…` until the run stops.
 
 Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`)
 and `<leader>wB` skips the picker and reopens the last opened pipeline

@@ -596,7 +596,7 @@ function M.submit(bufnr)
     short_branch(opts.branch),
     changed > 0 and (" with " .. changed .. " changed value" .. (changed == 1 and "" or "s")) or ""
   )
-  if vim.fn.confirm(prompt, "&Run\n&Cancel", 2) ~= 1 then
+  if vim.fn.confirm(prompt, "&Run\n&Cancel", 1) ~= 1 then
     return
   end
 

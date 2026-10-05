@@ -1062,7 +1062,7 @@ function M.cancel(bufnr)
     return
   end
   local prompt = "Cancel run #" .. (run.build_number or run.id) .. " of " .. (run.definition_name or "this pipeline") .. "?"
-  if vim.fn.confirm(prompt, "&Cancel build\n&Keep running", 2) ~= 1 then
+  if vim.fn.confirm(prompt, "&Cancel build\n&Keep running", 1) ~= 1 then
     return
   end
   builds_api.cancel_build(run.id, function(updated, err)
