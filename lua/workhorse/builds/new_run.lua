@@ -107,6 +107,37 @@ local function variable_by_name(form, name)
   end
 end
 
+-- Deployment environment fields, by name: "<prefix>environment_name" picks an environment,
+-- "<prefix>environment_tags" filters its VMs by tag (e.g. sql_environment_name/_tags)
+local function env_field(name)
+  local prefix = name:match("^(.-)environment_name$")
+  if prefix then
+    return "name", prefix
+  end
+  prefix = name:match("^(.-)environment_tags$")
+  if prefix then
+    return "tags", prefix
+  end
+end
+
+local function environment_by_name(form, name)
+  for _, env in ipairs(form.environments or {}) do
+    if env.name == name then
+      return env
+    end
+  end
+end
+
+-- Environment named by the "<prefix>environment_name" field next to a tags field, if known
+local function sibling_environment(form, parsed, section, prefix)
+  local key = prefix .. "environment_name"
+  local value = parsed[section][key]
+  if value == nil then
+    value = parsed.params[key] or parsed.variables[key]
+  end
+  return value and environment_by_name(form, value)
+end
+
 -- Right-hand hint of a parameter: its type, allowed values and whether it is required
 local function param_hint(p)
   local parts = { p.type }
@@ -132,7 +163,17 @@ local function decorate(bufnr)
   end
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local parsed = form.environments and M.parse_lines(lines)
   local section
+  -- Whose tags a tags field offers: its environment's, or all of them
+  local function tags_hint(name)
+    local kind, prefix = env_field(name)
+    if not parsed or kind ~= "tags" then
+      return nil
+    end
+    local env = sibling_environment(form, parsed, section == VARIABLES and "variables" or "params", prefix)
+    return { "  · tags of " .. (env and env.name or "any environment"), "WorkhorseRunHint" }
+  end
   for lnum, line in ipairs(lines) do
     local row = lnum - 1
     if lnum == 1 and line:match("^# ") then
@@ -149,8 +190,12 @@ local function decorate(bufnr)
         local name = vim.trim(key)
         local p = section == PARAMETERS and param_by_name(form, name)
         local v = section == VARIABLES and variable_by_name(form, name)
+        local hint = tags_hint(name)
         if p then
           local mark = { virt_text = param_hint(p) }
+          if hint then
+            table.insert(mark.virt_text, 2, hint)
+          end
           if p.display_name and p.display_name ~= p.name then
             mark.virt_lines = { { { p.display_name, "WorkhorseRunHint" } } }
             mark.virt_lines_above = true
@@ -158,6 +203,8 @@ local function decorate(bufnr)
           vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, mark)
         elseif v and v.secret then
           vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { virt_text = { { "  secret", "WorkhorseRunHint" } } })
+        elseif v and hint then
+          vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { virt_text = { hint } })
         elseif not section and name:lower() == "branch" and form.definition.repository.name then
           vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
             virt_text = { { "  " .. form.definition.repository.name, "WorkhorseRunHint" } },
@@ -170,24 +217,62 @@ end
 
 -- Completion ------------------------------------------------------------------
 
--- Candidates for the field on line `lnum`: branches, or a parameter's allowed values
-local function candidates(bufnr, lnum)
+-- Tags offered for a tags field: those of its environment (all of them when it names none),
+-- minus the ones already listed before the last item, with the field's default (e.g. "-",
+-- no filter) first
+local function tag_choices(form, parsed, section, name, prefix, default)
+  local env = sibling_environment(form, parsed, section, prefix)
+  local listed = {}
+  local items = vim.split(parsed[section][name], ",", { trimempty = false })
+  for i = 1, #items - 1 do
+    listed[vim.trim(items[i])] = true
+  end
+  local result = {}
+  if default and default ~= "" then
+    table.insert(result, default)
+    listed[default] = true
+  end
+  for _, tag in ipairs(env and env.tags or form.all_tags) do
+    if not listed[tag] then
+      table.insert(result, tag)
+    end
+  end
+  return result
+end
+
+-- Choices of the field on line `lnum`: branches, a parameter's allowed values, environments
+-- or their tags; nil for a free-text field (or one whose choices are still loading). The
+-- second result is true for a comma-separated list (tags), completed one item at a time
+local function field_choices(bufnr, lnum)
   local form = forms[bufnr]
   local parsed = M.parse_lines(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
   if parsed.lnums.branch == lnum then
-    return form.branches or {}
+    return form.branches
   end
-  for name in pairs(parsed.params) do
-    if parsed.lnums["params:" .. name] == lnum then
-      local p = param_by_name(form, name)
-      if p and p.values then
-        return vim.tbl_map(display_value, p.values)
-      elseif p and p.type == "boolean" then
-        return { "true", "false" }
+  for _, section in ipairs({ "params", "variables" }) do
+    for name in pairs(parsed[section]) do
+      if parsed.lnums[section .. ":" .. name] == lnum then
+        local p = section == "params" and param_by_name(form, name)
+        if p and p.values then
+          return vim.tbl_map(display_value, p.values)
+        elseif p and p.type == "boolean" then
+          return { "true", "false" }
+        end
+        local kind, prefix = env_field(name)
+        if not kind or not form.environments then
+          return nil
+        elseif kind == "name" then
+          return vim.tbl_map(function(env)
+            return env.name
+          end, form.environments)
+        end
+        local v = not p and variable_by_name(form, name)
+        local default = p and display_value(p.default) or (v and v.value)
+        return tag_choices(form, parsed, section, name, prefix, default), true
       end
     end
   end
-  return {}
+  return nil
 end
 
 --- omnifunc of the form (<C-x><C-o> on the branch and on parameter lines)
@@ -200,13 +285,23 @@ function M.omnifunc(findstart, base)
     if not colon or not forms[bufnr] then
       return -3
     end
-    return colon + #(line:sub(colon + 1):match("^%s*"))
+    local start = colon + #(line:sub(colon + 1):match("^%s*"))
+    local _, list = field_choices(bufnr, lnum)
+    if list then
+      -- Complete the item after the last comma before the cursor
+      local before = line:sub(start + 1, vim.api.nvim_win_get_cursor(0)[2])
+      local after_comma = before:match(".*,()")
+      if after_comma then
+        start = start + after_comma - 1 + #(before:sub(after_comma):match("^%s*"))
+      end
+    end
+    return start
   end
   -- Values starting with the text, then containing it, then fuzzy matches (best first, e.g.
   -- "fealog" for "feature/login-page")
   local prefix, rest, seen = {}, {}, {}
   local query = base:lower()
-  local words = candidates(bufnr, lnum)
+  local words = field_choices(bufnr, lnum) or {}
   for _, word in ipairs(words) do
     local lower = word:lower()
     if lower:find(query, 1, true) == 1 then
@@ -228,29 +323,13 @@ function M.omnifunc(findstart, base)
   return prefix
 end
 
--- Whether line `lnum` is the branch (once the repository's branches are loaded) or a
--- parameter with allowed values (or a boolean)
-local function has_choices(bufnr, lnum)
-  local parsed = M.parse_lines(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
-  if parsed.lnums.branch == lnum then
-    return forms[bufnr].branches ~= nil
-  end
-  for name in pairs(parsed.params) do
-    if parsed.lnums["params:" .. name] == lnum then
-      local p = param_by_name(forms[bufnr], name)
-      return p ~= nil and (p.values ~= nil or p.type == "boolean")
-    end
-  end
-  return false
-end
-
 --- Choices matching the value typed before the cursor of the current window, for a field
 --- with choices: { start = 0-based column of the value, base = typed text, matches = {...} }
 --- or nil (another buffer, a free-text field, the cursor before the value)
 function M.choice_completion()
   local bufnr = vim.api.nvim_get_current_buf()
   local cursor = vim.api.nvim_win_get_cursor(0)
-  if not forms[bufnr] or not has_choices(bufnr, cursor[1]) then
+  if not forms[bufnr] or not field_choices(bufnr, cursor[1]) then
     return nil
   end
   local start = M.omnifunc(1, "")
@@ -565,6 +644,41 @@ local function load_params(definition, branch, callback)
   end)
 end
 
+-- Fetch the deployment environments and their VM tags (once per form) when it has an
+-- environment name or tags field
+local function load_environments(bufnr)
+  local form = forms[bufnr]
+  if not form or form.environments or form.loading_environments then
+    return
+  end
+  local needed = false
+  for _, field in ipairs(vim.list_extend(vim.list_slice(form.params), form.definition.variables)) do
+    needed = needed or env_field(field.name) ~= nil
+  end
+  if not needed then
+    return
+  end
+  form.loading_environments = true
+  builds_api.list_environments(function(envs)
+    form.loading_environments = false
+    if not envs or forms[bufnr] ~= form then
+      return
+    end
+    local all = {}
+    for _, env in ipairs(envs) do
+      for _, tag in ipairs(env.tags) do
+        all[tag] = true
+      end
+    end
+    form.all_tags = vim.tbl_keys(all)
+    table.sort(form.all_tags, function(a, b)
+      return a:lower() < b:lower()
+    end)
+    form.environments = envs
+    decorate(bufnr)
+  end)
+end
+
 -- Re-read the parameters for the branch typed in the form, keeping the values entered
 -- for parameters and variables that still exist
 function M.reload(bufnr)
@@ -591,6 +705,7 @@ function M.reload(bufnr)
     local cursor = vim.fn.win_findbuf(bufnr)[1] and vim.api.nvim_win_get_cursor(vim.fn.win_findbuf(bufnr)[1])
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, build_lines(form, values))
     decorate(bufnr)
+    load_environments(bufnr)
     if cursor then
       local win = vim.fn.win_findbuf(bufnr)[1]
       vim.api.nvim_win_set_cursor(win, { math.min(cursor[1], vim.api.nvim_buf_line_count(bufnr)), cursor[2] })
@@ -723,6 +838,7 @@ function M.open(definition_id, definition_name)
       end
       -- Start on the branch value
       vim.api.nvim_win_set_cursor(0, { 2, #vim.api.nvim_buf_get_lines(bufnr, 1, 2, false)[1] })
+      load_environments(bufnr)
 
       if definition.repository.type == "TfsGit" and definition.repository.id then
         builds_api.list_branches(definition.repository.id, function(branches)

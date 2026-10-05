@@ -165,6 +165,67 @@ function M.list_branches(repository_id, callback)
   })
 end
 
+local function sort_ci(list)
+  table.sort(list, function(a, b)
+    return a:lower() < b:lower()
+  end)
+  return list
+end
+
+-- Deployment environments of the project with the tags of their resources (VMs):
+-- callback({ { name, tags = { "WEB", ... } } }) sorted by name, environments sharing a
+-- name merged
+function M.list_environments(callback)
+  local base = "/" .. config.get().project .. "/_apis/distributedtask/environments"
+  client.get(base .. "?$top=1000&api-version=7.1-preview.1", {
+    silent = true,
+    on_success = function(data)
+      local envs = data and data.value or {}
+      local by_name, pending = {}, #envs
+      local function done()
+        local result = {}
+        for name, tags in pairs(by_name) do
+          table.insert(result, { name = name, tags = sort_ci(vim.tbl_keys(tags)) })
+        end
+        table.sort(result, function(a, b)
+          return a.name:lower() < b.name:lower()
+        end)
+        callback(result)
+      end
+      if pending == 0 then
+        return done()
+      end
+      for _, env in ipairs(envs) do
+        by_name[env.name] = by_name[env.name] or {}
+        -- One request per environment: the list does not include the resources
+        client.get(base .. "/" .. env.id .. "?expands=resourceReferences&api-version=7.1-preview.1", {
+          silent = true,
+          on_success = function(detail)
+            for _, resource in ipairs(detail and detail.resources or {}) do
+              for _, tag in ipairs(resource.tags or {}) do
+                by_name[env.name][tag] = true
+              end
+            end
+            pending = pending - 1
+            if pending == 0 then
+              done()
+            end
+          end,
+          on_error = function()
+            pending = pending - 1
+            if pending == 0 then
+              done()
+            end
+          end,
+        })
+      end
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Queue a run of a definition. opts: { branch = "refs/heads/...", variables = { name = value },
 -- parameters = { name = value } } (parameters are the YAML runtime parameters)
 function M.queue_build(definition_id, opts, callback)

@@ -472,6 +472,15 @@ choices come from a blink.cmp source (only it runs on those fields, the usual so
 else, unless `sources.per_filetype["workhorse-run"]` is configured, which it then adds to), and
 blink.cmp's own keymaps and selection settings apply; otherwise Neovim's completion menu is used.
 
+Deployment environment fields get their choices from the project's
+[Environments](https://learn.microsoft.com/azure/devops/pipelines/process/environments), fetched
+when the form opens: a parameter or variable named `environment_name` (or
+`<prefix>environment_name`, e.g. `sql_environment_name`) offers the environment names (unless it
+declares its own allowed values), and one named `environment_tags` (or `<prefix>environment_tags`)
+offers the tags of the VMs of the environment in the matching `environment_name` field (all tags
+when it names none), with its default (e.g. `-`) first. Tags are a comma-separated list, each item
+completed on its own; the hint on the right says which environment the tags come from.
+
 `<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
 tree. Values are checked first (required, allowed values, booleans and numbers), and only
 values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form.
