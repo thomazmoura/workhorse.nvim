@@ -27,8 +27,10 @@ function Source:get_completions(context, callback)
       table.insert(items, {
         label = word,
         filterText = word,
-        -- Keep the form's order (values starting with the text first)
+        -- Keep the form's order (starting with the text, containing it, then fuzzy): blink.cmp
+        -- sorts by its own score first, which these offsets outweigh
         sortText = ("%04d"):format(i),
+        score_offset = (#completion.matches - i + 1) * 1000,
         kind = require("blink.cmp.types").CompletionItemKind.EnumMember,
         textEdit = {
           newText = word,

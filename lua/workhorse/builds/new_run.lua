@@ -1,7 +1,7 @@
 -- "Run new build" form: a buffer with the branch, the YAML runtime parameters and
 -- the variables settable at queue time of a pipeline, one "name: value" line each.
--- <Tab>/<S-Tab> move between the values, typing in a field with choices shows them
--- (<C-x><C-o> also completes branches), and <CR>, <leader><leader> (or :w) queues the run after a confirmation.
+-- <Tab>/<S-Tab> move between the values, typing in the branch or a field with choices
+-- shows them, and <CR>, <leader><leader> (or :w) queues the run after a confirmation.
 -- Only values that differ from the pipeline's defaults are sent.
 local M = {}
 
@@ -202,22 +202,39 @@ function M.omnifunc(findstart, base)
     end
     return colon + #(line:sub(colon + 1):match("^%s*"))
   end
-  local prefix, rest = {}, {}
+  -- Values starting with the text, then containing it, then fuzzy matches (best first, e.g.
+  -- "fealog" for "feature/login-page")
+  local prefix, rest, seen = {}, {}, {}
   local query = base:lower()
-  for _, word in ipairs(candidates(bufnr, lnum)) do
+  local words = candidates(bufnr, lnum)
+  for _, word in ipairs(words) do
     local lower = word:lower()
     if lower:find(query, 1, true) == 1 then
       table.insert(prefix, word)
+      seen[word] = true
     elseif lower:find(query, 1, true) then
       table.insert(rest, word)
+      seen[word] = true
     end
   end
-  return vim.list_extend(prefix, rest)
+  vim.list_extend(prefix, rest)
+  if query ~= "" then
+    for _, word in ipairs(vim.fn.matchfuzzy(words, base)) do
+      if not seen[word] then
+        table.insert(prefix, word)
+      end
+    end
+  end
+  return prefix
 end
 
--- Whether line `lnum` is a parameter with allowed values (or a boolean)
+-- Whether line `lnum` is the branch (once the repository's branches are loaded) or a
+-- parameter with allowed values (or a boolean)
 local function has_choices(bufnr, lnum)
   local parsed = M.parse_lines(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  if parsed.lnums.branch == lnum then
+    return forms[bufnr].branches ~= nil
+  end
   for name in pairs(parsed.params) do
     if parsed.lnums["params:" .. name] == lnum then
       local p = param_by_name(forms[bufnr], name)
@@ -258,7 +275,7 @@ local function use_blink()
 end
 
 -- Native menu: open (or narrow) it while typing the value of a field with choices, so they
--- show up like a dropdown; branches still need <C-x><C-o>
+-- show up like a dropdown
 local function autocomplete(bufnr)
   local form = forms[bufnr]
   if not form or form.engine ~= "native" or vim.fn.mode() ~= "i" then
