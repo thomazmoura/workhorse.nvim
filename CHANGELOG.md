@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [e963066] - 2026-10-05
+
+### Changed
+- Typing the branch in the "Run new build" form opens a menu of the repository's branches, like the parameters with allowed values; `<C-x><C-o>` is no longer needed
+- Form choices also include fuzzy matches after the values starting with or containing the text (`fealog` finds `feature/login-page`), and the blink.cmp source keeps that order
+
 ## [72ea9aa] - 2026-10-04
 
 ### Added
