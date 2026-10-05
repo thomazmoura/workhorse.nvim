@@ -483,7 +483,8 @@ completed on its own; the hint on the right says which environment the tags come
 
 `<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation, then opens its run
 tree. Values are checked first (required, allowed values, booleans and numbers), and only
-values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form.
+values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form, and so
+does leaving the floating form for another window (e.g. `<C-h>`).
 Runtime parameters are only read from Azure Repos Git repositories.
 
 ### Cancelling a build

@@ -788,6 +788,20 @@ local function create_buffer(form)
       autocomplete(bufnr)
     end,
   })
+  -- A float left behind (e.g. <C-h> to another window) would linger over it: close the form.
+  -- Completion menus and the confirmation prompt keep the focus, so they don't trigger this
+  vim.api.nvim_create_autocmd("WinLeave", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      if is_float(vim.api.nvim_get_current_win()) then
+        -- Windows can't be closed while leaving one
+        vim.schedule(function()
+          close(bufnr)
+        end)
+      end
+    end,
+  })
   vim.api.nvim_create_autocmd("VimResized", {
     group = group,
     callback = function()
