@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [9e2f47a] - 2026-10-05
+
+### Added
+- Create YAML pipelines: `:Workhorse pipelines new` opens a form (like "Run new build") with the name (defaults to the repository's), folder, repository, branch, YAML file and agent queue. Typing in a field offers the existing pipeline folders, the project's Git repositories, the repository's branches, the `.yml`/`.yaml` files of the repository at the typed branch (the local git repository's until they load) and the agent queues; picking a repository fills in its default branch. `<CR>`, `<leader><leader>` or `:w` creates the pipeline after a confirmation, with its CI trigger following the YAML file, then opens its runs list
+
+### Changed
+- The completion, navigation and window code of the "Run new build" form moved to `builds/form.lua`, shared by both forms
+
 ## [69c3ee2] - 2026-10-05
 
 ### Changed
