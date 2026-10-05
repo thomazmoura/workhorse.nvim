@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [69c3ee2] - 2026-10-05
+
+### Changed
+- `<CR>` accepts the confirmation when queuing a run from the "Run new build" form and when cancelling a build (it used to pick Cancel / Keep running); `<Esc>` still aborts
+
 ## [e963066] - 2026-10-05
 
 ### Changed
