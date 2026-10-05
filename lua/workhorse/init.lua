@@ -169,6 +169,11 @@ function M.new_build(definition_id)
   require("workhorse.builds").new_run(definition_id)
 end
 
+-- Open the "New pipeline" form to create a YAML pipeline
+function M.new_pipeline()
+  require("workhorse.builds").new_pipeline()
+end
+
 -- Cancel the running build of the current build buffer
 function M.cancel_build()
   require("workhorse.builds").cancel()

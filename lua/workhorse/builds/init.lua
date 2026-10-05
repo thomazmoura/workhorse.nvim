@@ -1044,6 +1044,14 @@ function M.new_run(definition_id, bufnr)
   require("workhorse.builds.new_run").open(definition_id)
 end
 
+-- Open the "New pipeline" form (creates a YAML pipeline)
+function M.new_pipeline()
+  if not check_config() then
+    return
+  end
+  require("workhorse.builds.new_definition").open()
+end
+
 -- Cancel the run of a build view (on the runs list: the run under the cursor), after confirming
 function M.cancel(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()

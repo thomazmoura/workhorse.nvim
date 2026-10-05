@@ -1,7 +1,8 @@
--- blink.cmp source for the "Run new build" form: the choices of a parameter with allowed
--- values (or a boolean). The form asks for them on every keystroke, matched against the
--- whole value typed so far (blink.cmp alone would match only its last word, e.g. "C" of
--- "DMZ C"), and only this source runs on those fields, so buffer words and snippets stay out.
+-- blink.cmp source for the build forms ("Run new build", "New pipeline"): the choices of a
+-- field (a branch, a parameter with allowed values...). The form asks for them on every
+-- keystroke, matched against the whole value typed so far (blink.cmp alone would match only
+-- its last word, e.g. "C" of "DMZ C"), and only this source runs on those fields, so buffer
+-- words and snippets stay out.
 local M = {}
 
 local ID = "workhorse_run"
@@ -15,11 +16,11 @@ function M.new()
 end
 
 function Source:enabled()
-  return require("workhorse.builds.new_run").choice_completion() ~= nil
+  return require("workhorse.builds.form").choice_completion() ~= nil
 end
 
 function Source:get_completions(context, callback)
-  local completion = require("workhorse.builds.new_run").choice_completion()
+  local completion = require("workhorse.builds.form").choice_completion()
   local items = {}
   if completion then
     local line, col = context.cursor[1] - 1, context.cursor[2]
@@ -58,7 +59,7 @@ function M.register()
   if per_filetype[FILETYPE] == nil then
     -- Only the choices on fields that have them, the usual sources elsewhere
     per_filetype[FILETYPE] = function()
-      if require("workhorse.builds.new_run").choice_completion() then
+      if require("workhorse.builds.form").choice_completion() then
         return { ID }
       end
       return { inherit_defaults = true }

@@ -15,7 +15,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Side panels** - Edit work item description and tags in dedicated buffers
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
-- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters) and cancel running ones
+- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 
 ## Requirements
 
@@ -221,6 +221,7 @@ In this mode:
 | `:Workhorse resume-build` | Reopen the runs of the last opened pipeline (alias: `:Workhorse builds resume`) |
 | `:Workhorse builds new [id]` | Run a new build of a pipeline (default: the pipeline of the current build buffer) |
 | `:Workhorse builds cancel` | Cancel the running build of the current build buffer |
+| `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
 
 ### Buffer Keymaps
 
@@ -486,6 +487,39 @@ tree. Values are checked first (required, allowed values, booleans and numbers),
 values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form, and so
 does leaving the floating form for another window (e.g. `<C-h>`).
 Runtime parameters are only read from Azure Repos Git repositories.
+
+### Creating a pipeline
+
+`:Workhorse pipelines new` opens a form, like the "Run new build" one, to create a YAML pipeline
+from a file of an Azure Repos Git repository of the project:
+
+```
+# New pipeline
+Name:                                                defaults to the repository name
+Folder: \                                            \ is the root
+Repository: Infra
+Branch: main                                         default branch of Infra
+YAML file: pipelines/deploy.yml                      files of Infra@main
+Queue: Default                                       agent queue for jobs without a pool, empty for none
+```
+
+- **Name**: the pipeline's name; left empty, the repository's name (as the web UI does).
+- **Folder**: where the pipeline goes, `\Infra\Web` (or `Infra/Web`) for a subfolder; offers
+  the folders of the existing pipelines.
+- **Repository**: offers the project's Git repositories. Picking one puts its default branch in
+  **Branch**, unless you typed another branch.
+- **Branch**: the pipeline's default branch, offering the repository's branches.
+- **YAML file**: any path, offering the `.yml`/`.yaml` files of the repository at the typed
+  branch (fetched when you first type in the field, again for each branch). Until they load, or
+  when the repository or branch is unknown, the YAML files of the git repository of Neovim's
+  current directory are offered instead; the hint on the right says which ones. A path not in the
+  repository's list is flagged, but still accepted.
+- **Queue**: the agent queue for jobs whose YAML sets no `pool:`, offering the project's queues.
+
+Completion, `<Tab>`/`<S-Tab>`, `q`/`<Esc>` and the `builds.run_form` layout work as in the "Run
+new build" form. `<CR>` (normal mode), `<leader><leader>` or `:w` creates the pipeline after a
+confirmation, then opens its (empty) runs list, where `Run new build` queues its first run. The
+pipeline's CI trigger follows the YAML file's `trigger:`.
 
 ### Cancelling a build
 

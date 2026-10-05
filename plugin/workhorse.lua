@@ -21,6 +21,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").new_build(args[3])
   elseif cmd == "builds" and args[2] == "cancel" then
     require("workhorse").cancel_build()
+  elseif cmd == "pipelines" and args[2] == "new" then
+    require("workhorse").new_pipeline()
   elseif cmd == "builds" then
     if args[2] then
       require("workhorse").open_builds(args[2])
@@ -49,6 +51,7 @@ Workhorse commands:
   :Workhorse resume-build - Reopen the last pipeline (also :Workhorse builds resume)
   :Workhorse builds new [id] - Run a new build of a pipeline (default: the current one)
   :Workhorse builds cancel - Cancel the running build of the current build buffer
+  :Workhorse pipelines new - Create a YAML pipeline
   :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
@@ -63,12 +66,17 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "apply", "builds", "live", "query", "refresh", "resume", "resume-build", "state", "test" })
+      end, { "apply", "builds", "live", "pipelines", "query", "refresh", "resume", "resume-build", "state", "test" })
     end
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
       end, { "cancel", "new", "resume" })
+    end
+    if #parts == 3 and parts[2] == "pipelines" then
+      return vim.tbl_filter(function(item)
+        return item:find(arg_lead, 1, true) == 1
+      end, { "new" })
     end
     return {}
   end,

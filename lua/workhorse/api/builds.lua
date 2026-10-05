@@ -172,6 +172,117 @@ local function sort_ci(list)
   return list
 end
 
+-- Git repositories of the project: callback({ { id, name, default_branch } }) sorted by name,
+-- disabled ones left out
+function M.list_repositories(callback)
+  client.get("/" .. config.get().project .. "/_apis/git/repositories?api-version=7.1", {
+    silent = true,
+    on_success = function(data)
+      local repos = {}
+      for _, r in ipairs(data and data.value or {}) do
+        strip_nulls(r)
+        if not r.isDisabled then
+          table.insert(repos, { id = r.id, name = r.name, default_branch = r.defaultBranch })
+        end
+      end
+      table.sort(repos, function(a, b)
+        return a.name:lower() < b.name:lower()
+      end)
+      callback(repos)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Paths (without the leading slash) of the YAML files of an Azure Repos Git repository at a
+-- branch, sorted
+function M.list_yaml_files(repository_id, branch, callback)
+  client.get("/" .. config.get().project .. "/_apis/git/repositories/" .. repository_id
+    .. "/items?scopePath=/&recursionLevel=Full"
+    .. "&versionDescriptor.version=" .. url_encode((branch:gsub("^refs/heads/", "")))
+    .. "&versionDescriptor.versionType=branch&api-version=7.1", {
+    silent = true,
+    on_success = function(data)
+      local files = {}
+      for _, item in ipairs(data and data.value or {}) do
+        local path = type(item.path) == "string" and item.path or ""
+        if item.isFolder ~= true and path:lower():match("%.ya?ml$") then
+          table.insert(files, (path:gsub("^/", "")))
+        end
+      end
+      callback(sort_ci(files))
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Agent queues of the project: callback({ { id, name } }) sorted by name
+function M.list_queues(callback)
+  client.get("/" .. config.get().project .. "/_apis/distributedtask/queues?api-version=7.1-preview.1", {
+    silent = true,
+    on_success = function(data)
+      local queues = {}
+      for _, q in ipairs(data and data.value or {}) do
+        table.insert(queues, { id = q.id, name = q.name })
+      end
+      table.sort(queues, function(a, b)
+        return a.name:lower() < b.name:lower()
+      end)
+      callback(queues)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Create a YAML pipeline (build definition). opts: { name, folder = "\\...", repository =
+-- { id, name }, branch = "refs/heads/...", yaml_file, queue_id (optional) };
+-- callback({ id, name }) or callback(nil, err)
+function M.create_definition(opts, callback)
+  local body = {
+    name = opts.name,
+    path = opts.folder,
+    type = "build",
+    quality = "definition",
+    repository = {
+      id = opts.repository.id,
+      name = opts.repository.name,
+      type = "TfsGit",
+      defaultBranch = opts.branch,
+    },
+    -- 2 = YAML process
+    process = { type = 2, yamlFilename = opts.yaml_file },
+    -- Without a trigger in the definition the YAML's `trigger:` is ignored; settingsSourceType
+    -- 2 makes it follow the YAML file
+    triggers = {
+      {
+        triggerType = "continuousIntegration",
+        settingsSourceType = 2,
+        branchFilters = {},
+        pathFilters = {},
+        batchChanges = false,
+        maxConcurrentBuildsPerBranch = 1,
+      },
+    },
+  }
+  if opts.queue_id then
+    body.queue = { id = opts.queue_id }
+  end
+  client.post(project_path("definitions?api-version=7.1"), body, {
+    on_success = function(data)
+      callback(data and { id = data.id, name = data.name })
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Deployment environments of the project with the tags of their resources (VMs):
 -- callback({ { name, tags = { "WEB", ... } } }) sorted by name, environments sharing a
 -- name merged
