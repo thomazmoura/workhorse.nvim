@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [475234f] - 2026-10-06
+
+### Changed
+- Live watching a build stops on the first step that failed and stays on its log, instead of following the post-job/cleanup steps that keep running after the failure to the last one
+
 ## [9e2f47a] - 2026-10-05
 
 ### Added
