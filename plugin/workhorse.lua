@@ -111,6 +111,7 @@ local function setup_highlights()
     WorkhorseBuildMeta = { link = "Comment" },
     WorkhorseBuildSeparator = { link = "Comment" },
     WorkhorseBuildLive = { link = "DiagnosticOk" },
+    WorkhorseBuildRetry = { fg = "#ff8c00", ctermfg = 208 },
     WorkhorseBuildBranch = { link = "Function" },
     WorkhorseBuildDate = { link = "Constant" },
     WorkhorseBuildAuthor = { link = "NonText" },

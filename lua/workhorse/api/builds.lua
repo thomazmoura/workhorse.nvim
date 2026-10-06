@@ -19,6 +19,15 @@ local function strip_nulls(tbl)
   return tbl
 end
 
+-- Queue-time variables of a run: the Build API returns them as a JSON string
+local function decode_variables(parameters)
+  if type(parameters) ~= "string" or parameters == "" then
+    return {}
+  end
+  local ok, decoded = pcall(vim.json.decode, parameters)
+  return ok and type(decoded) == "table" and strip_nulls(decoded) or {}
+end
+
 local function map_run(b)
   strip_nulls(b)
   local trigger = b.triggerInfo or {}
@@ -38,6 +47,9 @@ local function map_run(b)
     start_time = b.startTime,
     finish_time = b.finishTime,
     url = b._links and b._links.web and b._links.web.href,
+    -- Values the run was queued with (to queue it again): YAML runtime parameters and variables
+    template_parameters = type(b.templateParameters) == "table" and strip_nulls(b.templateParameters) or {},
+    variables = decode_variables(b.parameters),
   }
 end
 
@@ -364,6 +376,23 @@ function M.cancel_build(build_id, callback)
     path = project_path("builds/" .. build_id .. "?api-version=7.1"),
     method = "PATCH",
     body = { status = "cancelling" },
+    on_success = function(data)
+      callback(data and map_run(data))
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Rerun the failed jobs of a completed run, as a new attempt of the same run (like
+-- "Rerun failed jobs" on the web); callback(run) with the run back in progress
+function M.retry_build(build_id, callback)
+  client.request({
+    path = project_path("builds/" .. build_id .. "?retry=true&api-version=7.1"),
+    method = "PATCH",
+    -- vim.json.encode({}) gives "[]"; the API wants an (empty) object
+    raw_body = "{}",
     on_success = function(data)
       callback(data and map_run(data))
     end,

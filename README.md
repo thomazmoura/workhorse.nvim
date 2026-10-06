@@ -435,6 +435,8 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wu` | Toggle live watching |
 | `<leader>wn` | Run a new build of the pipeline (see "Running a new build") |
 | `<leader>wx` | Cancel the running build (the run under the cursor on the runs list), after confirming |
+| `<leader>wr` | Run a new build pre-filled with the values of the run (see "Running a build again") |
+| `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
 | `gw` | Open the run, job or step in the browser |
 | `q` | Close the buffer |
 
@@ -522,6 +524,17 @@ Completion, `<Tab>`/`<S-Tab>`, `q`/`<Esc>` and the `builds.run_form` layout work
 new build" form. `<CR>` (normal mode), `<leader><leader>` or `:w` creates the pipeline after a
 confirmation, then opens its (empty) runs list, where `Run new build` queues its first run. The
 pipeline's CI trigger follows the YAML file's `trigger:`.
+
+### Running a build again
+
+Once a run completes, its run tree and log headers replace the `Live watching enabled/disabled`
+line with a `Run new` line. `<CR>` on it (or `<leader>wr`; on the runs list, for the run under the
+cursor) opens the "Run new build" form pre-filled with that run's branch, runtime parameters and
+queue-time variables. The parameters are read from the YAML file on that branch.
+
+A failed run also shows `Rerun failed jobs` (in orange, `WorkhorseBuildRetry`). `<CR>` on it (or
+`<leader>wf`) asks for confirmation, then starts a new attempt of the same run that reruns only
+the jobs that failed, as on the web, and watches it like a freshly queued run.
 
 ### Cancelling a build
 

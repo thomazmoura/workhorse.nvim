@@ -492,8 +492,21 @@ local spec = {
   end,
 }
 
---- Open the form to queue a run of a pipeline (build definition)
-function M.open(definition_id, definition_name)
+-- Form values ({ branch, params, variables }) of a past run, to queue it again
+local function values_of_run(run)
+  local values = { branch = short_branch(run.source_branch), params = {}, variables = {} }
+  for name, value in pairs(run.template_parameters or {}) do
+    values.params[name] = display_value(value)
+  end
+  for name, value in pairs(run.variables or {}) do
+    values.variables[name] = display_value(value)
+  end
+  return values
+end
+
+--- Open the form to queue a run of a pipeline (build definition). With `run` (a past run of
+--- it), the form starts on that run's branch and with the values it was queued with.
+function M.open(definition_id, definition_name, run)
   definition_id = tonumber(definition_id) or definition_id
   vim.notify("Workhorse: Loading pipeline " .. (definition_name or definition_id) .. "...", vim.log.levels.INFO)
   builds_api.get_definition(definition_id, function(definition, err)
@@ -502,14 +515,16 @@ function M.open(definition_id, definition_name)
       return
     end
     definition.name = definition.name or definition_name or ("Pipeline " .. definition_id)
-    load_params(definition, definition.repository.default_branch or "master", function(params, params_err)
+    local values = run and values_of_run(run)
+    local branch = run and run.source_branch or definition.repository.default_branch or "master"
+    load_params(definition, branch, function(params, params_err)
       local form = {
         definition = definition,
         params = params or {},
         params_error = params_err,
         prev = vim.api.nvim_get_current_buf(),
       }
-      local bufnr = forms.create(spec, form, "Workhorse|run|" .. definition.id, build_lines(form))
+      local bufnr = forms.create(spec, form, "Workhorse|run|" .. definition.id, build_lines(form, values))
       -- Start on the branch value
       forms.show(bufnr, { 2, #vim.api.nvim_buf_get_lines(bufnr, 1, 2, false)[1] })
       load_environments(bufnr)

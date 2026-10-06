@@ -733,6 +733,10 @@ local function select_item(bufnr)
       M.cancel(bufnr)
     elseif item.target == "new_run" then
       M.new_run(nil, bufnr)
+    elseif item.target == "run_again" then
+      M.run_again(bufnr)
+    elseif item.target == "retry" then
+      M.retry(bufnr)
     elseif item.target == state.kind then
       return
     elseif item.target == "runs" then
@@ -814,6 +818,12 @@ local function set_keymaps(bufnr)
   end, opts)
   vim.keymap.set("n", "<leader>wn", function()
     M.new_run(nil, bufnr)
+  end, opts)
+  vim.keymap.set("n", "<leader>wr", function()
+    M.run_again(bufnr)
+  end, opts)
+  vim.keymap.set("n", "<leader>wf", function()
+    M.retry(bufnr)
   end, opts)
   vim.keymap.set("n", "gw", function()
     open_url(browser_url(bufnr))
@@ -1051,6 +1061,65 @@ function M.new_run(definition_id, bufnr)
     return require("workhorse.builds.new_run").open(definition_id, name)
   end
   require("workhorse.builds.new_run").open(definition_id)
+end
+
+-- Open the "Run new build" form pre-filled with the branch and values a run was queued with
+-- (the run of build view `bufnr`, default: current buffer; on the runs list, the run under the cursor)
+function M.run_again(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  local item = state and current_item(bufnr)
+  local run = (item and item.run) or (state and state.ctx.run)
+  if not run then
+    vim.notify("Workhorse: No run under the cursor", vim.log.levels.WARN)
+    return
+  end
+  require("workhorse.builds.new_run").open(run.definition_id, run.definition_name, run)
+end
+
+-- Rerun the failed jobs of the run of build view `bufnr` (on the runs list: the run under the
+-- cursor) as a new attempt, after confirming, then watch it like a freshly queued run
+function M.retry(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  if not state then
+    return
+  end
+  local item = current_item(bufnr)
+  local run = (item and item.run) or state.ctx.run
+  if not run then
+    vim.notify("Workhorse: No run under the cursor", vim.log.levels.WARN)
+    return
+  end
+  local label = "#" .. (run.build_number or run.id)
+  if run.result ~= "failed" then
+    vim.notify("Workhorse: Run " .. label .. " has not failed", vim.log.levels.INFO)
+    return
+  end
+  if vim.fn.confirm("Rerun the failed jobs of run " .. label .. "?", "&Rerun\n&Cancel", 1) ~= 1 then
+    return
+  end
+  builds_api.retry_build(run.id, function(updated, err)
+    if err or not updated then
+      vim.notify("Workhorse: Failed to rerun failed jobs: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+    vim.notify("Workhorse: Rerunning the failed jobs of run " .. label, vim.log.levels.INFO)
+    updated.definition_name = updated.definition_name or run.definition_name
+    -- The new attempt keeps the run id: drop the cached (completed) timeline and hand the
+    -- in-progress run to every open view of it, since reopening a view keeps its context
+    cache.invalidate("build_timeline:" .. run.id)
+    for _, view in pairs(views) do
+      if view.ctx.run and view.ctx.run.id == updated.id then
+        view.ctx.run = updated
+        -- Logs re-check their step, which may run again
+        view.ctx.step_done = nil
+      end
+    end
+    if vim.api.nvim_get_current_buf() == bufnr then
+      M.open_run(updated, nil, { watch = true })
+    end
+  end)
 end
 
 -- Open the "New pipeline" form (creates a YAML pipeline)

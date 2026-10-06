@@ -150,15 +150,22 @@ local function add_header(view, definition_name, run, path, width, live)
   if not run then
     add_line(view, { { "" } }, { kind = "nav", target = "new_run" }, { { " Run new build", "WorkhorseBuildRunning" } })
   end
-  -- Live watching status of a run, right-aligned on its own line; <CR> anywhere on it toggles it
-  if run then
+  if run and builds_api.is_completed(run.status) then
+    -- A finished run offers queuing it again with the same values, and a failed one
+    -- rerunning its failed jobs
+    add_line(view, { { "" } }, { kind = "nav", target = "run_again" }, { { " Run new", "WorkhorseBuildRunning" } })
+    if run.result == "failed" then
+      add_line(view, { { "" } }, { kind = "nav", target = "retry" }, { { " Rerun failed jobs", "WorkhorseBuildRetry" } })
+    end
+  elseif run then
+    -- Live watching status of a running run, right-aligned on its own line; <CR> anywhere on it toggles it
     local status = live and { " Live watching enabled", "WorkhorseBuildLive" }
       or { " Live watching disabled", "WorkhorseBuildMeta" }
     add_line(view, { { "" } }, { kind = "nav", target = "live" }, { status })
     -- A running run offers cancelling it; <CR> on the line asks for confirmation
     if run.status == "cancelling" then
       add_line(view, { { "" } }, nil, { { " Cancelling…", "WorkhorseBuildMeta" } })
-    elseif not builds_api.is_completed(run.status) then
+    else
       add_line(view, { { "" } }, { kind = "nav", target = "cancel" }, { { " Cancel build", "WorkhorseBuildFailed" } })
     end
   end
