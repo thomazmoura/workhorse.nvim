@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [2e7b47b] - 2026-10-06
+
+### Added
+- Run a build again: once a run completes, its run tree and log headers show `Run new` in place of the live watching line. `<CR>` on it (or `<leader>wr`; on the runs list, for the run under the cursor) opens the "Run new build" form pre-filled with that run's branch, runtime parameters and queue-time variables
+- Rerun failed jobs: a failed run also shows `Rerun failed jobs` (orange, `WorkhorseBuildRetry`). `<CR>` on it (or `<leader>wf`) asks for confirmation, then starts a new attempt of the same run that reruns only the failed jobs, and watches it like a freshly queued run
+
 ## [475234f] - 2026-10-06
 
 ### Changed
