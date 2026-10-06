@@ -353,9 +353,10 @@ end
 
 -- Live watching -------------------------------------------------------------
 
--- Step with a log that started last (the running one, or the last one to finish)
-local function latest_logged_step(records)
-  local latest, latest_job
+-- Step to follow: the first one to fail (cleanup steps keep running after it),
+-- otherwise the step with a log that started last (the running one, or the last to finish)
+local function step_to_follow(records)
+  local latest, latest_job, failed, failed_job
   for _, stage in ipairs(builds_api.stages(records)) do
     for _, job in ipairs(builds_api.jobs_of_stage(records, stage)) do
       for _, step in ipairs(builds_api.steps_of_job(records, job)) do
@@ -363,18 +364,26 @@ local function latest_logged_step(records)
         if step.log and (not latest or (step.startTime or "") >= (latest.startTime or "")) then
           latest, latest_job = step, job
         end
+        -- The earliest failure wins; on ties the earlier step in order wins
+        if step.log and step.result == "failed"
+          and (not failed or (step.finishTime or "") < (failed.finishTime or "")) then
+          failed, failed_job = step, job
+        end
       end
     end
+  end
+  if failed then
+    return failed_job, failed
   end
   return latest_job, latest
 end
 
--- Switch the window showing `bufnr` to the latest step's log, unless it already
+-- Switch the window showing `bufnr` to the followed step's log, unless it already
 -- shows it. Returns true when it switched.
 local function follow_latest(bufnr, records)
   local state = views[bufnr]
   local win = windows_of(bufnr)[1]
-  local job, step = latest_logged_step(records)
+  local job, step = step_to_follow(records)
   if not win or not step or (state.kind == "log" and state.ctx.step.id == step.id) then
     return false
   end

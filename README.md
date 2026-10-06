@@ -412,8 +412,10 @@ while the buffer is hidden and stops when the run (or step) completes.
 
 Live watching follows a running build from its run tree or log view: every
 `builds.live_interval` ms (5s by default) Workhorse opens the log of the latest step that has
-one, so when a step finishes the next refresh shows the step that started after it. When the
-run completes it stays on the last step's log and stops refreshing. Logs opened while live
+one, so when a step finishes the next refresh shows the step that started after it. Once a step
+fails, it switches to the first step that failed and stays on its log, instead of following the
+cleanup steps that run after it. When the run completes it stays on the last step's log (or the
+failed one) and stops refreshing. Logs opened while live
 watching start with the cursor on the last line, so they keep following the tail. The run tree and log
 headers show `Live watching enabled` / `Live watching disabled`; `<CR>` on that line toggles
 it, as do `<leader>wu` (in build buffers) and `:Workhorse live`. The setting is global, so it
