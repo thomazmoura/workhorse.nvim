@@ -290,6 +290,45 @@ function M.update_pending_markers(bufnr)
   if next(pending_moves) then
     render.add_pending_move_markers(bufnr, pending_moves, original_columns)
   end
+
+  M.refresh_highlights(bufnr)
+end
+
+-- Rebuild the line map from the current buffer text and reapply highlights,
+-- so colors follow lines that were deleted and pasted elsewhere
+function M.refresh_highlights(bufnr)
+  local state = buffers[bufnr]
+  if not state then
+    return
+  end
+
+  local by_id = {}
+  for _, item in ipairs(state.work_items or {}) do
+    by_id[item.id] = item
+  end
+
+  local section_key = state.grouping_mode == "board_column" and "column" or "state"
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local line_map = {}
+  local current_section = nil
+
+  for i, line in ipairs(lines) do
+    local is_hdr, section = parser.is_header(line)
+    if is_hdr then
+      current_section = section
+      line_map[i] = { type = "header", [section_key] = section }
+    else
+      local parsed = parser.parse_line(line)
+      local item = parsed and parsed.id and by_id[parsed.id]
+      if item then
+        line_map[i] = { type = "item", [section_key] = current_section, item = item }
+      end
+    end
+  end
+
+  state.line_map = line_map
+  render.apply_line_highlights(bufnr, line_map)
+  render.apply_type_decorations(bufnr, line_map)
 end
 
 -- Set up keymaps for a workhorse buffer
