@@ -287,7 +287,56 @@ function M.create_definition(opts, callback)
   end
   client.post(project_path("definitions?api-version=7.1"), body, {
     on_success = function(data)
-      callback(data and { id = data.id, name = data.name })
+      callback(data and { id = data.id, name = data.name, path = data.path })
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Rename and/or move a definition. changes: { name, path = "\\..." }; callback({ id, name,
+-- path }) or callback(nil, err). Definitions have no PATCH: the whole definition is read and
+-- put back (with its revision) with only those fields changed. It is kept as decoded, without
+-- strip_nulls, so the nulls, empty objects and arrays go back as they came
+function M.update_definition(definition_id, changes, callback)
+  local path = project_path("definitions/" .. definition_id .. "?api-version=7.1")
+  client.get(path, {
+    silent = true,
+    on_success = function(data)
+      if type(data) ~= "table" then
+        callback(nil, "empty definition")
+        return
+      end
+      data.name = changes.name or data.name
+      data.path = changes.path or data.path
+      client.request({
+        path = path,
+        method = "PUT",
+        body = data,
+        silent = true,
+        on_success = function(updated)
+          callback(updated and { id = updated.id, name = updated.name, path = updated.path })
+        end,
+        on_error = function(err)
+          callback(nil, err)
+        end,
+      })
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Delete a definition (and its runs); callback(true) or callback(nil, err)
+function M.delete_definition(definition_id, callback)
+  client.request({
+    path = project_path("definitions/" .. definition_id .. "?api-version=7.1"),
+    method = "DELETE",
+    silent = true,
+    on_success = function()
+      callback(true)
     end,
     on_error = function(err)
       callback(nil, err)

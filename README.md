@@ -222,6 +222,7 @@ In this mode:
 | `:Workhorse builds new [id]` | Run a new build of a pipeline (default: the pipeline of the current build buffer) |
 | `:Workhorse builds cancel` | Cancel the running build of the current build buffer |
 | `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
+| `:Workhorse pipelines list` | Edit the pipelines as a tree of folders: move, rename, create and delete them |
 
 ### Buffer Keymaps
 
@@ -524,6 +525,43 @@ Completion, `<Tab>`/`<S-Tab>`, `q`/`<Esc>` and the `builds.run_form` layout work
 new build" form. `<CR>` (normal mode), `<leader><leader>` or `:w` creates the pipeline after a
 confirmation, then opens its (empty) runs list, where `Run new build` queues its first run. The
 pipeline's CI trigger follows the YAML file's `trigger:`.
+
+### Organizing pipelines
+
+`:Workhorse pipelines list` shows every pipeline (build definition) of the project as an editable
+tree of its folders, indented like the work item tree (`tree_indent`):
+
+```
+Apps/
+└─ #8 | Mobile
+Infra/
+└─ Web/
+└─── #40 | Deploy-Web
+└─ #12 | Build-Infra
+#7 | Root pipeline
+```
+
+A folder line ends with `/`; a line belongs to the folder line above it one level less indented.
+Edit it like any buffer — move lines around, re-indent them, rename pipelines or folders, add
+and delete lines — then save with `:w` (or `<leader><leader>`, `:Workhorse apply`). Pending
+changes show on the right: `[from \Infra]` / `[was Old name]` on moved or renamed pipelines,
+`[new]` on new ones. Saving applies them in this order:
+
+1. **Moves and renames** are applied right away, each with a notification. Renaming a folder
+   line (or typing a new one, e.g. `Infra\Web/`) moves every pipeline under it.
+2. **New pipelines** — any line without `#ID |` that does not end in `/` — open the "New
+   pipeline" form (see above) one at a time, pre-filled with the line's name and folder.
+   Creating it gives the line its `#ID |`; `q`/`<Esc>` skips it (the line stays pending).
+3. **Deletions** are listed together in one confirmation; `<CR>`, `y` or `:w` deletes them
+   (with their runs).
+
+`<C-c>` on a form, on its "Create pipeline?" prompt, or on the deletion confirmation (also `q`,
+`<Esc>`, `n`) stops the rest of the save; what was already applied stays applied. The buffer is
+not reloaded after saving, so unsaved edits are kept: it stays modified while changes are
+pending. A pipeline line copied (duplicate `#ID`), an `#ID` not in the list, or a line indented
+without a folder above it blocks the save. Folders exist only through their pipelines, so a
+folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, and
+`<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes.
 
 ### Running a build again
 

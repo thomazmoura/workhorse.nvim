@@ -60,6 +60,9 @@ local function parse_indent(line)
   return level, rest
 end
 
+-- Indent level and the text after the indent of a line (tree_indent prefixes or whitespace)
+M.parse_indent = parse_indent
+
 -- Pattern for existing work items: [Type] #1234 | Work item title
 local EXISTING_PATTERN = "^.-%s*#(%d+)%s*|%s*(.+)$"
 

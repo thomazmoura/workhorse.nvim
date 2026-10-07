@@ -27,16 +27,17 @@ end
 
 -- Form state (see forms.get): { prev, repos, folders, queues, branches = { [repo id] = list or
 -- "loading" }, yaml = { [repo id:branch] = list, "loading" or false (failed) }, local_yaml,
--- repo_id, repo_default, creating }
+-- repo_id, repo_default, creating, on_done, created, cancelled }
 
 local function short_branch(ref)
   return (ref or ""):gsub("^refs/heads/", "")
 end
 
-local function build_lines()
+-- Form lines, with the values of `initial` ({ [field id] = value }) over the defaults
+local function build_lines(initial)
   local lines = { "# New pipeline" }
   for _, field in ipairs(FIELDS) do
-    table.insert(lines, field.key .. ": " .. field.value)
+    table.insert(lines, field.key .. ": " .. ((initial or {})[field.id] or field.value))
   end
   table.insert(lines, "")
   return lines
@@ -357,7 +358,12 @@ function M.submit(bufnr)
     opts.yaml_file,
     short_branch(opts.branch)
   )
-  if vim.fn.confirm(prompt, "&Create\n&Cancel", 1) ~= 1 then
+  local choice = vim.fn.confirm(prompt, "&Create\n&Cancel", 1)
+  if choice ~= 1 then
+    -- Opened by a save of the pipelines list: <C-c>/<Esc> on the prompt stops that save
+    if choice == 0 and form.on_done then
+      M.cancel(bufnr)
+    end
     return
   end
 
@@ -372,9 +378,29 @@ function M.submit(bufnr)
       return
     end
     vim.notify("Workhorse: Created pipeline " .. (definition.name or opts.name) .. " (#" .. definition.id .. ")", vim.log.levels.INFO)
+    if form.on_done then
+      -- Reported to the caller by on_close
+      form.created = {
+        id = definition.id,
+        name = definition.name or opts.name,
+        path = definition.path or opts.folder,
+      }
+      forms.close(bufnr)
+      return
+    end
     forms.close(bufnr)
     require("workhorse.builds").open_runs(definition.id, definition.name or opts.name)
   end)
+end
+
+--- Close the form without creating, marking it cancelled (see M.open's on_done)
+function M.cancel(bufnr)
+  local form = forms.get(bufnr)
+  if form then
+    form.cancelled = true
+  end
+  vim.cmd("stopinsert")
+  forms.close(bufnr)
 end
 
 -- Open ------------------------------------------------------------------------
@@ -388,16 +414,37 @@ local spec = {
   submit = function(bufnr)
     M.submit(bufnr)
   end,
+  keymaps = function(bufnr, with_desc)
+    vim.keymap.set({ "n", "i" }, "<C-c>", function()
+      M.cancel(bufnr)
+    end, with_desc("cancel"))
+  end,
+  on_close = function(form)
+    if not form.on_done then
+      return
+    end
+    if form.created then
+      form.on_done("created", form.created)
+    else
+      form.on_done(form.cancelled and "cancelled" or "skipped")
+    end
+  end,
 }
 
---- Open the form to create a YAML pipeline
-function M.open()
-  local form = { prev = vim.api.nvim_get_current_buf(), branches = {}, yaml = {} }
+--- Open the form to create a YAML pipeline. opts (optional):
+---   name, folder  initial values of those fields
+---   on_done(result, definition)  called once the form closes: result "created" (with the
+---     definition { id, name, path }; the runs view is not opened then), "skipped" (closed
+---     without creating) or "cancelled" (<C-c>)
+function M.open(opts)
+  opts = opts or {}
+  local form = { prev = vim.api.nvim_get_current_buf(), branches = {}, yaml = {}, on_done = opts.on_done }
   local_yaml(form)
-  local lines = build_lines()
+  local lines = build_lines({ name = opts.name, folder = opts.folder })
   local bufnr = forms.create(spec, form, "Workhorse|new-pipeline", lines)
-  -- Start on the name value
-  forms.show(bufnr, { 2, #lines[2] })
+  -- Start on the name value, or the repository when the name is given
+  local row = (opts.name and opts.name ~= "") and 4 or 2
+  forms.show(bufnr, { row, #lines[row] })
 
   -- What the fields offer, fetched in parallel
   local function loaded(apply)

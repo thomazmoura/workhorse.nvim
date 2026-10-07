@@ -174,6 +174,14 @@ function M.new_pipeline()
   require("workhorse.builds").new_pipeline()
 end
 
+-- Open the pipelines list (pipeline definitions as an editable tree of folders)
+function M.list_pipelines()
+  if not check_config() then
+    return
+  end
+  require("workhorse.pipelines").open()
+end
+
 -- Cancel the running build of the current build buffer
 function M.cancel_build()
   require("workhorse.builds").cancel()
@@ -189,7 +197,7 @@ end
 -- opts.focus_title: title to land on when the item had no id yet (just created)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
-  if require("workhorse.builds").refresh() then
+  if require("workhorse.builds").refresh() or require("workhorse.pipelines").refresh() then
     return
   end
 
@@ -315,6 +323,11 @@ end
 
 -- Apply changes in current buffer to Azure DevOps
 function M.apply()
+  local pipelines = require("workhorse.pipelines")
+  if pipelines.is_pipelines_buffer() then
+    pipelines.save()
+    return
+  end
   local buf_module, bufnr = get_buffer_module()
   if not bufnr then
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)

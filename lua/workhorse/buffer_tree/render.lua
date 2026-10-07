@@ -67,6 +67,9 @@ local function indent_prefix(level)
   return prefix
 end
 
+-- Indent prefix (tree_indent) of a line at `level`
+M.indent_prefix = indent_prefix
+
 function M.get_prefix_len(level)
   return #indent_prefix(level)
 end

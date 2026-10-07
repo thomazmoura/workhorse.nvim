@@ -331,6 +331,7 @@ end
 ---   on_change(bufnr)  optional, run on every change before decorate
 ---   submit(bufnr)  run by <CR>, <leader><leader> and :w
 ---   keymaps(bufnr, with_desc)  optional extra keymaps
+---   on_close(form)  optional, run once the form is closed, however it was closed
 --- `form` is the form's state (see M.get), `name` the buffer name and `lines` its content
 function M.create(spec, form, name, lines)
   counter = counter + 1
@@ -409,9 +410,13 @@ function M.create(spec, form, name, lines)
     buffer = bufnr,
     once = true,
     callback = function()
+      local form = forms[bufnr]
       forms[bufnr] = nil
       vim.schedule(function()
         pcall(vim.api.nvim_del_augroup_by_id, group)
+        if spec.on_close and form then
+          spec.on_close(form)
+        end
       end)
     end,
   })
