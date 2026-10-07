@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [72d2bb7] - 2026-10-07
+
+### Added
+- Pipelines list: each visible pipeline shows the status of its latest run as right-aligned virtual text (icon, branch, queue date and elapsed time while running). Only pipelines on screen and outside closed folds are fetched, in one request; statuses refresh every 5s while the run is in progress and every minute once finished (`pipelines.status`, `pipelines.status_running_interval`, `pipelines.status_idle_interval`)
+
 ## [c0b37d5] - 2026-10-07
 
 ### Added
