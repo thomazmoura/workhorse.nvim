@@ -181,6 +181,13 @@ require("workhorse").setup({
       border = "rounded",
     },
   },
+
+  -- Pipelines list (see "Organizing pipelines")
+  pipelines = {
+    status = true,                   -- show the latest run of each visible pipeline
+    status_running_interval = 5000,  -- refresh (ms) while that run is in progress
+    status_idle_interval = 60000,    -- refresh (ms) once it has finished
+  },
 })
 ```
 
@@ -576,6 +583,13 @@ Folders fold like the work item tree: every folder starts folded, showing how ma
 they hold (`Infra/  ⋯ 3 pipelines`). `<CR>` or `<Space>` on a folder folds or unfolds it, and the
 usual fold commands (`zo`, `zc`, `za`, `zR`, `zM`...) work too. Folded lines are still edited and
 saved like the others.
+
+Each pipeline on screen shows the status of its latest run on the right: its icon, branch and
+queue date, plus the elapsed time while it runs (`  main (07/10/26 10:00) 3m 12s`). Only the
+visible pipelines are fetched — the ones inside a closed fold wait until it opens — and they are
+fetched together in one request. A status is refreshed every 5 seconds while its run is in
+progress and every minute once it has finished (`pipelines.status_running_interval` /
+`status_idle_interval`); set `pipelines.status = false` to turn it off.
 
 ### Running a build again
 

@@ -8,6 +8,7 @@ local M = {}
 local builds_api = require("workhorse.api.builds")
 local tree = require("workhorse.pipelines.tree")
 local fold = require("workhorse.fold")
+local status = require("workhorse.pipelines.status")
 
 -- Created lines being saved, followed across edits
 local mark_ns = vim.api.nvim_create_namespace("workhorse_pipelines_marks")
@@ -27,6 +28,7 @@ local function decorate(bufnr)
   local state = buffers[bufnr]
   if state and not state.loading then
     tree.decorate(bufnr, state.originals)
+    status.render(bufnr)
   end
 end
 
@@ -173,6 +175,7 @@ function M.open()
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
   fold.attach(bufnr, fold_spec)
+  status.attach(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
   load(bufnr)
   return bufnr

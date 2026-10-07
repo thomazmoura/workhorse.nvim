@@ -134,6 +134,14 @@ local defaults = {
     },
   },
 
+  -- Pipelines list (:Workhorse pipelines list)
+  pipelines = {
+    -- Status of the latest run of each visible pipeline (outside closed folds), as virtual text
+    status = true,
+    status_running_interval = 5000, -- refresh interval (ms) of a pipeline whose latest run is in progress
+    status_idle_interval = 60000, -- refresh interval (ms) of a pipeline whose latest run is finished
+  },
+
   -- Lualine integration settings
   lualine = {
     refresh_interval = 60000, -- 1 minute in ms

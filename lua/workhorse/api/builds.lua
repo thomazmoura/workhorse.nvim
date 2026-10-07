@@ -89,6 +89,32 @@ function M.list_runs(definition_id, callback)
   })
 end
 
+-- Latest run of each of `definition_ids`, in one request: callback({ [definition_id] = run })
+-- (definitions without runs are absent). opts.silent suppresses error notifications
+function M.latest_runs(definition_ids, callback, opts)
+  local path = project_path(
+    "builds?definitions=" .. table.concat(definition_ids, ",")
+      .. "&maxBuildsPerDefinition=1&queryOrder=queueTimeDescending&api-version=7.1"
+  )
+  client.get(path, {
+    silent = opts and opts.silent,
+    on_success = function(data)
+      local latest = {}
+      for _, b in ipairs(data and data.value or {}) do
+        local run = map_run(b)
+        -- Keep the newest should the server return more than one per definition
+        if run.definition_id and not latest[run.definition_id] then
+          latest[run.definition_id] = run
+        end
+      end
+      callback(latest)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Get a single run. opts.silent suppresses error notifications (used while polling)
 function M.get_build(build_id, callback, opts)
   client.get(project_path("builds/" .. build_id .. "?api-version=7.1"), {
