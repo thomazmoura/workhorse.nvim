@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [a91ed6a] - 2026-10-07
+
+### Added
+- Organize pipelines: `:Workhorse pipelines list` shows the project's pipelines as an editable tree of their folders (`Folder/` lines, `#ID | name` pipelines, indented with `tree_indent`). Saving (`:w`, `<leader><leader>`, `:Workhorse apply`) applies moves and renames right away (renaming a folder line moves everything under it), then opens the "New pipeline" form pre-filled with the name and folder for each new line (`q`/`<Esc>` skips it; created lines get their `#ID` without reloading the buffer), then deletes the removed pipelines after one confirmation listing them all. `<C-c>` on a form or the confirmation stops the rest of the save; pending changes show as hints at the end of their lines
+
+### Changed
+- The "New pipeline" form can be opened pre-filled and report back (created, skipped, cancelled), and `<C-c>` closes it; form specs can run `on_close` however the form is closed
+
 ## [2e7b47b] - 2026-10-06
 
 ### Added
