@@ -2,6 +2,13 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [300c395] - 2026-10-07
+
+### Added
+- Build views can rerun a single finished stage of a YAML pipeline run with all its jobs, as a new attempt of the same run ("Rerun stage" on the web). The run keeps its sources and the artifacts of its other stages, so rerunning the deploy stage of an older run redeploys that version without rebuilding it
+- `Rerun stage` header line on finished runs: in the run tree, `<CR>` opens a picker of the run's finished stages; in a log view, it reruns the stage of that log. Both ask for confirmation naming the stage (`<CR>` accepts)
+- `<leader>ws` in build views reruns the stage under the cursor (a stage, one of its jobs or steps, or the stage of a log); elsewhere in the run tree it opens the stage picker
+
 ## [f2ae7dc] - 2026-10-07
 
 ### Added
