@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [f2ae7dc] - 2026-10-07
+
+### Added
+- `gw` on the pipelines list opens the pipeline under the cursor in the browser; `gw` on the `# Pipeline` line of a runs list opens its definition
+
 ## [48b15d9] - 2026-10-07
 
 ### Changed
