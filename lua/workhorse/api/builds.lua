@@ -477,6 +477,26 @@ function M.retry_build(build_id, callback)
   })
 end
 
+-- Rerun one stage of a run with all its jobs, as a new attempt of the same run (like "Rerun
+-- stage" on the web). The run keeps its sources and the artifacts of its other stages, so
+-- rerunning the deploy stage of an older run redeploys that version. `stage_ref` is the stage's
+-- identifier (the timeline record's `identifier`, not its display name); callback(true)
+function M.rerun_stage(build_id, stage_ref, callback)
+  client.request({
+    path = project_path("builds/" .. build_id .. "/stages/" .. stage_ref .. "?api-version=7.1"),
+    method = "PATCH",
+    -- Without forceRetryAllJobs a stage that succeeded has nothing to retry
+    body = { state = "retry", forceRetryAllJobs = true },
+    silent = true,
+    on_success = function()
+      callback(true)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Get the timeline (stages, phases, jobs, tasks) of a run as a flat record list
 function M.get_timeline(build_id, callback, opts)
   client.get(project_path("builds/" .. build_id .. "/timeline?api-version=7.1"), {
@@ -542,6 +562,17 @@ function M.stages(records)
     stages = M.children(records, nil, "Phase")
   end
   return stages
+end
+
+-- Whether a stage can be rerun on its own: a finished YAML stage (classic pipelines only have
+-- phases, which cannot)
+function M.can_rerun_stage(stage)
+  return stage.type == "Stage" and stage.identifier ~= nil and stage.state == "completed"
+end
+
+-- Stages of a run that can be rerun, in pipeline order
+function M.rerunnable_stages(records)
+  return vim.tbl_filter(M.can_rerun_stage, M.stages(records))
 end
 
 -- Jobs of a stage, flattening the Phase level in between. A phase that never

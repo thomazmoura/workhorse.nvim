@@ -460,6 +460,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wx` | Cancel the running build (the run under the cursor on the runs list), after confirming |
 | `<leader>wr` | Run a new build pre-filled with the values of the run (see "Running a build again") |
 | `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
+| `<leader>ws` | Rerun the stage under the cursor, or pick one, e.g. to redeploy an older run (see "Running a build again") |
 | `gw` | Open the run, job or step in the browser; on the `# Pipeline` line, open the pipeline definition |
 | `q` | Close the buffer |
 
@@ -610,6 +611,15 @@ queue-time variables. The parameters are read from the YAML file on that branch.
 A failed run also shows `Rerun failed jobs` (in orange, `WorkhorseBuildRetry`). `<CR>` on it (or
 `<leader>wf`) asks for confirmation, then starts a new attempt of the same run that reruns only
 the jobs that failed, as on the web, and watches it like a freshly queued run.
+
+The run tree and log headers of a finished run also show `Rerun stage` (in orange). In the run
+tree, `<CR>` on it opens a picker with the run's finished stages; in a log, it targets the stage
+of that log. A confirmation naming the stage follows (`<CR>` accepts it), then the stage is rerun
+with all its jobs as a new attempt of the same run ("Rerun stage" on the web). `<leader>ws` on a stage of the run
+tree (or on one of its jobs or steps, or in a log of that stage) reruns that stage directly, and
+elsewhere in the run tree opens the same picker. The run keeps its sources and the artifacts of its other
+stages, so for a rollback open an older run that deployed the version you want and rerun its
+deploy stage: the build stage is not run again. Only YAML pipelines have stages to rerun.
 
 ### Cancelling a build
 

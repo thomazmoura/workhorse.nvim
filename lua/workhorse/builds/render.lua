@@ -135,8 +135,9 @@ end
 
 -- Shared header: "# Definition", then the path from the run down to the current
 -- level (path = { stage, job, step }, each one level deeper). Every header line is
--- a "nav" item linking back to the buffer of its level.
-local function add_header(view, definition_name, run, path, width, live)
+-- a "nav" item linking back to the buffer of its level. `rerun` offers rerunning a stage
+-- of the finished run (the run tree picks which, a log reruns its own).
+local function add_header(view, definition_name, run, path, width, live, rerun)
   local title = "# " .. definition_name
   add_line(view, { { title, "WorkhorseBuildHeader" } }, { kind = "nav", target = "runs" })
   if run then
@@ -156,6 +157,9 @@ local function add_header(view, definition_name, run, path, width, live)
     add_line(view, { { "" } }, { kind = "nav", target = "run_again" }, { { " Run new", "WorkhorseBuildRunning" } })
     if run.result == "failed" then
       add_line(view, { { "" } }, { kind = "nav", target = "retry" }, { { " Rerun failed jobs", "WorkhorseBuildRetry" } })
+    end
+    if rerun then
+      add_line(view, { { "" } }, { kind = "nav", target = "rerun_stage" }, { { " Rerun stage", "WorkhorseBuildRetry" } })
     end
   elseif run then
     -- Live watching status of a running run, right-aligned on its own line; <CR> anywhere on it toggles it
@@ -200,7 +204,8 @@ end
 -- children are shown; everything starts collapsed to the stage level.
 function M.render_stages(run, records, width, expanded, live)
   local view = new_view()
-  add_header(view, definition_of(run), run, nil, width, live)
+  -- A finished run offers picking one of its stages to rerun (e.g. its deploy, for a rollback)
+  add_header(view, definition_of(run), run, nil, width, live, #builds_api.rerunnable_stages(records) > 0)
   add_separator(view, width)
   for _, stage in ipairs(builds_api.stages(records)) do
     local jobs = builds_api.jobs_of_stage(records, stage)
@@ -229,7 +234,9 @@ end
 -- Header of the log view, at the top of the log buffer
 function M.render_log_header(run, stage, job, step, width, live)
   local view = new_view()
-  add_header(view, definition_of(run), run, { stage, job, step }, width, live)
+  -- The log's stage can be rerun (classic pipelines pass a phase, which cannot)
+  local rerun = stage ~= nil and builds_api.can_rerun_stage(stage)
+  add_header(view, definition_of(run), run, { stage, job, step }, width, live, rerun)
   add_separator(view, width)
   return view
 end

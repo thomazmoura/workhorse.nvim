@@ -750,6 +750,13 @@ local function select_item(bufnr)
       M.run_again(bufnr)
     elseif item.target == "retry" then
       M.retry(bufnr)
+    elseif item.target == "rerun_stage" then
+      -- A log reruns its own stage, the run tree picks one
+      if state.kind == "log" then
+        M.rerun_stage(bufnr)
+      else
+        M.pick_stage_to_rerun(bufnr)
+      end
     elseif item.target == state.kind then
       return
     elseif item.target == "runs" then
@@ -841,6 +848,9 @@ local function set_keymaps(bufnr)
   end, opts)
   vim.keymap.set("n", "<leader>wf", function()
     M.retry(bufnr)
+  end, opts)
+  vim.keymap.set("n", "<leader>ws", function()
+    M.rerun_stage(bufnr)
   end, opts)
   vim.keymap.set("n", "gw", function()
     open_url(browser_url(bufnr))
@@ -1094,6 +1104,24 @@ function M.run_again(bufnr)
   require("workhorse.builds.new_run").open(run.definition_id, run.definition_name, run)
 end
 
+-- Follow a new attempt of `run` (rerun failed jobs or a stage), now `updated` and in progress.
+-- The attempt keeps the run id: drop the cached (completed) timeline and hand the in-progress
+-- run to every open view of it, since reopening a view keeps its context
+local function watch_attempt(bufnr, run, updated)
+  updated.definition_name = updated.definition_name or run.definition_name
+  cache.invalidate("build_timeline:" .. run.id)
+  for _, view in pairs(views) do
+    if view.ctx.run and view.ctx.run.id == updated.id then
+      view.ctx.run = updated
+      -- Logs re-check their step, which may run again
+      view.ctx.step_done = nil
+    end
+  end
+  if vim.api.nvim_get_current_buf() == bufnr then
+    M.open_run(updated, nil, { watch = true })
+  end
+end
+
 -- Rerun the failed jobs of the run of build view `bufnr` (on the runs list: the run under the
 -- cursor) as a new attempt, after confirming, then watch it like a freshly queued run
 function M.retry(bufnr)
@@ -1122,19 +1150,102 @@ function M.retry(bufnr)
       return
     end
     vim.notify("Workhorse: Rerunning the failed jobs of run " .. label, vim.log.levels.INFO)
-    updated.definition_name = updated.definition_name or run.definition_name
-    -- The new attempt keeps the run id: drop the cached (completed) timeline and hand the
-    -- in-progress run to every open view of it, since reopening a view keeps its context
-    cache.invalidate("build_timeline:" .. run.id)
-    for _, view in pairs(views) do
-      if view.ctx.run and view.ctx.run.id == updated.id then
-        view.ctx.run = updated
-        -- Logs re-check their step, which may run again
-        view.ctx.step_done = nil
-      end
+    watch_attempt(bufnr, run, updated)
+  end)
+end
+
+-- Stage of the line under the cursor (a stage, or the stage of a job/step line), falling back
+-- to the stage of a log view
+local function stage_under_cursor(bufnr)
+  local ctx = views[bufnr].ctx
+  local item = current_item(bufnr)
+  local record = item and item.record
+  if record and ctx.records then
+    record = builds_api.stage_of(ctx.records, record)
+  end
+  if not record or record.type ~= "Stage" then
+    record = ctx.stage
+  end
+  return record
+end
+
+-- Rerun `stage` (with all its jobs) of `run` as a new attempt of the run, after confirming,
+-- then watch it. Rerunning the deploy stage of an older run redeploys its version
+local function rerun_stage(bufnr, run, stage)
+  local label = "#" .. (run.build_number or run.id)
+  -- Ok is the default choice, so <CR> accepts
+  if vim.fn.confirm("Rerun stage '" .. stage.name .. "' of run " .. label .. "?", "&Ok\n&Cancel", 1) ~= 1 then
+    return
+  end
+  builds_api.rerun_stage(run.id, stage.identifier, function(ok, err)
+    if not ok then
+      vim.notify("Workhorse: Failed to rerun stage: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      return
     end
-    if vim.api.nvim_get_current_buf() == bufnr then
-      M.open_run(updated, nil, { watch = true })
+    vim.notify("Workhorse: Rerunning stage " .. stage.name .. " of run " .. label, vim.log.levels.INFO)
+    -- The stage API returns no run: fetch it back in progress
+    builds_api.get_build(run.id, function(updated)
+      if not updated then
+        -- Polling picks up the real status
+        updated = vim.deepcopy(run)
+        updated.status, updated.result = "inProgress", nil
+      end
+      watch_attempt(bufnr, run, updated)
+    end, { silent = true })
+  end)
+end
+
+-- Rerun the stage under the cursor (a stage line, a job/step of it, or the stage of a log view);
+-- elsewhere in the run tree, pick the stage
+function M.rerun_stage(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  local run = state and state.ctx.run
+  if not run then
+    vim.notify("Workhorse: Open a run to rerun one of its stages", vim.log.levels.WARN)
+    return
+  end
+  local stage = stage_under_cursor(bufnr)
+  -- Off a stage of the run tree (e.g. on its header), pick one
+  if not stage and state.kind == "stages" then
+    return M.pick_stage_to_rerun(bufnr)
+  end
+  if not stage or stage.type ~= "Stage" or not stage.identifier then
+    -- Classic pipelines have phases instead of stages, which cannot be rerun on their own
+    vim.notify("Workhorse: No stage under the cursor", vim.log.levels.WARN)
+    return
+  end
+  if not builds_api.can_rerun_stage(stage) then
+    vim.notify("Workhorse: Stage " .. stage.name .. " has not finished", vim.log.levels.INFO)
+    return
+  end
+  rerun_stage(bufnr, run, stage)
+end
+
+-- Pick one of the finished stages of the run tree's run, then rerun it
+function M.pick_stage_to_rerun(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  local ctx = state and state.ctx
+  if not ctx or not ctx.run or not ctx.records then
+    vim.notify("Workhorse: Open a run to rerun one of its stages", vim.log.levels.WARN)
+    return
+  end
+  local stages = builds_api.rerunnable_stages(ctx.records)
+  if #stages == 0 then
+    vim.notify("Workhorse: This run has no finished stage to rerun", vim.log.levels.INFO)
+    return
+  end
+  local run = ctx.run
+  vim.ui.select(stages, {
+    prompt = "Rerun stage of run #" .. (run.build_number or run.id),
+    format_item = function(stage)
+      local icon = builds_api.status_icon(stage.state, stage.result)
+      return icon .. " " .. stage.name
+    end,
+  }, function(stage)
+    if stage then
+      rerun_stage(bufnr, run, stage)
     end
   end)
 end
