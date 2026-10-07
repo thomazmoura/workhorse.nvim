@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [48b15d9] - 2026-10-07
+
+### Changed
+- Tree buffers (work item tree and `:Workhorse pipelines list`): the indentation is plain spaces (3 per level) with `├─`/`└─`/`│` tree guides drawn over it as virtual text, so they are never yanked or searched and follow the indentation as it is edited. `>>`/`<<`, `<C-t>`/`<C-d>` and `<Tab>`/`<BS>` move a line one level, and new lines keep the level above. Folded lines show their guides too
+- `tree_indent` is replaced by `tree_guides = { branch, last, vertical }`; lines indented with the old `└─`/`──` text are still read at their level
+
+### Added
+- Running `:Workhorse pipelines list` (or `<leader>wp`) on the pipelines list reloads it from scratch: every folder folded again, the run statuses fetched anew and the cursor on the first line
+
 ## [72d2bb7] - 2026-10-07
 
 ### Added
