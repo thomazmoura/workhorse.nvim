@@ -139,6 +139,14 @@ local function setup_keymaps(bufnr)
     end
     require("workhorse.builds").open_runs(pipeline.id, pipeline.name)
   end, "open the runs of the pipeline")
+  map("gw", function()
+    local pipeline = current_pipeline(bufnr)
+    if not pipeline then
+      notify("No pipeline on this line", vim.log.levels.WARN)
+      return
+    end
+    require("workhorse.builds").open_definition_in_browser(pipeline.id)
+  end, "open the pipeline in the browser")
 end
 
 local function setup_autocmds(bufnr)

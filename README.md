@@ -460,7 +460,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wx` | Cancel the running build (the run under the cursor on the runs list), after confirming |
 | `<leader>wr` | Run a new build pre-filled with the values of the run (see "Running a build again") |
 | `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
-| `gw` | Open the run, job or step in the browser |
+| `gw` | Open the run, job or step in the browser; on the `# Pipeline` line, open the pipeline definition |
 | `q` | Close the buffer |
 
 ### Running a new build
@@ -582,7 +582,8 @@ changes show on the right: `[from \Infra]` / `[was Old name]` on moved or rename
 not reloaded after saving, so unsaved edits are kept: it stays modified while changes are
 pending. A pipeline line copied (duplicate `#ID`), an `#ID` not in the list, or a line indented
 without a folder above it blocks the save. Folders exist only through their pipelines, so a
-folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, and
+folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, `gw` opens it
+in the browser, and
 `<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes. Running
 `:Workhorse pipelines list` (or `<leader>wp`) again on the list reloads it from scratch, like when
 it was first opened: every folder folded again and the run statuses fetched anew.

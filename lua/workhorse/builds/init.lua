@@ -28,6 +28,19 @@ local function open_url(url)
   end
 end
 
+-- Web page of a pipeline definition (its runs list on Azure DevOps)
+function M.definition_url(definition_id)
+  local cfg = config.get()
+  if not definition_id or not cfg.server_url then
+    return nil
+  end
+  return cfg.server_url .. "/" .. cfg.project .. "/_build?definitionId=" .. definition_id
+end
+
+function M.open_definition_in_browser(definition_id)
+  open_url(M.definition_url(definition_id))
+end
+
 -- Identity of a line's item, used to keep the cursor on the same record across re-renders
 local function item_key(item)
   if not item then
@@ -774,6 +787,10 @@ local function browser_url(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
   local item = current_item(bufnr)
+  -- The "# Pipeline" header line opens the pipeline definition
+  if item and item.kind == "nav" and item.target == "runs" then
+    return M.definition_url(ctx.definition_id or (ctx.run and ctx.run.definition_id))
+  end
   if item and item.run then
     return item.run.url
   end
