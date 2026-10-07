@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c0b37d5] - 2026-10-07
+
+### Added
+- Folding in the work item tree and `:Workhorse pipelines list` buffers: items fold by indentation and every parent starts folded, showing what it hides (`⋯ 2/5 active` for work items, with `fold_inactive_states` not counted as active; `⋯ 3 pipelines` for folders). Folds you open or close stay so across a refresh, and following a work item opens the folds hiding it
+- Work item tree: `<Space>` folds or unfolds the item under the cursor; `<CR>` unfolds a folded item and opens the description panels on an unfolded one
+- Pipelines list: `<CR>` or `<Space>` on a folder folds or unfolds it
+- Global keymap `<leader>wp` opens the pipelines list (`:Workhorse pipelines list`)
+
 ## [a91ed6a] - 2026-10-07
 
 ### Added
