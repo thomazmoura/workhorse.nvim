@@ -7,6 +7,7 @@ local M = {}
 
 local builds_api = require("workhorse.api.builds")
 local tree = require("workhorse.pipelines.tree")
+local fold = require("workhorse.fold")
 
 -- Created lines being saved, followed across edits
 local mark_ns = vim.api.nvim_create_namespace("workhorse_pipelines_marks")
@@ -37,6 +38,29 @@ local function detect(bufnr)
   return changes, errors
 end
 
+-- Fold spec (see workhorse/fold.lua): a folded folder counts the pipelines under it, and is
+-- named by its path to keep its folding across reloads
+local fold_spec = {
+  summary = function(bufnr, first, last)
+    local count = 0
+    for _, item in ipairs((tree.parse(vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)))) do
+      if item.kind ~= "folder" then
+        count = count + 1
+      end
+    end
+    return ("%d pipeline%s"):format(count, count == 1 and "" or "s")
+  end,
+  keys = function(bufnr)
+    local result = {}
+    for _, item in ipairs((tree.parse(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)))) do
+      if item.kind == "folder" then
+        result[item.lnum] = tree.normalize_path(item.path .. "\\" .. table.concat(item.names, "\\"))
+      end
+    end
+    return result
+  end,
+}
+
 -- Fetch the definitions and render them, replacing the buffer content
 local function load(bufnr)
   local state = buffers[bufnr]
@@ -54,9 +78,13 @@ local function load(bufnr)
     for _, d in ipairs(definitions) do
       state.originals[d.id] = { name = d.name, path = d.path }
     end
+    -- The folders the user folded or unfolded stay so across a reload
+    local fold_snapshot = state.loaded and fold.snapshot(bufnr) or nil
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, tree.render(definitions))
     vim.bo[bufnr].modified = false
+    state.loaded = true
     decorate(bufnr)
+    fold.collapse(bufnr, fold_snapshot)
   end)
 end
 
@@ -81,7 +109,14 @@ local function setup_keymaps(bufnr)
   map("<leader>R", function()
     M.refresh(bufnr)
   end, "reload the pipelines")
+  -- On a folder: fold or unfold it; on a pipeline <CR> opens its runs
+  map("<Space>", function()
+    fold.toggle(bufnr)
+  end, "fold or unfold the folder")
   map("<CR>", function()
+    if fold.toggle(bufnr) then
+      return
+    end
     local pipeline = current_pipeline(bufnr)
     if not pipeline then
       notify("No pipeline on this line", vim.log.levels.WARN)
@@ -137,6 +172,7 @@ function M.open()
   buffers[bufnr] = { originals = {} }
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
+  fold.attach(bufnr, fold_spec)
   vim.api.nvim_win_set_buf(0, bufnr)
   load(bufnr)
   return bufnr

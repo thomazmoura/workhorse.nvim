@@ -239,7 +239,8 @@ When in a workhorse buffer (tree queries):
 
 | Key | Action |
 |-----|--------|
-| `<CR>` | Toggle description and tags side panels for work item under cursor |
+| `<CR>` | Unfold the item under cursor when it is folded; otherwise toggle the description and tags side panels |
+| `<Space>` | Fold/unfold the item under cursor |
 | `<leader>ws` | Open column/state selection menu |
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
@@ -317,6 +318,12 @@ Notes:
 - **Chained creation**: You can create multiple new items at increasing indentation levels - each will become a child of the one above
 - **Reparent**: Move items up/down to sit under another parent (same indentation); changing indentation is blocked.
 - **Delete**: Remove the line, then apply (soft-delete).
+- **Folding**: Items fold by indentation, and every item with children starts folded. A folded item
+  still shows its line, followed by how many work items it hides (`⋯ 2/5 active`; states in
+  `fold_inactive_states` are not active). Toggle with `<Space>` on a parent item (`<CR>` only unfolds) or with
+  the usual fold commands (`zo`, `zc`, `za`, `zR`, `zM`...). Folding is only appearance: the hidden
+  lines are still part of the buffer, so their edits are applied (and `dd` on a folded line deletes
+  the whole fold). What you folded or unfolded stays so after a refresh.
 
 Indentation can be a single string or a list (up to four levels) in config:
 
@@ -324,6 +331,8 @@ Indentation can be a single string or a list (up to four levels) in config:
 require("workhorse").setup({
   tree_indent = { "└─", "──", "──", "──" },
   tree_indent_hl = "LspCodeLens",
+  -- States not counted as active in the summary of a folded item
+  fold_inactive_states = { "Closed", "Removed", "Done" },
 })
 ```
 
@@ -563,6 +572,11 @@ without a folder above it blocks the save. Folders exist only through their pipe
 folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, and
 `<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes.
 
+Folders fold like the work item tree: every folder starts folded, showing how many pipelines
+they hold (`Infra/  ⋯ 3 pipelines`). `<CR>` or `<Space>` on a folder folds or unfolds it, and the
+usual fold commands (`zo`, `zc`, `za`, `zR`, `zM`...) work too. Folded lines are still edited and
+saved like the others.
+
 ### Running a build again
 
 Once a run completes, its run tree and log headers replace the `Live watching enabled/disabled`
@@ -580,9 +594,9 @@ The run tree and log headers of a running build show a `Cancel build` line. `<CR
 `<leader>wx` (on the runs list: for the run under the cursor) or `:Workhorse builds cancel`
 cancels the run after a confirmation (`<CR>` accepts it). The line shows `Cancelling…` until the run stops.
 
-Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`)
-and `<leader>wB` skips the picker and reopens the last opened pipeline
-(`:Workhorse resume-build`).
+Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`),
+`<leader>wB` skips the picker and reopens the last opened pipeline
+(`:Workhorse resume-build`), and `<leader>wp` opens the pipelines tree (`:Workhorse pipelines list`).
 
 ## Lualine Integration
 

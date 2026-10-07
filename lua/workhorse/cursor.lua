@@ -109,7 +109,8 @@ function M.focus(bufnr, focus)
   end
 
   vim.api.nvim_win_call(win, function()
-    vim.cmd("normal! ^")
+    -- zv: open the folds hiding the line
+    vim.cmd("normal! ^zv")
   end)
   return line
 end

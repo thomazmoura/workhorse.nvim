@@ -128,6 +128,7 @@ local function setup_highlights()
     WorkhorseLogSection = { link = "Title" },
     WorkhorseLogCommand = { link = "Function" },
     WorkhorseLogDebug = { link = "Comment" },
+    WorkhorseFoldSummary = { link = "Comment" },
     -- Decoration-only highlights (for composability - no colors, only styles)
     WorkhorseBold = { bold = true },
     WorkhorseItalic = { italic = true },
@@ -162,3 +163,7 @@ end, { silent = true, desc = "Workhorse: Pick pipeline" })
 vim.keymap.set("n", "<leader>wB", function()
   require("workhorse").resume_build()
 end, { silent = true, desc = "Workhorse: Resume last pipeline" })
+
+vim.keymap.set("n", "<leader>wp", function()
+  require("workhorse").list_pipelines()
+end, { silent = true, desc = "Workhorse: List pipelines" })

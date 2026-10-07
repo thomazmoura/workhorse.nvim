@@ -102,6 +102,9 @@ local defaults = {
   tree_indent = { "└─", "──", "──", "──" },
   tree_indent_hl = "LspCodeLens",
 
+  -- States not counted as active in the "active/total" summary of a folded work item
+  fold_inactive_states = { "Closed", "Removed", "Done" },
+
   -- UI options
   confirm_changes = "Always",  -- "None", "Always", or "OnlyOnRemovals"
 

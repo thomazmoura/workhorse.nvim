@@ -5,8 +5,58 @@ local parser = require("workhorse.buffer_tree.parser")
 local changes_mod = require("workhorse.buffer_tree.changes")
 local config = require("workhorse.config")
 local boards = require("workhorse.api.boards")
+local fold = require("workhorse.fold")
 
 local buffers = {}
+
+-- Fold spec (see workhorse/fold.lua): a folded item counts the work items under it
+local function fold_spec()
+  local function summary(bufnr, first, last)
+    local state = buffers[bufnr]
+    if not state then
+      return nil
+    end
+    local inactive = {}
+    for _, name in ipairs(config.get().fold_inactive_states or {}) do
+      inactive[name] = true
+    end
+    local states = {}
+    for _, item in ipairs(state.work_items or {}) do
+      states[item.id] = item.state
+    end
+    local active, total = 0, 0
+    for _, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)) do
+      local parsed = not parser.parse_header(line) and parser.parse_line(line) or nil
+      if parsed then
+        total = total + 1
+        -- New lines and items of other queries have no known state: active
+        if not inactive[parsed.id and states[parsed.id] or ""] then
+          active = active + 1
+        end
+      end
+    end
+    return ("%d/%d active"):format(active, total)
+  end
+
+  local function keys(bufnr)
+    local result = {}
+    for lnum, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+      local parsed = not parser.parse_header(line) and parser.parse_line(line) or nil
+      if parsed and parsed.id then
+        result[lnum] = parsed.id
+      end
+    end
+    return result
+  end
+
+  return {
+    boundary = function(line)
+      return parser.parse_header(line) ~= nil
+    end,
+    summary = summary,
+    keys = keys,
+  }
+end
 
 local function build_tree(relations, work_items)
   local items_by_id = {}
@@ -283,6 +333,9 @@ function M.create(opts)
     column_definitions = nil,
   }
 
+  -- Before the boards are fetched: their callback may run right away (cached), collapsing
+  fold.attach(bufnr, fold_spec())
+
   -- Fetch board columns and render with grouping
   local cfg = config.get()
   local board_names = get_board_names()
@@ -325,6 +378,7 @@ function M.create(opts)
       buffers[bufnr].last_undo_seq = initial_seq
     end
     vim.bo[bufnr].modified = false
+    fold.collapse(bufnr)
 
     -- Follow the work item the user was on before this buffer loaded
     require("workhorse.cursor").focus_deferred(bufnr, { id = opts.focus_id })
@@ -385,8 +439,17 @@ function M.setup_keymaps(bufnr)
     require("workhorse").apply()
   end, opts)
 
+  -- On a folded item: unfold it; otherwise <CR> opens the description
   vim.keymap.set("n", "<CR>", function()
-    require("workhorse").open_description()
+    if vim.fn.foldclosed(".") ~= -1 then
+      vim.cmd("normal! zo")
+    else
+      require("workhorse").open_description()
+    end
+  end, opts)
+
+  vim.keymap.set("n", "<Space>", function()
+    fold.toggle(bufnr)
   end, opts)
 
   vim.keymap.set("n", "<leader>ws", function()
@@ -815,6 +878,8 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
   buf_state.last_undo_seq = initial_seq
 
   local cfg = config.get()
+  -- The items the user folded or unfolded stay so across the reload
+  local fold_snapshot = fold.snapshot(bufnr)
 
   -- Use column-grouped rendering if we have column info
   if buf_state.column_order then
@@ -839,6 +904,7 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
   end
 
   vim.bo[bufnr].modified = false
+  fold.collapse(bufnr, fold_snapshot)
 
   -- Keep the cursor on the same work item across the re-render
   if focus then
