@@ -4,6 +4,9 @@ local ns = vim.api.nvim_create_namespace("workhorse_tree")
 local hl_ns = vim.api.nvim_create_namespace("workhorse_tree_hl")
 local deco_ns = vim.api.nvim_create_namespace("workhorse_tree_deco")
 
+local guides = require("workhorse.buffer_tree.guides")
+local parser = require("workhorse.buffer_tree.parser")
+
 -- Get display text for a work item type
 local function get_type_text(work_item_type)
   local cfg = require("workhorse.config").get()
@@ -42,32 +45,10 @@ local function get_type_decorations(work_item_type)
 end
 
 local function indent_prefix(level)
-  local cfg = require("workhorse.config").get()
-  local unit = cfg.tree_indent or { "└── " }
-  level = level or 0
-  if level <= 0 then
-    return ""
-  end
-  if type(unit) == "string" then
-    local prefix = string.rep(unit, level)
-    if prefix ~= "" and not prefix:match("%s$") then
-      prefix = prefix .. " "
-    end
-    return prefix
-  end
-  local parts = {}
-  local last = unit[#unit]
-  for idx = 1, level do
-    parts[idx] = unit[idx] or last or ""
-  end
-  local prefix = table.concat(parts)
-  if prefix ~= "" and not prefix:match("%s$") then
-    prefix = prefix .. " "
-  end
-  return prefix
+  return guides.prefix(level)
 end
 
--- Indent prefix (tree_indent) of a line at `level`
+-- Indentation (spaces, under the guides) of a line at `level`
 M.indent_prefix = indent_prefix
 
 function M.get_prefix_len(level)
@@ -278,17 +259,11 @@ function M.apply_column_virtual_text(bufnr, line_map, column_map, column_colors,
   end
 end
 
-function M.apply_indent_highlights(bufnr, line_map, hl_group)
+-- Tree guides over the indentation (see buffer_tree/guides.lua). The first of the highlight
+-- passes: it also clears the highlights the others add
+function M.apply_indent_guides(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, hl_ns, 0, -1)
-  if not hl_group or hl_group == "" then
-    return
-  end
-
-  for line_num, info in pairs(line_map or {}) do
-    if info.type == "item" and info.prefix_len and info.prefix_len > 0 then
-      vim.api.nvim_buf_add_highlight(bufnr, hl_ns, hl_group, line_num - 1, 0, info.prefix_len)
-    end
-  end
+  guides.draw(bufnr, { boundary = parser.parse_header })
 end
 
 function M.apply_header_highlights(bufnr, line_map, column_colors)

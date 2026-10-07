@@ -282,7 +282,7 @@ local function show_column_menu(bufnr)
       state.last_undo_seq = new_seq
 
       render.apply_column_virtual_text(bufnr, state.line_map, state.column_overrides, cfg.column_colors, state.original_items)
-      render.apply_indent_highlights(bufnr, state.line_map, cfg.tree_indent_hl)
+      render.apply_indent_guides(bufnr)
       render.apply_column_line_highlights(bufnr, state.line_map, state.column_overrides, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, state.line_map)
       render.apply_type_decorations(bufnr, state.line_map)
@@ -335,6 +335,7 @@ function M.create(opts)
 
   -- Before the boards are fetched: their callback may run right away (cached), collapsing
   fold.attach(bufnr, fold_spec())
+  require("workhorse.buffer_tree.guides").setup_buffer(bufnr)
 
   -- Fetch board columns and render with grouping
   local cfg = config.get()
@@ -347,7 +348,7 @@ function M.create(opts)
       buffers[bufnr].line_map = line_map
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors, buffers[bufnr].original_items)
-      render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+      render.apply_indent_guides(bufnr)
       render.apply_column_line_highlights(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, line_map)
       render.apply_type_decorations(bufnr, line_map)
@@ -367,7 +368,7 @@ function M.create(opts)
 
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors, buffers[bufnr].original_items)
-      render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+      render.apply_indent_guides(bufnr)
       render.apply_column_line_highlights(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors)
       render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
       render.apply_tag_title_highlights(bufnr, line_map)
@@ -887,7 +888,7 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
     buf_state.line_map = line_map
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors, buf_state.original_items)
-    render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    render.apply_indent_guides(bufnr)
     render.apply_column_line_highlights(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
     render.apply_header_highlights(bufnr, line_map, cfg.column_colors)
     render.apply_tag_title_highlights(bufnr, line_map)
@@ -897,7 +898,7 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
     buf_state.line_map = line_map
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors, buf_state.original_items)
-    render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+    render.apply_indent_guides(bufnr)
     render.apply_column_line_highlights(bufnr, line_map, buf_state.column_overrides, cfg.column_colors)
     render.apply_tag_title_highlights(bufnr, line_map)
     render.apply_type_decorations(bufnr, line_map)
@@ -936,7 +937,7 @@ function M.update_virtual_text(bufnr)
       local parsed = parser.parse_line(line)
       if parsed and parsed.id then
         local item = by_id[parsed.id] or { id = parsed.id, board_column = "" }
-        local prefix_len = render.get_prefix_len(parsed.level)
+        local prefix_len = #line:match("^%s*")
         line_map[i] = {
           type = "item",
           item = item,
@@ -952,7 +953,7 @@ function M.update_virtual_text(bufnr)
 
   local cfg = config.get()
   render.apply_column_virtual_text(bufnr, line_map, state.column_overrides, cfg.column_colors, state.original_items)
-  render.apply_indent_highlights(bufnr, line_map, cfg.tree_indent_hl)
+  render.apply_indent_guides(bufnr)
   render.apply_column_line_highlights(bufnr, line_map, state.column_overrides, cfg.column_colors)
   render.apply_tag_title_highlights(bufnr, line_map)
   render.apply_type_decorations(bufnr, line_map)

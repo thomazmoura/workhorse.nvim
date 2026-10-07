@@ -2,13 +2,23 @@ local M = {}
 
 local HEADER_PATTERN = "^══ %[(.+)%] ══$"
 
+-- Glyph prefixes the tree buffers used to write in their text (the `tree_indent` option, when
+-- still set), read back so lines pasted from an older version keep their level
+local LEGACY_INDENT = { "└─", "──", "──", "──" }
+
 local function parse_indent(line)
-  local cfg = require("workhorse.config").get()
-  local unit = cfg.tree_indent or { "└── " }
-  local level = 0
   local rest = line or ""
 
-  -- First, try to match tree indent characters
+  -- Spaces (or tabs), one level per guides width (see buffer_tree/guides.lua)
+  local leading_ws = rest:match("^%s+")
+  if leading_ws then
+    local width = require("workhorse.buffer_tree.guides").width()
+    local expanded = leading_ws:gsub("\t", string.rep(" ", width))
+    return math.floor(#expanded / width), rest:sub(#leading_ws + 1)
+  end
+
+  local unit = require("workhorse.config").get().tree_indent or LEGACY_INDENT
+  local level = 0
   if type(unit) == "string" then
     local unit_len = #unit
     if unit_len > 0 then
@@ -21,46 +31,19 @@ local function parse_indent(line)
     local max = #unit
     if max > 0 then
       while true do
-        local idx = math.min(level + 1, max)
-        local prefix = unit[idx] or unit[max]
-        if not prefix or prefix == "" then
+        local prefix = unit[math.min(level + 1, max)]
+        if not prefix or prefix == "" or rest:sub(1, #prefix) ~= prefix then
           break
         end
-        local plen = #prefix
-        if rest:sub(1, plen) == prefix then
-          level = level + 1
-          rest = rest:sub(plen + 1)
-        else
-          break
-        end
+        level = level + 1
+        rest = rest:sub(#prefix + 1)
       end
     end
   end
-
-  -- If no tree characters matched, check for whitespace-based indentation
-  -- This supports users typing new items with regular indentation (spaces/tabs)
-  if level == 0 then
-    local leading_ws = rest:match("^(%s+)")
-    if leading_ws then
-      -- Use shiftwidth or default to 2 spaces per level
-      local indent_width = vim.bo.shiftwidth
-      if indent_width == 0 then
-        indent_width = vim.bo.tabstop or 2
-      end
-      -- Convert tabs to spaces for counting
-      local expanded = leading_ws:gsub("\t", string.rep(" ", indent_width))
-      level = math.floor(#expanded / indent_width)
-      rest = rest:gsub("^%s+", "")
-    end
-  else
-    -- Strip any remaining whitespace after tree characters
-    rest = rest:gsub("^%s+", "")
-  end
-
-  return level, rest
+  return level, (rest:gsub("^%s+", ""))
 end
 
--- Indent level and the text after the indent of a line (tree_indent prefixes or whitespace)
+-- Indent level and the text after the indent of a line (spaces, or legacy glyph prefixes)
 M.parse_indent = parse_indent
 
 -- Pattern for existing work items: [Type] #1234 | Work item title

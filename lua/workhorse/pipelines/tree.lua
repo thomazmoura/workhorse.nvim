@@ -6,6 +6,7 @@ local M = {}
 
 local tree_parser = require("workhorse.buffer_tree.parser")
 local tree_render = require("workhorse.buffer_tree.render")
+local guides = require("workhorse.buffer_tree.guides")
 
 local ns = vim.api.nvim_create_namespace("workhorse_pipelines")
 
@@ -174,10 +175,11 @@ function M.count(changes)
   return #changes.moves + #changes.creates + #changes.deletes
 end
 
---- Highlights of the buffer, plus hints of the pending changes when `originals` is given
+--- Tree guides and highlights of the buffer, plus hints of the pending changes when `originals`
+--- is given
 function M.decorate(bufnr, originals)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  local cfg = require("workhorse.config").get()
+  guides.draw(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local items = M.parse(lines)
   local moves = {}
@@ -189,9 +191,6 @@ function M.decorate(bufnr, originals)
 
   for _, item in ipairs(items) do
     local row, line = item.lnum - 1, lines[item.lnum]
-    if item.prefix_len > 0 and cfg.tree_indent_hl and cfg.tree_indent_hl ~= "" then
-      vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { end_col = item.prefix_len, hl_group = cfg.tree_indent_hl })
-    end
     if item.kind == "folder" then
       vim.api.nvim_buf_set_extmark(bufnr, ns, row, item.prefix_len, { end_col = #line, hl_group = "Directory" })
     elseif item.kind == "pipeline" then

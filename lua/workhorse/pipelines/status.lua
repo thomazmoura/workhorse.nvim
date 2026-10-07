@@ -147,6 +147,11 @@ local function tick(bufnr)
   end
 end
 
+--- Forget every status: they are fetched again as their pipelines come into view
+function M.reset()
+  statuses = {}
+end
+
 local function stop(bufnr)
   local state = buffers[bufnr]
   if state then

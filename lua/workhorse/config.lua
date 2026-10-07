@@ -97,10 +97,14 @@ local defaults = {
   -- },
   work_item_type_decorations = {},
 
-  -- Tree view indentation prefix per level (up to four entries)
-  -- Each level uses its own prefix, and deeper levels reuse the last entry.
-  tree_indent = { "└─", "──", "──", "──" },
-  tree_indent_hl = "LspCodeLens",
+  -- Tree guides drawn over the indentation of the tree buffers (virtual text: the buffer holds
+  -- spaces). One indent level is as wide as the widest guide; shorter ones are padded
+  tree_guides = {
+    branch = "├─ ", -- an item followed by a sibling
+    last = "└─ ", -- the last child of its parent
+    vertical = "│  ", -- an ancestor still has siblings below
+  },
+  tree_indent_hl = "LspCodeLens", -- highlight of the guides
 
   -- States not counted as active in the "active/total" summary of a folded work item
   fold_inactive_states = { "Closed", "Removed", "Done" },

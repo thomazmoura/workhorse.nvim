@@ -63,10 +63,18 @@ local fold_spec = {
   end,
 }
 
--- Fetch the definitions and render them, replacing the buffer content
-local function load(bufnr)
+-- Fetch the definitions and render them, replacing the buffer content. A hard load starts over
+-- like the first opening: the folds all closed, the run statuses fetched again and the cursor on
+-- the first line
+local function load(bufnr, hard)
   local state = buffers[bufnr]
   state.loading = true
+  if hard then
+    state.loaded = false
+    status.reset()
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading pipelines..." })
+    vim.bo[bufnr].modified = false
+  end
   builds_api.list_definitions(function(definitions, err)
     if not buffers[bufnr] or not vim.api.nvim_buf_is_valid(bufnr) then
       return
@@ -87,6 +95,11 @@ local function load(bufnr)
     state.loaded = true
     decorate(bufnr)
     fold.collapse(bufnr, fold_snapshot)
+    if hard then
+      for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+        vim.api.nvim_win_set_cursor(win, { 1, 0 })
+      end
+    end
   end)
 end
 
@@ -153,8 +166,14 @@ local function setup_autocmds(bufnr)
   })
 end
 
---- Open the pipelines list (the existing one when already open)
+--- Open the pipelines list (the existing one when already open). On the pipelines list itself, it
+--- reloads it from scratch (see load)
 function M.open()
+  local current = vim.api.nvim_get_current_buf()
+  if buffers[current] then
+    M.refresh(current, { hard = true })
+    return current
+  end
   for bufnr in pairs(buffers) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       vim.api.nvim_win_set_buf(0, bufnr)
@@ -175,15 +194,17 @@ function M.open()
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
   fold.attach(bufnr, fold_spec)
+  require("workhorse.buffer_tree.guides").setup_buffer(bufnr)
   status.attach(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
   load(bufnr)
   return bufnr
 end
 
---- Reload the pipelines list from the server (asks first when it has unsaved changes).
---- Returns false when `bufnr` (default: current) is not a pipelines list
-function M.refresh(bufnr)
+--- Reload the pipelines list from the server (asks first when it has unsaved changes); opts.hard
+--- reloads it from scratch (see load). Returns false when `bufnr` (default: current) is not a
+--- pipelines list
+function M.refresh(bufnr, opts)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local state = buffers[bufnr]
   if not state then
@@ -196,7 +217,7 @@ function M.refresh(bufnr)
   if vim.bo[bufnr].modified and vim.fn.confirm("Discard the pending changes and reload?", "&Reload\n&Cancel", 2) ~= 1 then
     return true
   end
-  load(bufnr)
+  load(bufnr, opts and opts.hard)
   return true
 end
 

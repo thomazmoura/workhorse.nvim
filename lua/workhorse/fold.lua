@@ -75,13 +75,31 @@ function M.expr()
   return compute(bufnr).exprs[vim.v.lnum] or "0"
 end
 
--- The highlights of `line` (row `row`) as virtual text chunks, followed by its end-of-line
--- virtual text: what the line looks like when it is not folded
+-- Chunks without their first `count` bytes
+local function drop_bytes(chunks, count)
+  local result = {}
+  for _, chunk in ipairs(chunks) do
+    if count >= #chunk[1] then
+      count = count - #chunk[1]
+    else
+      table.insert(result, { chunk[1]:sub(count + 1), chunk[2] })
+      count = 0
+    end
+  end
+  return result
+end
+
+-- The highlights of `line` (row `row`) as virtual text chunks, with the overlay at its start (the
+-- tree guides) and followed by its end-of-line virtual text: what the line looks like when it is
+-- not folded
 local function line_chunks(bufnr, row, line)
   local marks = vim.api.nvim_buf_get_extmarks(bufnr, -1, { row, 0 }, { row, -1 }, { details = true })
-  local spans, eol = {}, {}
+  local spans, eol, overlay = {}, {}, {}
   for _, mark in ipairs(marks) do
     local col, details = mark[3], mark[4]
+    if details.virt_text and details.virt_text_pos == "overlay" and col == 0 then
+      vim.list_extend(overlay, details.virt_text)
+    end
     if details.hl_group then
       local stop = (details.end_row and details.end_row > row) and #line or details.end_col or col
       stop = math.min(stop, #line)
@@ -120,6 +138,15 @@ local function line_chunks(bufnr, row, line)
       start = i
     end
     key, groups = here_key, here
+  end
+
+  -- The overlay covers the indentation, spaces as wide (in bytes) as it is
+  if #overlay > 0 then
+    local width = 0
+    for _, chunk in ipairs(overlay) do
+      width = width + vim.fn.strdisplaywidth(chunk[1])
+    end
+    chunks = vim.list_extend(vim.deepcopy(overlay), drop_bytes(chunks, width))
   end
 
   if #eol > 0 then

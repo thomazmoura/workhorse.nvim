@@ -332,11 +332,17 @@ Notes:
   lines are still part of the buffer, so their edits are applied (and `dd` on a folded line deletes
   the whole fold). What you folded or unfolded stays so after a refresh.
 
-Indentation can be a single string or a list (up to four levels) in config:
+- **Tree guides**: the indentation is plain spaces (3 per level); the `├─`, `└─` and `│` guides are
+  virtual text drawn over it, so they are never yanked or searched and follow the indentation as
+  you edit. `>>`/`<<` (and `<C-t>`/`<C-d>`, `<Tab>`/`<BS>` in insert mode) move a line one level,
+  and new lines keep the level of the line above. Lines pasted from an older version, indented
+  with `└─`/`──` text, are still read at their level.
+
+The guides and their highlight can be changed in config (one level is as wide as the widest guide):
 
 ```lua
 require("workhorse").setup({
-  tree_indent = { "└─", "──", "──", "──" },
+  tree_guides = { branch = "├─ ", last = "└─ ", vertical = "│  " },
   tree_indent_hl = "LspCodeLens",
   -- States not counted as active in the summary of a folded item
   fold_inactive_states = { "Closed", "Removed", "Done" },
@@ -545,14 +551,14 @@ pipeline's CI trigger follows the YAML file's `trigger:`.
 ### Organizing pipelines
 
 `:Workhorse pipelines list` shows every pipeline (build definition) of the project as an editable
-tree of its folders, indented like the work item tree (`tree_indent`):
+tree of its folders, indented like the work item tree (with the same virtual tree guides):
 
 ```
 Apps/
 └─ #8 | Mobile
 Infra/
-└─ Web/
-└─── #40 | Deploy-Web
+├─ Web/
+│  └─ #40 | Deploy-Web
 └─ #12 | Build-Infra
 #7 | Root pipeline
 ```
@@ -577,7 +583,9 @@ not reloaded after saving, so unsaved edits are kept: it stays modified while ch
 pending. A pipeline line copied (duplicate `#ID`), an `#ID` not in the list, or a line indented
 without a folder above it blocks the save. Folders exist only through their pipelines, so a
 folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, and
-`<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes.
+`<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes. Running
+`:Workhorse pipelines list` (or `<leader>wp`) again on the list reloads it from scratch, like when
+it was first opened: every folder folded again and the run statuses fetched anew.
 
 Folders fold like the work item tree: every folder starts folded, showing how many pipelines
 they hold (`Infra/  ⋯ 3 pipelines`). `<CR>` or `<Space>` on a folder folds or unfolds it, and the
