@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [7c0c383] - 2026-10-08
+
+### Added
+- Pull request Status tab lists the builds: the latest run of each pipeline on the pull request, with its status on the right like in the pipelines list (icon, queue date and, while running, the elapsed time). They are refreshed while the tab is shown, at the `pipelines.status_running_interval` / `pipelines.status_idle_interval` pace. `<CR>` on a build opens its run tree (in the browser when the repository is in another project than `project`), `gw` opens its web page
+
+### Changed
+- Run status rendering is shared between the pipelines list and the pull request view (`render.run_status`)
+
 ## [a6bf133] - 2026-10-08
 
 ### Added
