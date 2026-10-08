@@ -15,7 +15,7 @@ local loaders = {}
 -- Live watching (global): run tree and log views follow the latest step's log
 local live = false
 
-local function open_url(url)
+function M.open_url(url)
   if not url then
     vim.notify("Workhorse: No URL for this line", vim.log.levels.WARN)
     return
@@ -27,6 +27,7 @@ local function open_url(url)
     vim.fn.jobstart({ cmd, url }, { detach = true })
   end
 end
+local open_url = M.open_url
 
 -- Web page of a pipeline definition (its runs list on Azure DevOps)
 function M.definition_url(definition_id)

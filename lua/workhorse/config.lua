@@ -146,6 +146,20 @@ local defaults = {
     status_idle_interval = 60000, -- refresh interval (ms) of a pipeline whose latest run is finished
   },
 
+  -- Pull requests (:Workhorse PRs)
+  prs = {
+    top = 20, -- pull requests loaded per page of the list
+    default_tab = "status", -- tab a pull request opens on: "status", "files", "updates" or "commits"
+    max_concurrent = 4, -- parallel file requests when computing the diffs
+    diff_context = 3, -- unchanged lines shown around each change
+    max_diff_bytes = 1000000, -- larger files are not diffed
+    max_highlight_lines = 5000, -- larger files are diffed without syntax colors
+    -- Completing (or setting auto-complete on) a pull request
+    merge_strategy = "squash", -- "squash", "noFastForward", "rebase" or "rebaseMerge" (offered first)
+    delete_source_branch = true,
+    transition_work_items = false,
+  },
+
   -- Lualine integration settings
   lualine = {
     refresh_interval = 60000, -- 1 minute in ms

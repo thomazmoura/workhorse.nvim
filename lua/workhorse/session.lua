@@ -43,4 +43,12 @@ function M.get_last_build()
   return read().last_build
 end
 
+function M.save_last_repo(repo)
+  save("last_repo", { id = repo.id, name = repo.name, project = repo.project, web_url = repo.web_url })
+end
+
+function M.get_last_repo()
+  return read().last_repo
+end
+
 return M

@@ -10,7 +10,7 @@ end
 -- vim.json.decode turns JSON null into vim.NIL, which is truthy and ~= nil.
 -- Timeline records use null heavily (parentId of stages, log of pending steps),
 -- so drop those keys to make plain nil checks work.
-local function strip_nulls(tbl)
+function M.strip_nulls(tbl)
   for k, v in pairs(tbl) do
     if v == vim.NIL then
       tbl[k] = nil
@@ -18,6 +18,7 @@ local function strip_nulls(tbl)
   end
   return tbl
 end
+local strip_nulls = M.strip_nulls
 
 -- Queue-time variables of a run: the Build API returns them as a JSON string
 local function decode_variables(parameters)
@@ -162,11 +163,12 @@ function M.get_definition(definition_id, callback)
 end
 
 -- Percent-encode a query string value (slashes kept, as in file paths)
-local function url_encode(text)
+function M.url_encode(text)
   return (text:gsub("[^%w%-%._~/]", function(c)
     return string.format("%%%02X", c:byte())
   end))
 end
+local url_encode = M.url_encode
 
 -- Content of a file of an Azure Repos Git repository at a branch
 function M.get_file(repository_id, path, branch, callback)

@@ -182,6 +182,16 @@ function M.list_pipelines()
   require("workhorse.pipelines").open()
 end
 
+-- Fuzzy-pick a repository, then list its pull requests
+function M.pick_prs()
+  require("workhorse.prs").pick()
+end
+
+-- Reopen the pull requests of the last opened repository
+function M.resume_prs()
+  require("workhorse.prs").resume()
+end
+
 -- Cancel the running build of the current build buffer
 function M.cancel_build()
   require("workhorse.builds").cancel()
@@ -197,7 +207,8 @@ end
 -- opts.focus_title: title to land on when the item had no id yet (just created)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
-  if require("workhorse.builds").refresh() or require("workhorse.pipelines").refresh() then
+  if require("workhorse.builds").refresh() or require("workhorse.pipelines").refresh()
+    or require("workhorse.prs").refresh() then
     return
   end
 

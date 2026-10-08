@@ -16,6 +16,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
+- **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
 
 ## Requirements
 
@@ -188,6 +189,19 @@ require("workhorse").setup({
     status_running_interval = 5000,  -- refresh (ms) while that run is in progress
     status_idle_interval = 60000,    -- refresh (ms) once it has finished
   },
+
+  -- Pull requests (see "Pull Requests")
+  prs = {
+    top = 20,                     -- pull requests loaded per page of the list
+    default_tab = "status",       -- "status", "files", "updates" or "commits"
+    max_concurrent = 4,           -- parallel file requests when computing the diffs
+    diff_context = 3,             -- unchanged lines shown around each change
+    max_diff_bytes = 1000000,     -- larger files are not diffed
+    max_highlight_lines = 5000,   -- larger files are diffed without syntax colors
+    merge_strategy = "squash",    -- offered first: "squash", "noFastForward", "rebase" or "rebaseMerge"
+    delete_source_branch = true,  -- default answer when completing
+    transition_work_items = false,
+  },
 })
 ```
 
@@ -230,6 +244,8 @@ In this mode:
 | `:Workhorse builds cancel` | Cancel the running build of the current build buffer |
 | `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
 | `:Workhorse pipelines list` | Edit the pipelines as a tree of folders: move, rename, create and delete them |
+| `:Workhorse PRs` | Open Telescope picker to select a repository (of any project) and browse its pull requests |
+| `:Workhorse PRs resume` | Reopen the pull requests of the last opened repository |
 
 ### Buffer Keymaps
 
@@ -630,6 +646,65 @@ cancels the run after a confirmation (`<CR>` accepts it). The line shows `Cancel
 Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`),
 `<leader>wB` skips the picker and reopens the last opened pipeline
 (`:Workhorse resume-build`), and `<leader>wp` opens the pipelines tree (`:Workhorse pipelines list`).
+
+## Pull Requests
+
+`:Workhorse PRs` (or `<leader>wo`) opens a fuzzy picker of every Git repository the PAT can see,
+across all projects of the organization. Picking one lists its 20 latest pull requests, grouped by
+status:
+
+```
+# Proj/my-repo
+
+Active (2)
+   !412 Add retry to the uploader  Ana  feat/retry → main               01/10/26 10:00
+   !409 [Draft] Spike: new cache  Bob  spike/cache → main                  30/09/26 18:12
+
+Completed (18)
+   !408 Fix login redirect  Cid  fix/login → main                         29/09/26 09:41
+  ...
+
+  ↓ Load 20 more
+```
+
+The reviewers' votes show as icons next to the date. `<CR>` on `Load 20 more` (or `<leader>wm`)
+loads the next page. `:Workhorse PRs resume` (or `<leader>wO`) skips the picker and reopens the
+last repository.
+
+`<CR>` on a pull request opens it. Like on the web it has four tabs, shown in the window bar
+(click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`–`g4`):
+
+- **Status** - actions (vote, complete, set or cancel auto-complete), the reviewers and their
+  votes, the description and the comment threads. `<CR>` on a comment on a file opens the
+  Files tab on its line.
+- **Files** - the changed files with their added/removed line counts, then the diff of each file,
+  delta style: old and new line numbers, added/removed line backgrounds, the changed words
+  emphasized and syntax colors (from treesitter, when a parser for the language is installed).
+  Comments show under the line they are on. `<CR>` on a file jumps to its diff; `]f`/`[f` move
+  between files.
+- **Updates** - each push, newest first, with the commits it brought.
+- **Commits** - the commits of the pull request.
+
+Diffs compare the last push with its merge base, like the web's Files tab. The file contents are
+fetched in the background (`prs.max_concurrent` at a time) and each diff appears as it lands.
+
+Completing and setting auto-complete ask for the merge strategy (`prs.merge_strategy` first) in a
+fuzzy picker, then whether to delete the source branch. A draft cannot be completed.
+
+| Key | Action |
+|-----|--------|
+| `<CR>` / `<Space>` | Open the pull request / follow the line (action, file, comment) |
+| `<Tab>` / `<S-Tab>` | Next / previous tab |
+| `g1` `g2` `g3` `g4` | Status / Files / Updates / Commits tab |
+| `]f` / `[f` | Next / previous file diff |
+| `<leader>wv` | Vote (approve, approve with suggestions, reset, wait for author, reject) |
+| `<leader>wc` | Complete the pull request |
+| `<leader>wa` | Set auto-complete, or cancel it when already set |
+| `<leader>wm` | Load 20 more pull requests (list) |
+| `-` / `<BS>` | Back to the pull request list |
+| `gw` | Open the pull request, commit or file under the cursor in the browser |
+| `<leader>R` | Reload from Azure DevOps |
+| `q` | Close the buffer |
 
 ## Lualine Integration
 

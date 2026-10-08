@@ -31,6 +31,10 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     else
       require("workhorse").pick_build()
     end
+  elseif (cmd == "PRs" or cmd == "prs") and args[2] == "resume" then
+    require("workhorse").resume_prs()
+  elseif cmd == "PRs" or cmd == "prs" then
+    require("workhorse").pick_prs()
   elseif cmd == "live" then
     require("workhorse").toggle_build_live()
   elseif cmd == "refresh" then
@@ -55,6 +59,8 @@ Workhorse commands:
   :Workhorse builds cancel - Cancel the running build of the current build buffer
   :Workhorse pipelines new - Create a YAML pipeline
   :Workhorse pipelines list - Edit the pipelines as a tree of folders
+  :Workhorse PRs         - Browse the pull requests of a repository (picker)
+  :Workhorse PRs resume  - Reopen the pull requests of the last repository
   :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
@@ -69,12 +75,17 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "apply", "builds", "live", "pipelines", "query", "refresh", "resume", "resume-build", "state", "test" })
+      end, { "PRs", "apply", "builds", "live", "pipelines", "query", "refresh", "resume", "resume-build", "state", "test" })
     end
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
       end, { "cancel", "new", "resume" })
+    end
+    if #parts == 3 and (parts[2] == "PRs" or parts[2] == "prs") then
+      return vim.tbl_filter(function(item)
+        return item:find(arg_lead, 1, true) == 1
+      end, { "resume" })
     end
     if #parts == 3 and parts[2] == "pipelines" then
       return vim.tbl_filter(function(item)
@@ -129,6 +140,22 @@ local function setup_highlights()
     WorkhorseLogCommand = { link = "Function" },
     WorkhorseLogDebug = { link = "Comment" },
     WorkhorseFoldSummary = { link = "Comment" },
+    -- Pull request views
+    WorkhorsePRDiffAdd = { link = "DiffAdd" },
+    WorkhorsePRDiffDelete = { link = "DiffDelete" },
+    WorkhorsePRDiffAddText = { link = "DiffText" },
+    WorkhorsePRDiffDeleteText = { link = "DiffText" },
+    WorkhorsePRDiffHunk = { link = "Function" },
+    WorkhorsePRDiffFile = { link = "Title" },
+    WorkhorsePRDiffLineNr = { link = "LineNr" },
+    WorkhorsePRApproved = { link = "DiagnosticOk" },
+    WorkhorsePRRejected = { link = "DiagnosticError" },
+    WorkhorsePRWaiting = { link = "DiagnosticWarn" },
+    WorkhorsePRDraft = { link = "Comment" },
+    WorkhorsePRComment = { link = "Comment" },
+    WorkhorsePRCommentAuthor = { link = "Identifier" },
+    WorkhorsePRTab = { link = "TabLine" },
+    WorkhorsePRTabSel = { link = "TabLineSel" },
     -- Decoration-only highlights (for composability - no colors, only styles)
     WorkhorseBold = { bold = true },
     WorkhorseItalic = { italic = true },
@@ -163,6 +190,14 @@ end, { silent = true, desc = "Workhorse: Pick pipeline" })
 vim.keymap.set("n", "<leader>wB", function()
   require("workhorse").resume_build()
 end, { silent = true, desc = "Workhorse: Resume last pipeline" })
+
+vim.keymap.set("n", "<leader>wo", function()
+  require("workhorse").pick_prs()
+end, { silent = true, desc = "Workhorse: Pick repository (pull requests)" })
+
+vim.keymap.set("n", "<leader>wO", function()
+  require("workhorse").resume_prs()
+end, { silent = true, desc = "Workhorse: Resume last repository (pull requests)" })
 
 vim.keymap.set("n", "<leader>wp", function()
   require("workhorse").list_pipelines()

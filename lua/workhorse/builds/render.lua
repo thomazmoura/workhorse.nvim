@@ -10,12 +10,13 @@ local pips_ns = vim.api.nvim_create_namespace("workhorse_builds_pips")
 -- overlay = { [line] = chunks }, items = { [line] = item } }. `virt` is right-aligned virtual
 -- text, `overlay` is drawn over the line from column 0.
 -- Lines are 1-based in `items`/`virt`/`overlay` keys and 0-based in `hls`, matching the APIs they feed.
-local function new_view()
+function M.new_view()
   return { lines = {}, hls = {}, virt = {}, overlay = {}, items = {} }
 end
+local new_view = M.new_view
 
 -- Append a line built from { text, hl } segments; returns its 1-based line number
-local function add_line(view, segments, item, virt)
+function M.add_line(view, segments, item, virt)
   local text = ""
   local lnum = #view.lines
   for _, seg in ipairs(segments) do
@@ -29,6 +30,7 @@ local function add_line(view, segments, item, virt)
   view.virt[lnum + 1] = virt
   return lnum + 1
 end
+local add_line = M.add_line
 
 local function short_branch(ref)
   return (ref or ""):gsub("^refs/heads/", "")
@@ -65,7 +67,7 @@ local RIGHT_RESERVE = 12
 local MIN_TITLE_WIDTH = 20
 
 -- Cut text to `max` display columns, marking the cut with an ellipsis
-local function truncate(text, max)
+function M.truncate(text, max)
   if max < 2 then
     return ""
   end
@@ -80,6 +82,7 @@ local function truncate(text, max)
   end
   return out .. "…"
 end
+local truncate = M.truncate
 
 -- Run line: status, branch (date), author and title; the title is trimmed to fit `width`
 local function run_segments(run, level, width)
@@ -121,7 +124,7 @@ local path_targets = { "stages", "stages", "log" }
 -- Markview-style horizontal rule: "───── ◇ ─────" across the window, drawn as an
 -- overlay on an empty line so it never ends up in yanks or searches, then a blank
 -- line before the content. `view.rule` remembers where the header ends.
-local function add_separator(view, width)
+function M.add_separator(view, width)
   local side = math.max(math.floor((width - 3) / 2), 1)
   local lnum = add_line(view, { { "" } })
   view.overlay[lnum] = {
@@ -132,6 +135,7 @@ local function add_separator(view, width)
   view.rule = lnum
   add_line(view, { { "" } })
 end
+local add_separator = M.add_separator
 
 -- Shared header: "# Definition", then the path from the run down to the current
 -- level (path = { stage, job, step }, each one level deeper). Every header line is
@@ -289,7 +293,20 @@ end
 local function apply_decorations(bufnr, view, first_line)
   first_line = first_line or 0
   for _, h in ipairs(view.hls) do
-    vim.api.nvim_buf_set_extmark(bufnr, ns, first_line + h[1], h[2], { end_col = h[3], hl_group = h[4] })
+    -- `h[5]` is an optional priority (e.g. word emphasis drawn over syntax colors)
+    vim.api.nvim_buf_set_extmark(bufnr, ns, first_line + h[1], h[2], { end_col = h[3], hl_group = h[4], priority = h[5] })
+  end
+  -- Whole-line backgrounds (diff added/removed lines)
+  for lnum, group in pairs(view.line_hls or {}) do
+    vim.api.nvim_buf_set_extmark(bufnr, ns, first_line + lnum - 1, 0, { line_hl_group = group, priority = 50 })
+  end
+  -- Virtual text inserted before the line's text (diff line numbers)
+  for lnum, chunks in pairs(view.inline or {}) do
+    vim.api.nvim_buf_set_extmark(bufnr, ns, first_line + lnum - 1, 0, { virt_text = chunks, virt_text_pos = "inline" })
+  end
+  -- Virtual lines below a line (comment threads under a diff line)
+  for lnum, lines in pairs(view.virt_lines or {}) do
+    vim.api.nvim_buf_set_extmark(bufnr, ns, first_line + lnum - 1, 0, { virt_lines = lines })
   end
   for lnum, chunks in pairs(view.virt) do
     vim.api.nvim_buf_set_extmark(bufnr, ns, first_line + lnum - 1, 0, { virt_text = chunks, virt_text_pos = "right_align" })
