@@ -2,6 +2,18 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [a6bf133] - 2026-10-08
+
+### Added
+- Pull requests: `:Workhorse PRs` (or `<leader>wo`) opens a fuzzy picker of every Git repository the PAT can see, across all projects, then lists the repository's 20 latest pull requests grouped as Active, Completed and Abandoned, with reviewer votes and dates. `Load 20 more` (or `<leader>wm`) loads the next page. `:Workhorse PRs resume` (or `<leader>wO`) reopens the last repository
+- Pull request view with four tabs in the window bar (click, `<Tab>`/`<S-Tab>`, `g1`–`g4`): Status (actions, reviewers and votes, description, comment threads), Files (changed files with +/- line counts, then delta-style diffs), Updates (each push with its commits) and Commits
+- Delta-style diffs computed in Neovim from the files at the merge base and the last push: old/new line numbers, added/removed backgrounds, changed words emphasized, treesitter syntax colors and comment threads under their lines. `<CR>` on a file jumps to its diff, `]f`/`[f` move between files, and `<CR>` on a file comment in Status jumps to its line
+- Actions: vote (`<leader>wv`), complete (`<leader>wc`) and set or cancel auto-complete (`<leader>wa`), picking the merge strategy in a fuzzy picker and whether to delete the source branch
+- New `prs` config section (`top`, `default_tab`, `max_concurrent`, `diff_context`, `max_diff_bytes`, `max_highlight_lines`, `merge_strategy`, `delete_source_branch`, `transition_work_items`) and `WorkhorsePR*` highlight groups
+
+### Changed
+- Build view helpers (`new_view`, `add_line`, `truncate`, `add_separator`, `open_url`, `strip_nulls`, `url_encode`) are exported for reuse; views can also carry line backgrounds, inline virtual text and virtual lines
+
 ## [300c395] - 2026-10-07
 
 ### Added
