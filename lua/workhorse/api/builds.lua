@@ -54,6 +54,8 @@ local function map_run(b)
   }
 end
 
+M.map_run = map_run
+
 -- List build (pipeline) definitions of the project
 function M.list_definitions(callback)
   client.get(project_path("definitions?queryOrder=definitionNameAscending&api-version=7.1"), {

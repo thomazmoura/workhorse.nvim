@@ -8,6 +8,7 @@ local M = {}
 
 local builds_api = require("workhorse.api.builds")
 local config = require("workhorse.config")
+local render = require("workhorse.builds.render")
 local tree = require("workhorse.pipelines.tree")
 
 local ns = vim.api.nvim_create_namespace("workhorse_pipelines_status")
@@ -22,29 +23,6 @@ local BATCH = 50
 local statuses = {}
 -- [bufnr] = { timer, fetching }
 local buffers = {}
-
-local function short_branch(ref)
-  return (ref or ""):gsub("^refs/heads/", "")
-end
-
-local function chunks_of(run)
-  if not run then
-    return { { "no runs", "WorkhorseBuildMeta" } }
-  end
-  local icon, hl = builds_api.status_icon(run.status, run.result)
-  local chunks = {
-    { icon, hl },
-    { " " .. short_branch(run.source_branch), "WorkhorseBuildBranch" },
-    { " (" .. builds_api.format_date(run.queue_time or run.start_time) .. ")", "WorkhorseBuildDate" },
-  }
-  if not builds_api.is_completed(run.status) then
-    local elapsed = builds_api.format_duration(run.start_time, nil)
-    if elapsed ~= "" then
-      table.insert(chunks, { " " .. elapsed, "WorkhorseBuildMeta" })
-    end
-  end
-  return chunks
-end
 
 local function pipeline_id(line)
   local item = tree.parse({ line })[1]
@@ -62,7 +40,7 @@ function M.render(bufnr)
     local status = id and statuses[id]
     if status and not status.failed then
       vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, {
-        virt_text = chunks_of(status.run),
+        virt_text = render.run_status(status.run),
         virt_text_pos = "right_align",
       })
     end

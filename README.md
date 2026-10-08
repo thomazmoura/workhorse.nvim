@@ -674,9 +674,15 @@ last repository.
 `<CR>` on a pull request opens it. Like on the web it has four tabs, shown in the window bar
 (click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`–`g4`):
 
-- **Status** - actions (vote, complete, set or cancel auto-complete), the reviewers and their
-  votes, the description and the comment threads. `<CR>` on a comment on a file opens the
-  Files tab on its line.
+- **Status** - actions (vote, complete, set or cancel auto-complete), the builds, the reviewers
+  and their votes, the description and the comment threads. `<CR>` on a comment on a file opens
+  the Files tab on its line.
+
+  The builds are the latest run of each pipeline on the pull request, with its status on the
+  right like in the pipelines list (icon, queue date and, while running, the elapsed time). They
+  are refreshed while the tab is shown, at the `pipelines.status_running_interval` /
+  `pipelines.status_idle_interval` pace. `<CR>` on a build opens its run tree (in the browser
+  when the repository is in another project than `project`), `gw` its web page.
 - **Files** - the changed files with their added/removed line counts, then the diff of each file,
   delta style: old and new line numbers, added/removed line backgrounds, the changed words
   emphasized and syntax colors (from treesitter, when a parser for the language is installed).
@@ -693,7 +699,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 
 | Key | Action |
 |-----|--------|
-| `<CR>` / `<Space>` | Open the pull request / follow the line (action, file, comment) |
+| `<CR>` / `<Space>` | Open the pull request / follow the line (action, build, file, comment) |
 | `<Tab>` / `<S-Tab>` | Next / previous tab |
 | `g1` `g2` `g3` `g4` | Status / Files / Updates / Commits tab |
 | `]f` / `[f` | Next / previous file diff |

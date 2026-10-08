@@ -7,6 +7,11 @@ local diff = require("workhorse.prs.diff")
 local cache = require("workhorse.cache")
 local config = require("workhorse.config")
 
+local uv = vim.uv or vim.loop
+-- Status of the builds on the Status tab, drawn apart so the elapsed time ticks without re-rendering
+local builds_ns = vim.api.nvim_create_namespace("workhorse_prs_builds")
+local BUILDS_TICK = 1000
+
 -- Per-buffer view state: { key, kind = "list"|"pr", ctx, items, width }
 local views = {}
 -- View key -> bufnr, so reopening a list or pull request reuses its buffer
@@ -63,6 +68,8 @@ local function item_key(item)
     return "commit:" .. item.commit.id
   elseif item.kind == "thread" then
     return "thread:" .. item.thread.id
+  elseif item.kind == "build" then
+    return "build:" .. (item.run.definition_id or item.run.id)
   elseif item.kind == "nav" then
     return "nav:" .. item.target
   end
@@ -293,6 +300,77 @@ local fetchers = {
 
 local rerender
 
+local function builds_running(runs)
+  for _, run in ipairs(runs or {}) do
+    if not builds_api.is_completed(run.status) then
+      return true
+    end
+  end
+  return false
+end
+
+-- Fetch the builds of the pull request. They do not hold the Status tab back: it shows them
+-- loading (or failed) in their own section, and a failed refresh keeps what is shown
+local function fetch_builds(bufnr)
+  local ctx = views[bufnr].ctx
+  if ctx.loading.builds then
+    return
+  end
+  ctx.loading.builds = true
+  local generation = ctx.generation
+  prs_api.builds(ctx.repo, ctx.id, function(runs, err)
+    if not views[bufnr] or ctx.generation ~= generation then
+      return
+    end
+    ctx.loading.builds = nil
+    ctx.builds_fetched = uv.now()
+    if runs then
+      ctx.data.builds, ctx.errors.builds = runs, nil
+    elseif not ctx.data.builds then
+      ctx.errors.builds = err or "unknown error"
+    end
+    if ctx.tab == "status" and vim.api.nvim_buf_is_valid(bufnr) then
+      rerender(bufnr)
+    end
+  end, { silent = ctx.data.builds ~= nil })
+end
+
+-- Every second while the Status tab is shown: fetch the builds again once due (running and idle
+-- intervals as in the pipelines list) and redraw their status, so the elapsed time ticks
+local function builds_tick(bufnr)
+  local state = views[bufnr]
+  if not state or not vim.api.nvim_buf_is_valid(bufnr) or #windows_of(bufnr) == 0 then
+    return
+  end
+  local ctx = state.ctx
+  if ctx.tab ~= "status" then
+    return
+  end
+  local cfg = config.get().pipelines
+  local running = builds_running(ctx.data.builds)
+  local interval = running and cfg.status_running_interval or cfg.status_idle_interval
+  if not ctx.builds_fetched or uv.now() - ctx.builds_fetched >= interval then
+    fetch_builds(bufnr)
+  end
+  if running then
+    M._draw_builds(bufnr)
+  end
+end
+
+-- Draw the status of each build line of the buffer
+function M._draw_builds(bufnr)
+  local state = views[bufnr]
+  vim.api.nvim_buf_clear_namespace(bufnr, builds_ns, 0, -1)
+  for lnum, item in pairs(state.items or {}) do
+    if item.kind == "build" then
+      vim.api.nvim_buf_set_extmark(bufnr, builds_ns, lnum - 1, 0, {
+        virt_text = render.run_status(item.run, { branch = false }),
+        virt_text_pos = "right_align",
+      })
+    end
+  end
+end
+
 -- Load the data `tab` needs (in order: `changes` needs `iterations`), re-rendering as each lands
 local function ensure(bufnr, tab)
   local state = views[bufnr]
@@ -326,6 +404,9 @@ local function ensure(bufnr, tab)
       end)
     end
     ::continue::
+  end
+  if tab == "status" and ctx.data.builds == nil and not ctx.errors.builds then
+    fetch_builds(bufnr)
   end
   if tab == "files" and ctx.data.changes and not ctx.files then
     M._load_files(bufnr)
@@ -504,6 +585,24 @@ local function render_status(view, ctx)
     render.add_line(view, { { "" } })
   end
 
+  -- Latest build of each pipeline run on the pull request; their status is drawn by _draw_builds
+  render.add_line(view, { { "Builds", "WorkhorseRunSection" } })
+  local builds = ctx.data.builds
+  if ctx.errors.builds then
+    render.add_line(view, { { "  Failed to load builds: " .. ctx.errors.builds, "WorkhorseBuildFailed" } })
+  elseif not builds then
+    render.add_line(view, { { "  Loading…", "WorkhorseBuildMeta" } })
+  elseif #builds == 0 then
+    render.add_line(view, { { "  None", "WorkhorseBuildMeta" } })
+  end
+  for _, run in ipairs(builds or {}) do
+    render.add_line(view, {
+      { "  " .. (run.definition_name or ("Pipeline " .. (run.definition_id or "?"))), "WorkhorseBuildTitle" },
+      { "  #" .. (run.build_number or run.id), "WorkhorseBuildMeta" },
+    }, { kind = "build", run = run })
+  end
+  render.add_line(view, { { "" } })
+
   render.add_line(view, { { "Reviewers", "WorkhorseRunSection" } })
   if #pr.reviewers == 0 then
     render.add_line(view, { { "  None", "WorkhorseBuildMeta" } })
@@ -653,6 +752,7 @@ local function render_pr(bufnr, focus)
   end
   state.header_lines = view.rule or 0
   apply_view(bufnr, view, focus)
+  M._draw_builds(bufnr)
   -- A thread picked on the Status tab: land on its line once the file's diff is there
   if ctx.jump and ctx.tab == "files" then
     local jump, header, line = ctx.jump, nil, nil
@@ -930,6 +1030,8 @@ local function browser_url(bufnr)
     return item.pr.url
   elseif item and item.kind == "commit" then
     return prs_api.commit_url(ctx.repo, item.commit.id)
+  elseif item and item.kind == "build" and item.run.url then
+    return item.run.url
   elseif state.kind == "list" then
     return prs_api.repo_url(ctx.repo) .. "/pullrequests"
   elseif item and item.file then
@@ -971,6 +1073,14 @@ local function select_item(bufnr)
     M.set_tab(bufnr, "files")
   elseif item.kind == "commit" then
     open_url(prs_api.commit_url(ctx.repo, item.commit.id))
+  elseif item.kind == "build" then
+    -- The builds view works on the configured project; builds of other projects open in the browser
+    local project = config.get().project
+    if project == ctx.repo.project.name or project == ctx.repo.project.id then
+      require("workhorse.builds").open_run(item.run, nil, { watch = true })
+    elseif item.run.url then
+      open_url(item.run.url)
+    end
   end
 end
 
@@ -1057,6 +1167,10 @@ local function open_buffer(key, name, kind, ctx)
     once = true,
     callback = function()
       local state = views[bufnr]
+      if state and state.builds_timer then
+        state.builds_timer:stop()
+        state.builds_timer:close()
+      end
       if state then
         buffers_by_key[state.key] = nil
         views[bufnr] = nil
@@ -1164,6 +1278,11 @@ function M.open_pr(repo, pr)
   if created then
     vim.api.nvim_set_option_value("winbar", WINBAR, { scope = "local", win = vim.api.nvim_get_current_win() })
     M.set_tab(bufnr, views[bufnr].ctx.tab)
+    local timer = uv.new_timer()
+    views[bufnr].builds_timer = timer
+    timer:start(BUILDS_TICK, BUILDS_TICK, vim.schedule_wrap(function()
+      builds_tick(bufnr)
+    end))
   end
   return bufnr
 end
@@ -1193,7 +1312,7 @@ function M.refresh(bufnr)
   local ctx = state.ctx
   -- Responses of the previous generation are dropped when they land
   ctx.generation = ctx.generation + 1
-  ctx.data, ctx.errors, ctx.loading, ctx.files = {}, {}, {}, nil
+  ctx.data, ctx.errors, ctx.loading, ctx.files, ctx.builds_fetched = {}, {}, {}, nil, nil
   M.set_tab(bufnr, ctx.tab)
   return true
 end

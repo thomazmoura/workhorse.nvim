@@ -44,6 +44,27 @@ local function duration_virt(record)
   return { { d, "WorkhorseBuildMeta" } }
 end
 
+-- Status of a run as right-aligned virtual text: icon, branch, queue date and, while it is
+-- running, the elapsed time. opts.branch = false leaves the branch out
+function M.run_status(run, opts)
+  if not run then
+    return { { "no runs", "WorkhorseBuildMeta" } }
+  end
+  local icon, hl = builds_api.status_icon(run.status, run.result)
+  local chunks = { { icon, hl } }
+  if not (opts and opts.branch == false) then
+    table.insert(chunks, { " " .. short_branch(run.source_branch), "WorkhorseBuildBranch" })
+  end
+  table.insert(chunks, { " (" .. builds_api.format_date(run.queue_time or run.start_time) .. ")", "WorkhorseBuildDate" })
+  if not builds_api.is_completed(run.status) then
+    local elapsed = builds_api.format_duration(run.start_time, nil)
+    if elapsed ~= "" then
+      table.insert(chunks, { " " .. elapsed, "WorkhorseBuildMeta" })
+    end
+  end
+  return chunks
+end
+
 -- Stage pips (one status icon per stage, dash-separated) for a run, as virtual text chunks
 function M.stage_pips(records)
   local chunks = {}

@@ -378,6 +378,34 @@ function M.cancel_auto_complete(repo, pr, callback)
   update(repo, pr.id, { autoCompleteSetBy = { id = "00000000-0000-0000-0000-000000000000" } }, callback)
 end
 
+-- Builds of a pull request (those run on its merge ref), the latest of each pipeline, sorted
+-- by pipeline name: callback(runs). opts.silent suppresses error notifications (used while polling)
+function M.builds(repo, id, callback, opts)
+  client.get("/" .. repo.project.id .. "/_apis/build/builds?branchName=refs/pull/" .. id .. "/merge"
+    .. "&repositoryId=" .. repo.id .. "&repositoryType=TfsGit&queryOrder=queueTimeDescending&$top=100&api-version=7.1", {
+    silent = opts and opts.silent,
+    on_success = function(data)
+      local runs, seen = {}, {}
+      for _, b in ipairs(data and data.value or {}) do
+        local run = builds_api.map_run(b)
+        -- Newest first: the first run of each pipeline is its latest
+        local key = run.definition_id or run.id
+        if not seen[key] then
+          seen[key] = true
+          table.insert(runs, run)
+        end
+      end
+      table.sort(runs, function(a, b)
+        return (a.definition_name or ""):lower() < (b.definition_name or ""):lower()
+      end)
+      callback(runs)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Votes, best first, as offered when voting
 M.votes = {
   { value = 10, label = "Approve" },
