@@ -193,7 +193,7 @@ require("workhorse").setup({
   -- Pull requests (see "Pull Requests")
   prs = {
     top = 20,                     -- pull requests loaded per page of the list
-    default_tab = "status",       -- "status", "files", "updates" or "commits"
+    default_tab = "overview",     -- "overview" or "changes"
     max_concurrent = 4,           -- parallel file requests when computing the diffs
     diff_context = 3,             -- unchanged lines shown around each change
     max_diff_bytes = 1000000,     -- larger files are not diffed
@@ -671,25 +671,26 @@ The reviewers' votes show as icons next to the date. `<CR>` on `Load 20 more` (o
 loads the next page. `:Workhorse PRs resume` (or `<leader>wO`) skips the picker and reopens the
 last repository.
 
-`<CR>` on a pull request opens it. Like on the web it has four tabs, shown in the window bar
-(click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`–`g4`):
+`<CR>` on a pull request opens it. It has two tabs, shown in the window bar (click them, cycle
+with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
 
-- **Status** - actions (vote, complete, set or cancel auto-complete), the builds, the reviewers
-  and their votes, the description and the comment threads. `<CR>` on a comment on a file opens
-  the Files tab on its line.
+- **Overview** - three sections, split by a separator:
+  - **Status** - actions (vote, complete, set or cancel auto-complete), the builds, the reviewers
+    and their votes, the description and the comment threads. `<CR>` on a comment on a file opens
+    the Changes tab on its line.
 
-  The builds are the latest run of each pipeline on the pull request, with its status on the
-  right like in the pipelines list (icon, queue date and, while running, the elapsed time). They
-  are refreshed while the tab is shown, at the `pipelines.status_running_interval` /
-  `pipelines.status_idle_interval` pace. `<CR>` on a build opens its run tree (in the browser
-  when the repository is in another project than `project`), `gw` its web page.
-- **Files** - the changed files with their added/removed line counts, then the diff of each file,
+    The builds are the latest run of each pipeline on the pull request, with its status on the
+    right like in the pipelines list (icon, queue date and, while running, the elapsed time). They
+    are refreshed while the tab is shown, at the `pipelines.status_running_interval` /
+    `pipelines.status_idle_interval` pace. `<CR>` on a build opens its run tree (in the browser
+    when the repository is in another project than `project`), `gw` its web page.
+  - **Updates** - each push, newest first, with the commits it brought.
+  - **Commits** - the commits of the pull request.
+- **Changes** - the changed files with their added/removed line counts, then the diff of each file,
   delta style: old and new line numbers, added/removed line backgrounds, the changed words
   emphasized and syntax colors (from treesitter, when a parser for the language is installed).
   Comments show under the line they are on. `<CR>` on a file jumps to its diff; `]f`/`[f` move
   between files.
-- **Updates** - each push, newest first, with the commits it brought.
-- **Commits** - the commits of the pull request.
 
 Diffs compare the last push with its merge base, like the web's Files tab. The file contents are
 fetched in the background (`prs.max_concurrent` at a time) and each diff appears as it lands.
@@ -701,7 +702,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 |-----|--------|
 | `<CR>` / `<Space>` | Open the pull request / follow the line (action, build, file, comment) |
 | `<Tab>` / `<S-Tab>` | Next / previous tab |
-| `g1` `g2` `g3` `g4` | Status / Files / Updates / Commits tab |
+| `g1` `g2` | Overview / Changes tab |
 | `]f` / `[f` | Next / previous file diff |
 | `<leader>wv` | Vote (approve, approve with suggestions, reset, wait for author, reject) |
 | `<leader>wc` | Complete the pull request |

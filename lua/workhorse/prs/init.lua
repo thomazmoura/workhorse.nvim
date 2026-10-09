@@ -8,7 +8,7 @@ local cache = require("workhorse.cache")
 local config = require("workhorse.config")
 
 local uv = vim.uv or vim.loop
--- Status of the builds on the Status tab, drawn apart so the elapsed time ticks without re-rendering
+-- Status of the builds on the Overview tab, drawn apart so the elapsed time ticks without re-rendering
 local builds_ns = vim.api.nvim_create_namespace("workhorse_prs_builds")
 local BUILDS_TICK = 1000
 
@@ -17,8 +17,10 @@ local views = {}
 -- View key -> bufnr, so reopening a list or pull request reuses its buffer
 local buffers_by_key = {}
 
-local TABS = { "status", "files", "updates", "commits" }
-local TAB_LABELS = { status = "Status", files = "Files", updates = "Updates", commits = "Commits" }
+local TABS = { "overview", "changes" }
+local TAB_LABELS = { overview = "Overview", changes = "Changes" }
+-- Tabs of earlier versions (`prs.default_tab`), now sections of the Overview or renamed
+local LEGACY_TABS = { status = "overview", updates = "overview", commits = "overview", files = "changes" }
 
 local function open_url(url)
   require("workhorse.builds").open_url(url)
@@ -269,10 +271,8 @@ end
 
 -- What each tab needs loaded before it can render
 local NEEDS = {
-  status = { "pr", "threads" },
-  files = { "pr", "iterations", "changes", "threads" },
-  updates = { "pr", "iterations" },
-  commits = { "pr", "commits" },
+  overview = { "pr", "threads", "iterations", "commits" },
+  changes = { "pr", "iterations", "changes", "threads" },
 }
 
 local fetchers = {
@@ -309,7 +309,7 @@ local function builds_running(runs)
   return false
 end
 
--- Fetch the builds of the pull request. They do not hold the Status tab back: it shows them
+-- Fetch the builds of the pull request. They do not hold the Overview tab back: it shows them
 -- loading (or failed) in their own section, and a failed refresh keeps what is shown
 local function fetch_builds(bufnr)
   local ctx = views[bufnr].ctx
@@ -329,13 +329,13 @@ local function fetch_builds(bufnr)
     elseif not ctx.data.builds then
       ctx.errors.builds = err or "unknown error"
     end
-    if ctx.tab == "status" and vim.api.nvim_buf_is_valid(bufnr) then
+    if ctx.tab == "overview" and vim.api.nvim_buf_is_valid(bufnr) then
       rerender(bufnr)
     end
   end, { silent = ctx.data.builds ~= nil })
 end
 
--- Every second while the Status tab is shown: fetch the builds again once due (running and idle
+-- Every second while the Overview tab is shown: fetch the builds again once due (running and idle
 -- intervals as in the pipelines list) and redraw their status, so the elapsed time ticks
 local function builds_tick(bufnr)
   local state = views[bufnr]
@@ -343,7 +343,7 @@ local function builds_tick(bufnr)
     return
   end
   local ctx = state.ctx
-  if ctx.tab ~= "status" then
+  if ctx.tab ~= "overview" then
     return
   end
   local cfg = config.get().pipelines
@@ -405,10 +405,10 @@ local function ensure(bufnr, tab)
     end
     ::continue::
   end
-  if tab == "status" and ctx.data.builds == nil and not ctx.errors.builds then
+  if tab == "overview" and ctx.data.builds == nil and not ctx.errors.builds then
     fetch_builds(bufnr)
   end
-  if tab == "files" and ctx.data.changes and not ctx.files then
+  if tab == "changes" and ctx.data.changes and not ctx.files then
     M._load_files(bufnr)
   end
 end
@@ -471,7 +471,7 @@ function M._load_files(bufnr)
     else
       file.diff = diff.compute(old, new)
     end
-    if ctx.tab == "files" then
+    if ctx.tab == "changes" then
       schedule_render(bufnr)
     end
     next_file()
@@ -520,14 +520,15 @@ end
 
 -- Pull request view: rendering -----------------------------------------------
 
-local function loading_or_error(view, ctx, tab)
-  for _, name in ipairs(NEEDS[tab]) do
+-- Shows that the data `names` is loading (or failed); true when it is not all there
+local function loading_or_error(view, ctx, names)
+  for _, name in ipairs(names) do
     if ctx.errors[name] then
       render.add_line(view, { { "  Failed to load " .. name .. ": " .. ctx.errors[name], "WorkhorseBuildFailed" } })
       return true
     end
   end
-  for _, name in ipairs(NEEDS[tab]) do
+  for _, name in ipairs(names) do
     if ctx.data[name] == nil then
       render.add_line(view, { { "  Loading…", "WorkhorseBuildMeta" } })
       return true
@@ -561,6 +562,13 @@ local function add_pr_header(view, ctx, width)
     end
   end
   render.add_separator(view, width)
+end
+
+-- Separator between the sections of a tab; the header still ends at its own rule
+local function add_section_separator(view, width)
+  local rule = view.rule
+  render.add_separator(view, width)
+  view.rule = rule
 end
 
 local function add_text_block(view, text, indent, hl)
@@ -690,8 +698,12 @@ local function render_files(view, ctx, width)
 end
 
 local function render_updates(view, ctx)
-  local iterations = vim.list_slice(ctx.data.iterations)
-  render.add_line(view, { { "Updates (" .. #iterations .. ")", "WorkhorseRunSection" } })
+  local count = ctx.data.iterations and (" (" .. #ctx.data.iterations .. ")") or ""
+  render.add_line(view, { { "Updates" .. count, "WorkhorseRunSection" } })
+  if loading_or_error(view, ctx, { "iterations" }) then
+    return
+  end
+  local iterations = ctx.data.iterations
   -- Newest first, as on the web
   for i = #iterations, 1, -1 do
     local it = iterations[i]
@@ -717,7 +729,10 @@ end
 
 local function render_commits(view, ctx, width)
   local commits = ctx.data.commits
-  render.add_line(view, { { "Commits (" .. #commits .. ")", "WorkhorseRunSection" } })
+  render.add_line(view, { { "Commits" .. (commits and (" (" .. #commits .. ")") or ""), "WorkhorseRunSection" } })
+  if loading_or_error(view, ctx, { "commits" }) then
+    return
+  end
   for _, c in ipairs(commits) do
     local sha = "  " .. short_sha(c.id) .. "  "
     local author = "  " .. (c.author or "")
@@ -739,22 +754,23 @@ local function render_pr(bufnr, focus)
   local width = view_width(bufnr)
   local view = render.new_view()
   add_pr_header(view, ctx, width)
-  if not loading_or_error(view, ctx, ctx.tab) then
-    if ctx.tab == "status" then
+  if ctx.tab == "overview" then
+    -- Status, then Updates and Commits, each shown as soon as its own data is there
+    if not loading_or_error(view, ctx, { "pr", "threads" }) then
       render_status(view, ctx)
-    elseif ctx.tab == "files" then
-      render_files(view, ctx, width)
-    elseif ctx.tab == "updates" then
+      add_section_separator(view, width)
       render_updates(view, ctx)
-    else
+      add_section_separator(view, width)
       render_commits(view, ctx, width)
     end
+  elseif not loading_or_error(view, ctx, NEEDS.changes) then
+    render_files(view, ctx, width)
   end
   state.header_lines = view.rule or 0
   apply_view(bufnr, view, focus)
   M._draw_builds(bufnr)
-  -- A thread picked on the Status tab: land on its line once the file's diff is there
-  if ctx.jump and ctx.tab == "files" then
+  -- A thread picked on the Overview tab: land on its line once the file's diff is there
+  if ctx.jump and ctx.tab == "changes" then
     local jump, header, line = ctx.jump, nil, nil
     for lnum, item in pairs(state.items) do
       if item.file and item.file.path == jump.path then
@@ -803,10 +819,8 @@ function M.winbar()
   end
   local ctx = state.ctx
   local counts = {
-    files = ctx.data.changes and #ctx.data.changes,
-    updates = ctx.data.iterations and #ctx.data.iterations,
-    commits = ctx.data.commits and #ctx.data.commits,
-    status = ctx.data.threads and #ctx.data.threads,
+    overview = ctx.data.threads and #ctx.data.threads,
+    changes = ctx.data.changes and #ctx.data.changes,
   }
   local parts = {}
   for i, tab in ipairs(TABS) do
@@ -832,6 +846,7 @@ function M.set_tab(bufnr, tab)
   if not state or state.kind ~= "pr" or not tab then
     return
   end
+  tab = LEGACY_TABS[tab] or tab
   local ctx = state.ctx
   -- Each tab keeps its own cursor
   if state.items then
@@ -854,7 +869,7 @@ local function cycle_tab(bufnr, step)
   end
 end
 
--- Jump to the next (step 1) or previous (-1) file diff of the Files tab
+-- Jump to the next (step 1) or previous (-1) file diff of the Changes tab
 local function jump_file(bufnr, step)
   local state = views[bufnr]
   local cursor = vim.api.nvim_win_get_cursor(0)[1]
@@ -1070,7 +1085,7 @@ local function select_item(bufnr)
   elseif item.kind == "thread" and item.thread.file_path then
     local t = item.thread
     ctx.jump = { path = t.file_path, new = t.right_line, old = not t.right_line and t.left_line or nil }
-    M.set_tab(bufnr, "files")
+    M.set_tab(bufnr, "changes")
   elseif item.kind == "commit" then
     open_url(prs_api.commit_url(ctx.repo, item.commit.id))
   elseif item.kind == "build" then

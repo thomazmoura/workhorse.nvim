@@ -149,7 +149,7 @@ local defaults = {
   -- Pull requests (:Workhorse PRs)
   prs = {
     top = 20, -- pull requests loaded per page of the list
-    default_tab = "status", -- tab a pull request opens on: "status", "files", "updates" or "commits"
+    default_tab = "overview", -- tab a pull request opens on: "overview" or "changes"
     max_concurrent = 4, -- parallel file requests when computing the diffs
     diff_context = 3, -- unchanged lines shown around each change
     max_diff_bytes = 1000000, -- larger files are not diffed
