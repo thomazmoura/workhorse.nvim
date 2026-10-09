@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [161fc12] - 2026-10-09
+
+### Changed
+- Pull requests now have two tabs: Overview (Status, Updates and Commits as sections split by a separator, each shown as soon as its own data is loaded) and Changes (the former Files tab). Switch with `<Tab>`/`<S-Tab>` or `g1`/`g2`
+- `prs.default_tab` is now `"overview"` or `"changes"`; the earlier values (`"status"`, `"updates"`, `"commits"`, `"files"`) still work and map to the new tabs
+
 ## [7c0c383] - 2026-10-08
 
 ### Added
