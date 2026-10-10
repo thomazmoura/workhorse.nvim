@@ -72,6 +72,49 @@ function M.list_definitions(callback)
   })
 end
 
+-- Build definitions of the project with their Azure Repos Git repository:
+-- callback({ { id, name, path, repository_id } }) (repository_id nil for other sources)
+function M.list_definitions_full(callback)
+  client.get(project_path("definitions?includeAllProperties=true&queryOrder=definitionNameAscending&api-version=7.1"), {
+    on_success = function(data)
+      local defs = {}
+      for _, d in ipairs(data and data.value or {}) do
+        local repo = type(d.repository) == "table" and d.repository or {}
+        table.insert(defs, {
+          id = d.id,
+          name = d.name,
+          path = type(d.path) == "string" and d.path or "\\",
+          repository_id = repo.type == "TfsGit" and type(repo.id) == "string" and repo.id or nil,
+        })
+      end
+      callback(defs)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Runs of every pipeline of the project, newest first: `top` of them queued before `max_time`
+-- (ISO date, nil for the newest). opts.silent suppresses error notifications
+function M.recent_builds(max_time, top, callback, opts)
+  local path = project_path("builds?queryOrder=queueTimeDescending&$top=" .. top
+    .. (max_time and ("&maxTime=" .. M.url_encode(max_time)) or "") .. "&api-version=7.1")
+  client.get(path, {
+    silent = opts and opts.silent,
+    on_success = function(data)
+      local runs = {}
+      for _, b in ipairs(data and data.value or {}) do
+        table.insert(runs, map_run(b))
+      end
+      callback(runs)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- List the most recent runs of a definition
 function M.list_runs(definition_id, callback)
   local top = config.get().builds.top

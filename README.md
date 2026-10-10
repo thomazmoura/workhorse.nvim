@@ -17,6 +17,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
+- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk with a `workhorse` keyring)
 
 ## Requirements
 
@@ -24,6 +25,8 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query and pipeline pickers)
 - Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
+- Optional, to keep the repository cache across sessions: a GNOME keyring named `workhorse`,
+  `gdbus`, `secret-tool` (`libsecret-tools`) and `openssl` (see "Repository cache")
 
 ## Installation
 
@@ -185,6 +188,8 @@ require("workhorse").setup({
 
   -- Pipelines list (see "Organizing pipelines")
   pipelines = {
+    default_tab = "recent",          -- tab the pipelines screen opens on: "recent" or "all"
+    recent_top = 20,                 -- pipelines listed per page of the Recent tab
     status = true,                   -- show the latest run of each visible pipeline
     status_running_interval = 5000,  -- refresh (ms) while that run is in progress
     status_idle_interval = 60000,    -- refresh (ms) once it has finished
@@ -243,9 +248,12 @@ In this mode:
 | `:Workhorse builds new [id]` | Run a new build of a pipeline (default: the pipeline of the current build buffer) |
 | `:Workhorse builds cancel` | Cancel the running build of the current build buffer |
 | `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
-| `:Workhorse pipelines list` | Edit the pipelines as a tree of folders: move, rename, create and delete them |
+| `:Workhorse builds here` | Pipelines of the repository of the working directory (see "Repository cache") |
+| `:Workhorse pipelines list` | The pipelines that ran most recently (Recent tab) and all of them as an editable tree of folders (All tab): move, rename, create and delete them |
 | `:Workhorse PRs` | Open Telescope picker to select a repository (of any project) and browse its pull requests |
+| `:Workhorse PRs here` | Pull requests of the repository of the working directory |
 | `:Workhorse PRs resume` | Reopen the pull requests of the last opened repository |
+| `:Workhorse repos refresh` | Update the repository cache from Azure DevOps |
 
 ### Buffer Keymaps
 
@@ -565,9 +573,34 @@ new build" form. `<CR>` (normal mode), `<leader><leader>` or `:w` creates the pi
 confirmation, then opens its (empty) runs list, where `Run new build` queues its first run. The
 pipeline's CI trigger follows the YAML file's `trigger:`.
 
+### Recent pipelines
+
+`:Workhorse pipelines list` (or `<leader>wB`) opens the pipelines screen. It has two tabs, shown in
+the window bar (click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`): **Recent**, where
+it opens (`pipelines.default_tab`), and **All**, the editable tree (see "Organizing pipelines").
+Each tab is its own buffer, so the pending edits of the tree are kept while you look at Recent.
+
+Recent lists the 20 pipelines that ran most recently, newest first and without their folders,
+each with the status of its latest run on the right:
+
+```
+#40 | Deploy-Web                          main (10/10/26 10:00) 3m 12s
+#8 | Mobile                                main (10/10/26 09:12)
+#12 | Build-Infra                          main (09/10/26 18:40)
+
+  ↓ Load 20 more
+```
+
+`<CR>` on `Load 20 more` (or `<leader>wm`) lists the next 20 (`pipelines.recent_top`). `<CR>` on a
+pipeline opens its runs, `gw` opens it in the browser and `<leader>R` reloads the list. The
+statuses come with the list and are then refreshed like those of the tree, only for the pipelines
+on screen; the All tab fetches nothing until it is opened.
+
+On both tabs, `<leader>w/` opens the pipeline picker (`:Workhorse builds`).
+
 ### Organizing pipelines
 
-`:Workhorse pipelines list` shows every pipeline (build definition) of the project as an editable
+The All tab shows every pipeline (build definition) of the project as an editable
 tree of its folders, indented like the work item tree (with the same virtual tree guides):
 
 ```
@@ -602,7 +635,7 @@ without a folder above it blocks the save. Folders exist only through their pipe
 folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, `gw` opens it
 in the browser, and
 `<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes. Running
-`:Workhorse pipelines list` (or `<leader>wp`) again on the list reloads it from scratch, like when
+`:Workhorse pipelines list` (or `<leader>wB`) again on a tab reloads it from scratch, like when
 it was first opened: every folder folded again and the run statuses fetched anew.
 
 Folders fold like the work item tree: every folder starts folded, showing how many pipelines
@@ -643,14 +676,18 @@ The run tree and log headers of a running build show a `Cancel build` line. `<CR
 `<leader>wx` (on the runs list: for the run under the cursor) or `:Workhorse builds cancel`
 cancels the run after a confirmation (`<CR>` accepts it). The line shows `Cancelling…` until the run stops.
 
-Global keymaps (set by default): `<leader>wb` opens the pipeline picker (`:Workhorse builds`),
-`<leader>wB` skips the picker and reopens the last opened pipeline
-(`:Workhorse resume-build`), and `<leader>wp` opens the pipelines tree (`:Workhorse pipelines list`).
+Global keymaps (set by default): `<leader>wb` opens the pipelines of the repository Neovim is in
+(`:Workhorse builds here`: its runs when it has one, a picker of them when more; the picker of every
+pipeline when the repository is not known), `<leader>wB` opens the pipelines screen
+(`:Workhorse pipelines list`) and `<leader>w<C-b>` reopens the last opened pipeline
+(`:Workhorse builds resume`). See "Repository cache" for the rest.
 
 ## Pull Requests
 
-`:Workhorse PRs` (or `<leader>wo`) opens a fuzzy picker of every Git repository the PAT can see,
-across all projects of the organization. Picking one lists its 20 latest pull requests, grouped by
+`:Workhorse PRs here` (or `<leader>wp`) lists the pull requests of the repository Neovim is in (see
+"Repository cache"; the repository picker when it is not known). `:Workhorse PRs` (or `<leader>wP`)
+opens a fuzzy picker of every Git repository the PAT can see, across all projects of the
+organization. Picking one lists its 20 latest pull requests, grouped by
 status:
 
 ```
@@ -668,7 +705,7 @@ Completed (18)
 ```
 
 The reviewers' votes show as icons next to the date. `<CR>` on `Load 20 more` (or `<leader>wm`)
-loads the next page. `:Workhorse PRs resume` (or `<leader>wO`) skips the picker and reopens the
+loads the next page. `:Workhorse PRs resume` (or `<leader>w<C-p>`) skips the picker and reopens the
 last repository.
 
 `<CR>` on a pull request opens it. It has two tabs, shown in the window bar (click them, cycle
@@ -712,6 +749,46 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
 | `<leader>R` | Reload from Azure DevOps |
 | `q` | Close the buffer |
+
+## Repository cache
+
+The repository and pipeline pickers, and the keymaps that open what belongs to the repository
+Neovim is in, read a cache of every Git repository the PAT can see (with its HTTPS and SSH clone
+URLs) and of the pipelines of the configured `project`, each with the repository it builds. It is
+queried once, the first time it is needed, and `<leader>wR` (`:Workhorse repos refresh`) queries
+Azure DevOps again to update it, e.g. after a repository or pipeline is created.
+
+"The repository Neovim is in" is the one of the working directory (`:pwd`): its git remotes
+(`origin` first) are matched against the cached clone URLs, and the first remote that matches
+wins. HTTPS and SSH remotes both match, with or without the user name.
+
+| Key | Action |
+|-----|--------|
+| `<leader>wb` | Pipelines of this repository: its runs when it has one, a picker of them when more |
+| `<leader>wB` | Pipelines screen (`:Workhorse pipelines list`) |
+| `<leader>w<C-b>` | Reopen the last opened pipeline |
+| `<leader>wp` | Pull requests of this repository |
+| `<leader>wP` | Pull requests of any repository (picker) |
+| `<leader>w<C-p>` | Reopen the pull requests of the last opened repository |
+| `<leader>wR` | Update the repository cache |
+
+Without a keyring the cache lives in memory only, for the session. To keep it across sessions,
+create a keyring named `workhorse` in **Passwords and Keys** (`seahorse`: **+** → **Password
+keyring**). The cache is then saved as JSON encrypted with AES-256 by `openssl`
+(`~/.cache/nvim/workhorse/repos.enc`, readable by you only), with a random key stored in that
+keyring and passed to `openssl` through its environment, never on the command line, as
+paperboy.nvim does for its contacts. The key is
+read once per session: the first read shows GNOME's unlock prompt, and the keyring is locked again
+right after. If the prompt is dismissed, the cache stays in memory for that session
+(`<leader>wR` asks again). The cache is tied to `server_url` and `project`. To delete it:
+
+```bash
+rm ~/.cache/nvim/workhorse/repos.enc
+secret-tool clear workhorse cache-key
+```
+
+With lazy-loading by `keys`, list these keymaps there too (without an action) so they load the
+plugin, which then maps them.
 
 ## Lualine Integration
 

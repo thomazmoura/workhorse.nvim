@@ -19,6 +19,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").resume_build()
   elseif cmd == "builds" and args[2] == "new" then
     require("workhorse").new_build(args[3])
+  elseif cmd == "builds" and args[2] == "here" then
+    require("workhorse").repo_builds()
   elseif cmd == "builds" and args[2] == "cancel" then
     require("workhorse").cancel_build()
   elseif cmd == "pipelines" and args[2] == "new" then
@@ -33,6 +35,10 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     end
   elseif (cmd == "PRs" or cmd == "prs") and args[2] == "resume" then
     require("workhorse").resume_prs()
+  elseif (cmd == "PRs" or cmd == "prs") and args[2] == "here" then
+    require("workhorse").repo_prs()
+  elseif cmd == "repos" and args[2] == "refresh" then
+    require("workhorse").refresh_repos()
   elseif cmd == "PRs" or cmd == "prs" then
     require("workhorse").pick_prs()
   elseif cmd == "live" then
@@ -56,11 +62,14 @@ Workhorse commands:
   :Workhorse builds [id] - Browse pipeline runs (or picker if no id)
   :Workhorse resume-build - Reopen the last pipeline (also :Workhorse builds resume)
   :Workhorse builds new [id] - Run a new build of a pipeline (default: the current one)
+  :Workhorse builds here - Pipelines of the repository of the working directory
   :Workhorse builds cancel - Cancel the running build of the current build buffer
   :Workhorse pipelines new - Create a YAML pipeline
-  :Workhorse pipelines list - Edit the pipelines as a tree of folders
+  :Workhorse pipelines list - Recent pipelines, and all of them as a tree of folders
   :Workhorse PRs         - Browse the pull requests of a repository (picker)
+  :Workhorse PRs here    - Pull requests of the repository of the working directory
   :Workhorse PRs resume  - Reopen the pull requests of the last repository
+  :Workhorse repos refresh - Update the repository cache (repositories and pipelines)
   :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
@@ -75,17 +84,23 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "PRs", "apply", "builds", "live", "pipelines", "query", "refresh", "resume", "resume-build", "state", "test" })
+      end, { "PRs", "apply", "builds", "live", "pipelines", "query", "refresh", "repos", "resume", "resume-build", "state",
+        "test" })
     end
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "cancel", "new", "resume" })
+      end, { "cancel", "here", "new", "resume" })
     end
     if #parts == 3 and (parts[2] == "PRs" or parts[2] == "prs") then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "resume" })
+      end, { "here", "resume" })
+    end
+    if #parts == 3 and parts[2] == "repos" then
+      return vim.tbl_filter(function(item)
+        return item:find(arg_lead, 1, true) == 1
+      end, { "refresh" })
     end
     if #parts == 3 and parts[2] == "pipelines" then
       return vim.tbl_filter(function(item)
@@ -184,21 +199,29 @@ vim.keymap.set("n", "<leader>wQ", function()
 end, { silent = true, desc = "Workhorse: Resume last query" })
 
 vim.keymap.set("n", "<leader>wb", function()
-  require("workhorse").pick_build()
-end, { silent = true, desc = "Workhorse: Pick pipeline" })
+  require("workhorse").repo_builds()
+end, { silent = true, desc = "Workhorse: Pipelines of this repository" })
 
 vim.keymap.set("n", "<leader>wB", function()
+  require("workhorse").list_pipelines()
+end, { silent = true, desc = "Workhorse: List pipelines" })
+
+vim.keymap.set("n", "<leader>w<C-b>", function()
   require("workhorse").resume_build()
 end, { silent = true, desc = "Workhorse: Resume last pipeline" })
 
-vim.keymap.set("n", "<leader>wo", function()
+vim.keymap.set("n", "<leader>wp", function()
+  require("workhorse").repo_prs()
+end, { silent = true, desc = "Workhorse: Pull requests of this repository" })
+
+vim.keymap.set("n", "<leader>wP", function()
   require("workhorse").pick_prs()
 end, { silent = true, desc = "Workhorse: Pick repository (pull requests)" })
 
-vim.keymap.set("n", "<leader>wO", function()
+vim.keymap.set("n", "<leader>w<C-p>", function()
   require("workhorse").resume_prs()
 end, { silent = true, desc = "Workhorse: Resume last repository (pull requests)" })
 
-vim.keymap.set("n", "<leader>wp", function()
-  require("workhorse").list_pipelines()
-end, { silent = true, desc = "Workhorse: List pipelines" })
+vim.keymap.set("n", "<leader>wR", function()
+  require("workhorse").refresh_repos()
+end, { silent = true, desc = "Workhorse: Update the repository cache" })

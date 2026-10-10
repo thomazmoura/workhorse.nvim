@@ -978,12 +978,13 @@ vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
 
 -- Public API ----------------------------------------------------------------
 
--- Fuzzy-pick a pipeline definition, then open its runs
-function M.pick()
+-- Fuzzy-pick a pipeline definition (from the repository cache), then open its runs.
+-- opts.definitions: pick among these only; opts.prompt_title
+function M.pick(opts)
   if not check_config() then
     return
   end
-  require("workhorse.telescope.builds").pick()
+  require("workhorse.telescope.builds").pick(opts)
 end
 
 function M.open_runs(definition_id, definition_name, focus_run_id)

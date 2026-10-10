@@ -86,7 +86,8 @@ local function map_pr(repo, p)
 end
 
 -- Git repositories of every project the PAT can see: callback({ { id, name, project = { id,
--- name }, default_branch, web_url } }) sorted by project then name, disabled ones left out
+-- name }, default_branch, web_url, remote_url, ssh_url } }) sorted by project then name, disabled
+-- ones left out
 function M.list_repositories(callback)
   client.get("/_apis/git/repositories?api-version=7.1", {
     on_success = function(data)
@@ -100,6 +101,9 @@ function M.list_repositories(callback)
             project = { id = r.project.id, name = r.project.name },
             default_branch = r.defaultBranch,
             web_url = r.webUrl,
+            -- Clone URLs, to find the repository of a local checkout (see workhorse.repos)
+            remote_url = r.remoteUrl,
+            ssh_url = r.sshUrl,
           })
         end
       end

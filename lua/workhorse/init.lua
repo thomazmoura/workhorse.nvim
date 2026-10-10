@@ -192,6 +192,53 @@ function M.resume_prs()
   require("workhorse.prs").resume()
 end
 
+-- Pipelines of the repository of Neovim's working directory: its runs when it has one pipeline,
+-- a picker of them when more. Without a known repository (or pipeline), the picker of them all
+function M.repo_builds()
+  if not check_config() then
+    return
+  end
+  require("workhorse.repos").current(function(repo, cache, reason)
+    if not repo then
+      vim.notify("Workhorse: " .. tostring(reason) .. "; showing every pipeline", vim.log.levels.WARN)
+      return require("workhorse.builds").pick()
+    end
+    local definitions = require("workhorse.repos").pipelines_of(cache, repo)
+    if #definitions == 0 then
+      vim.notify(("Workhorse: %s/%s has no pipelines in %s; showing every pipeline"):format(repo.project.name,
+        repo.name, config.get().project), vim.log.levels.WARN)
+      return require("workhorse.builds").pick()
+    end
+    if #definitions == 1 then
+      return require("workhorse.builds").open_runs(definitions[1].id, definitions[1].name)
+    end
+    require("workhorse.builds").pick({ definitions = definitions, prompt_title = "Pipelines of " .. repo.name })
+  end)
+end
+
+-- Pull requests of the repository of Neovim's working directory (the repository picker when it is
+-- not a known one)
+function M.repo_prs()
+  if not check_config() then
+    return
+  end
+  require("workhorse.repos").current(function(repo, _, reason)
+    if not repo then
+      vim.notify("Workhorse: " .. tostring(reason) .. "; pick a repository", vim.log.levels.WARN)
+      return require("workhorse.prs").pick()
+    end
+    require("workhorse.prs").open_list(repo)
+  end)
+end
+
+-- Query Azure DevOps to update the repository cache (repositories, clone URLs and pipelines)
+function M.refresh_repos()
+  if not check_config() then
+    return
+  end
+  require("workhorse.repos").update()
+end
+
 -- Cancel the running build of the current build buffer
 function M.cancel_build()
   require("workhorse.builds").cancel()

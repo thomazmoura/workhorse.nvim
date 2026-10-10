@@ -1,5 +1,6 @@
--- Pipelines list (:Workhorse pipelines list): the build definitions as an editable tree of
--- folders (see pipelines/tree.lua). Saving applies the edits in order: moves and renames right
+-- Pipelines list (:Workhorse pipelines list), All tab: the build definitions as an editable tree
+-- of folders (see pipelines/tree.lua; the Recent tab is pipelines/recent.lua, the tabs
+-- pipelines/tabs.lua). Saving applies the edits in order: moves and renames right
 -- away, then each new line through a pre-filled "New pipeline" form, then the deletions after
 -- one confirmation. <C-c> on a form or the confirmation stops the rest of the save; what was
 -- applied stays, and the buffer is not reloaded (new lines just get their #ID).
@@ -9,6 +10,8 @@ local builds_api = require("workhorse.api.builds")
 local tree = require("workhorse.pipelines.tree")
 local fold = require("workhorse.fold")
 local status = require("workhorse.pipelines.status")
+local tabs = require("workhorse.pipelines.tabs")
+local config = require("workhorse.config")
 
 -- Created lines being saved, followed across edits
 local mark_ns = vim.api.nvim_create_namespace("workhorse_pipelines_marks")
@@ -147,6 +150,7 @@ local function setup_keymaps(bufnr)
     end
     require("workhorse.builds").open_definition_in_browser(pipeline.id)
   end, "open the pipeline in the browser")
+  tabs.setup_buffer(bufnr)
 end
 
 local function setup_autocmds(bufnr)
@@ -174,14 +178,18 @@ local function setup_autocmds(bufnr)
   })
 end
 
---- Open the pipelines list (the existing one when already open). On the pipelines list itself, it
---- reloads it from scratch (see load)
+--- Open the pipelines screen on its default tab (`pipelines.default_tab`). On one of its tabs, it
+--- reloads that tab from scratch instead (see load)
 function M.open()
   local current = vim.api.nvim_get_current_buf()
-  if buffers[current] then
-    M.refresh(current, { hard = true })
+  if M.refresh(current, { hard = true }) then
     return current
   end
+  return tabs.show(config.get().pipelines.default_tab)
+end
+
+--- Show the All tab (the tree) in the current window: the existing buffer when already open
+function M.open_all()
   for bufnr in pairs(buffers) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       vim.api.nvim_win_set_buf(0, bufnr)
@@ -210,13 +218,13 @@ function M.open()
 end
 
 --- Reload the pipelines list from the server (asks first when it has unsaved changes); opts.hard
---- reloads it from scratch (see load). Returns false when `bufnr` (default: current) is not a
---- pipelines list
+--- reloads it from scratch (see load). The Recent tab reloads too. Returns false when `bufnr`
+--- (default: current) is not a tab of the pipelines screen
 function M.refresh(bufnr, opts)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local state = buffers[bufnr]
   if not state then
-    return false
+    return require("workhorse.pipelines.recent").refresh(bufnr, opts)
   end
   if state.saving then
     notify("Wait for the save to finish", vim.log.levels.WARN)

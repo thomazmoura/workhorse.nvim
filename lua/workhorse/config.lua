@@ -140,6 +140,8 @@ local defaults = {
 
   -- Pipelines list (:Workhorse pipelines list)
   pipelines = {
+    default_tab = "recent", -- tab the pipelines screen opens on: "recent" or "all" (the tree)
+    recent_top = 20, -- pipelines listed per page of the Recent tab
     -- Status of the latest run of each visible pipeline (outside closed folds), as virtual text
     status = true,
     status_running_interval = 5000, -- refresh interval (ms) of a pipeline whose latest run is in progress

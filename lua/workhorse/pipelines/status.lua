@@ -125,6 +125,12 @@ local function tick(bufnr)
   end
 end
 
+--- Record the latest run of a pipeline fetched elsewhere (the Recent tab finds it while listing
+--- them), so it is not fetched again before it is due
+function M.seed(id, run)
+  statuses[id] = { run = run, fetched = uv.now() }
+end
+
 --- Forget every status: they are fetched again as their pipelines come into view
 function M.reset()
   statuses = {}

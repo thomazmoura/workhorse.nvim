@@ -1,13 +1,14 @@
 local M = {}
 
--- Pick a Git repository (of any project) using Telescope, then list its pull requests
+-- Pick a Git repository (of any project, from the repository cache) using Telescope, then list
+-- its pull requests
 function M.pick(opts)
   opts = opts or {}
 
   local ok, _ = pcall(require, "telescope")
   if not ok then
     vim.notify(
-      "Workhorse: Telescope is required for the repository picker. Use :Workhorse PRs resume instead.",
+      "Workhorse: Telescope is required for the repository picker. Use :Workhorse PRs here or :Workhorse PRs resume instead.",
       vim.log.levels.WARN
     )
     return
@@ -19,15 +20,13 @@ function M.pick(opts)
   local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
 
-  local prs_api = require("workhorse.api.pullrequests")
-
-  vim.notify("Workhorse: Loading repositories...", vim.log.levels.INFO)
-
-  prs_api.list_repositories(function(repos, err)
-    if err then
-      vim.notify("Workhorse: Failed to load repositories: " .. (err or "unknown error"), vim.log.levels.ERROR)
+  -- From the repository cache: no request once it is loaded
+  require("workhorse.repos").get(function(cache, err)
+    if not cache then
+      vim.notify("Workhorse: Failed to load repositories: " .. tostring(err or "unknown error"), vim.log.levels.ERROR)
       return
     end
+    local repos = cache.repos
 
     if #repos == 0 then
       vim.notify("Workhorse: No repositories found", vim.log.levels.WARN)

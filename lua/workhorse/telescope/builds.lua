@@ -1,6 +1,8 @@
 local M = {}
 
--- Pick a pipeline (build definition) using Telescope
+-- Pick a pipeline (build definition) using Telescope. The pipelines come from the repository
+-- cache (workhorse.repos), or from opts.definitions when given (e.g. those of one repository);
+-- opts.prompt_title replaces the title
 function M.pick(opts)
   opts = opts or {}
 
@@ -19,27 +21,20 @@ function M.pick(opts)
   local actions = require("telescope.actions")
   local action_state = require("telescope.actions.state")
 
-  local builds_api = require("workhorse.api.builds")
-
-  vim.notify("Workhorse: Loading pipelines...", vim.log.levels.INFO)
-
-  builds_api.list_definitions(function(definitions, err)
-    if err then
-      vim.notify("Workhorse: Failed to load pipelines: " .. (err or "unknown error"), vim.log.levels.ERROR)
-      return
-    end
-
+  local function show(definitions)
     if #definitions == 0 then
       vim.notify("Workhorse: No pipelines found", vim.log.levels.WARN)
       return
     end
 
-    pickers.new(opts, {
-      prompt_title = "Azure DevOps Pipelines",
+    local picker_opts = vim.tbl_extend("force", {}, opts)
+    picker_opts.definitions, picker_opts.prompt_title = nil, nil
+    pickers.new(picker_opts, {
+      prompt_title = opts.prompt_title or "Azure DevOps Pipelines",
       finder = finders.new_table({
         results = definitions,
         entry_maker = function(def)
-          local folder = def.path:gsub("^\\", "")
+          local folder = (def.path or "\\"):gsub("^\\", "")
           local label = folder ~= "" and (folder .. "\\" .. def.name) or def.name
           return {
             value = def,
@@ -48,7 +43,7 @@ function M.pick(opts)
           }
         end,
       }),
-      sorter = conf.generic_sorter(opts),
+      sorter = conf.generic_sorter(picker_opts),
       attach_mappings = function(prompt_bufnr, _)
         actions.select_default:replace(function()
           actions.close(prompt_bufnr)
@@ -60,6 +55,18 @@ function M.pick(opts)
         return true
       end,
     }):find()
+  end
+
+  if opts.definitions then
+    show(opts.definitions)
+    return
+  end
+  require("workhorse.repos").get(function(cache, err)
+    if not cache then
+      vim.notify("Workhorse: Failed to load pipelines: " .. tostring(err or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+    show(cache.definitions)
   end)
 end
 
