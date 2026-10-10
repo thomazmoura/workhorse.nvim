@@ -2,6 +2,17 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [bed3f0f] - 2026-10-10
+
+### Added
+- Context-aware pull requests and pipelines: `:Workhorse PRs` and the pipelines screen open directly on the repository Neovim is in, found from its git remotes in a cache of every repository the PAT can see
+- Repository cache kept across sessions, encrypted on disk with a GNOME keyring named `workhorse` (requires `gdbus`, `secret-tool` and `openssl`; optional)
+- Pipelines screen has two tabs, Recent (latest runs across pipelines, paged) and All; new `pipelines.default_tab` and `pipelines.recent_top` options
+- Async helper module used to run the repository lookups without blocking the editor
+
+### Changed
+- Build and pull request pickers reuse the shared repository cache instead of fetching repositories on every open
+
 ## [161fc12] - 2026-10-09
 
 ### Changed
