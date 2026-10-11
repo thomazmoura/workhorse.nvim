@@ -1,8 +1,10 @@
 -- Repository cache: every Git repository the PAT can see (with its clone URLs) and the pipelines
 -- of the configured project (with the repository each one builds). It backs the repository and
 -- pipeline pickers, and finds the repository of Neovim's working directory from its git remotes.
--- Kept in memory, and also on disk encrypted when there is a "workhorse" keyring (see
--- keyring.lua), so a new session reads it without querying Azure DevOps. M.update replaces it.
+-- It also keeps the pipelines hidden from the pickers (hidden in the All tab of the pipelines
+-- screen). Kept in memory, and also on disk encrypted when there is a cache key (a "workhorse"
+-- keyring or its password, see keyring.lua), so a new session reads it without querying Azure
+-- DevOps. M.update replaces it, keeping the hidden pipelines.
 local M = {}
 
 local async = require("workhorse.async")
@@ -12,7 +14,7 @@ local keyring = require("workhorse.keyring")
 local CACHE_NAME = "repos"
 
 -- { server_url, project, fetched_at, repos = { repo }, definitions = { { id, name, path,
--- repository_id } } }
+-- repository_id } }, hidden = { definition id } }
 local data = nil
 -- Callbacks of the load or update in flight
 local waiting = nil
@@ -36,7 +38,7 @@ local function finish(result, err)
   end
 end
 
-local function fetch(retry_key)
+local function fetch(retry_key, previous)
   local prs_api = require("workhorse.api.pullrequests")
   local builds_api = require("workhorse.api.builds")
   local repos, definitions, failed
@@ -48,12 +50,23 @@ local function fetch(retry_key)
       return
     end
     local cfg = config.get()
+    -- The hidden pipelines that still exist stay hidden
+    local exists, hidden = {}, {}
+    for _, d in ipairs(definitions) do
+      exists[d.id] = true
+    end
+    for _, id in ipairs(previous and previous.hidden or {}) do
+      if exists[id] then
+        table.insert(hidden, id)
+      end
+    end
     data = {
       server_url = cfg.server_url,
       project = cfg.project,
       fetched_at = os.time(),
       repos = repos,
       definitions = definitions,
+      hidden = hidden,
     }
     keyring.save(CACHE_NAME, data, function(saved, err)
       if err then
@@ -90,7 +103,13 @@ function M.update(callback)
   waiting = { callback or function() end }
   notify("Updating the repository cache...")
   -- An explicit update looks the keyring up again when this session's lookup failed
-  fetch(true)
+  if data and matches_config(data) then
+    return fetch(true, data)
+  end
+  -- Not loaded yet: the hidden pipelines are kept from the cache on disk
+  keyring.load(CACHE_NAME, function(cached)
+    fetch(true, cached and matches_config(cached) and cached or nil)
+  end, true)
 end
 
 --- The cache: from memory, else from disk, else queried from Azure DevOps
@@ -116,7 +135,7 @@ function M.get(callback)
       return finish(data)
     end
     notify("Loading the repositories...")
-    fetch(false)
+    fetch(false, cached and matches_config(cached) and cached or nil)
   end)
 end
 
@@ -129,6 +148,48 @@ function M.pipelines_of(cache, repo)
     end
   end
   return result
+end
+
+--- Set of the hidden pipeline ids: { [id] = true }
+function M.hidden_set(cache)
+  local result = {}
+  for _, id in ipairs(cache and cache.hidden or {}) do
+    result[id] = true
+  end
+  return result
+end
+
+--- The `definitions` (default: every cached one) that are not hidden
+function M.visible(cache, definitions)
+  local hidden = M.hidden_set(cache)
+  return vim.tbl_filter(function(d)
+    return not hidden[d.id]
+  end, definitions or cache.definitions)
+end
+
+--- Hide the pipelines `ids` from the pickers (or show them again when `hidden` is false), and save
+--- the cache
+---@param callback function|nil Callback(hidden_set, error): hidden_set nil when the cache failed
+function M.set_hidden(ids, hidden, callback)
+  callback = callback or function() end
+  M.get(function(cache, err)
+    if not cache then
+      callback(nil, err)
+      return
+    end
+    local set = M.hidden_set(cache)
+    for _, id in ipairs(ids) do
+      set[id] = hidden or nil
+    end
+    cache.hidden = vim.tbl_keys(set)
+    table.sort(cache.hidden)
+    keyring.save(CACHE_NAME, cache, function(_, save_err)
+      if save_err then
+        notify("Could not save the repository cache: " .. save_err, vim.log.levels.WARN)
+      end
+      callback(set)
+    end)
+  end)
 end
 
 -- URLs ------------------------------------------------------------------------

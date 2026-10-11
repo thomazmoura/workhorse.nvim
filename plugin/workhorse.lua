@@ -144,6 +144,7 @@ local function setup_highlights()
     WorkhorseBuildBranch = { link = "Function" },
     WorkhorseBuildDate = { link = "Constant" },
     WorkhorseBuildAuthor = { link = "NonText" },
+    WorkhorsePipelineHidden = { link = "Comment" },
     WorkhorseBuildMessage = { link = "Comment" },
     WorkhorseRunKey = { link = "Identifier" },
     WorkhorseRunSection = { link = "Title" },

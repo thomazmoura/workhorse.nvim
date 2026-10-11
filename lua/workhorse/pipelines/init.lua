@@ -3,7 +3,9 @@
 -- pipelines/tabs.lua). Saving applies the edits in order: moves and renames right
 -- away, then each new line through a pre-filled "New pipeline" form, then the deletions after
 -- one confirmation. <C-c> on a form or the confirmation stops the rest of the save; what was
--- applied stays, and the buffer is not reloaded (new lines just get their #ID).
+-- applied stays, and the buffer is not reloaded (new lines just get their #ID). Pipelines can be
+-- hidden (from the pickers, and from this tab until <leader>w<C-h> shows them); the hidden ones
+-- are kept in the repository cache (workhorse.repos).
 local M = {}
 
 local builds_api = require("workhorse.api.builds")
@@ -16,8 +18,11 @@ local config = require("workhorse.config")
 -- Created lines being saved, followed across edits
 local mark_ns = vim.api.nvim_create_namespace("workhorse_pipelines_marks")
 
--- Per-buffer state: { originals = { [id] = { name, path } }, loading, saving }
+-- Per-buffer state: { originals = { [id] = { name, path } }, hidden = { [id] = true }, loading,
+-- saving }
 local buffers = {}
+-- The hidden pipelines are shown too (muted), for the session
+local show_hidden = false
 
 local function notify(msg, level)
   vim.notify("Workhorse: " .. msg, level or vim.log.levels.INFO)
@@ -27,10 +32,16 @@ function M.is_pipelines_buffer(bufnr)
   return buffers[bufnr or vim.api.nvim_get_current_buf()] ~= nil
 end
 
+-- Pipelines not rendered (hidden while the hidden ones are not shown): their missing lines are not
+-- deletions
+local function absent(state)
+  return show_hidden and {} or state.hidden
+end
+
 local function decorate(bufnr)
   local state = buffers[bufnr]
   if state and not state.loading then
-    tree.decorate(bufnr, state.originals)
+    tree.decorate(bufnr, state.originals, state.hidden, absent(state))
     status.render(bufnr)
   end
 end
@@ -38,7 +49,7 @@ end
 -- Pending changes of the buffer and the errors that block saving them
 local function detect(bufnr)
   local items, errors = tree.parse(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
-  local changes, detect_errors = tree.detect(buffers[bufnr].originals, items)
+  local changes, detect_errors = tree.detect(buffers[bufnr].originals, items, absent(buffers[bufnr]))
   vim.list_extend(errors, detect_errors)
   return changes, errors
 end
@@ -66,9 +77,27 @@ local fold_spec = {
   end,
 }
 
--- Fetch the definitions and render them, replacing the buffer content. A hard load starts over
--- like the first opening: the folds all closed, the run statuses fetched again and the cursor on
--- the first line
+-- Render the pipelines of state.originals (without the hidden ones unless shown), replacing the
+-- buffer content. The folders the user folded or unfolded stay so
+local function render(bufnr)
+  local state = buffers[bufnr]
+  local definitions = {}
+  for id, original in pairs(state.originals) do
+    if show_hidden or not state.hidden[id] then
+      table.insert(definitions, { id = id, name = original.name, path = original.path })
+    end
+  end
+  local fold_snapshot = state.loaded and fold.snapshot(bufnr) or nil
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, tree.render(definitions))
+  vim.bo[bufnr].modified = false
+  state.loaded = true
+  decorate(bufnr)
+  fold.collapse(bufnr, fold_snapshot)
+end
+
+-- Fetch the definitions (and the hidden ones, from the repository cache) and render them,
+-- replacing the buffer content. A hard load starts over like the first opening: the folds all
+-- closed, the run statuses fetched again and the cursor on the first line
 local function load(bufnr, hard)
   local state = buffers[bufnr]
   state.loading = true
@@ -78,31 +107,41 @@ local function load(bufnr, hard)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading pipelines..." })
     vim.bo[bufnr].modified = false
   end
-  builds_api.list_definitions(function(definitions, err)
-    if not buffers[bufnr] or not vim.api.nvim_buf_is_valid(bufnr) then
+  local definitions, list_err, hidden
+  local pending = 2
+  local function joined()
+    pending = pending - 1
+    if pending > 0 or not buffers[bufnr] or not vim.api.nvim_buf_is_valid(bufnr) then
       return
     end
     state.loading = false
-    if err or not definitions then
-      notify("Failed to list the pipelines: " .. tostring(err or "unknown error"), vim.log.levels.ERROR)
+    if list_err or not definitions then
+      notify("Failed to list the pipelines: " .. tostring(list_err or "unknown error"), vim.log.levels.ERROR)
       return
     end
     state.originals = {}
     for _, d in ipairs(definitions) do
       state.originals[d.id] = { name = d.name, path = d.path }
     end
-    -- The folders the user folded or unfolded stay so across a reload
-    local fold_snapshot = state.loaded and fold.snapshot(bufnr) or nil
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, tree.render(definitions))
-    vim.bo[bufnr].modified = false
-    state.loaded = true
-    decorate(bufnr)
-    fold.collapse(bufnr, fold_snapshot)
+    state.hidden = hidden
+    render(bufnr)
     if hard then
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
         vim.api.nvim_win_set_cursor(win, { 1, 0 })
       end
     end
+  end
+  builds_api.list_definitions(function(result, err)
+    definitions, list_err = result, err
+    joined()
+  end)
+  local repos = require("workhorse.repos")
+  repos.get(function(cache, err)
+    if not cache then
+      notify("Could not read the hidden pipelines: " .. tostring(err or "unknown error"), vim.log.levels.WARN)
+    end
+    hidden = repos.hidden_set(cache)
+    joined()
   end)
 end
 
@@ -115,6 +154,112 @@ local function current_pipeline(bufnr)
     local original = buffers[bufnr].originals[item.id]
     return { id = item.id, name = original and original.name or item.name }
   end
+end
+
+-- Ids of the pipelines on the cursor line (every line of a closed fold) or the visual selection,
+-- which it ends
+local function selected_ids(bufnr)
+  local first, last = vim.fn.line("."), vim.fn.line(".")
+  local mode = vim.fn.mode()
+  if mode == "v" or mode == "V" or mode == "\22" then
+    first = vim.fn.line("v")
+    if first > last then
+      first, last = last, first
+    end
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  end
+  if vim.fn.foldclosed(first) ~= -1 then
+    first = vim.fn.foldclosed(first)
+  end
+  if vim.fn.foldclosedend(last) ~= -1 then
+    last = vim.fn.foldclosedend(last)
+  end
+  local ids = {}
+  for _, item in ipairs((tree.parse(vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)))) do
+    if item.kind == "pipeline" and buffers[bufnr].originals[item.id] then
+      table.insert(ids, item.id)
+    end
+  end
+  return ids
+end
+
+local function busy(state)
+  if state.loading or state.saving then
+    notify(state.loading and "The pipelines are still loading" or "Wait for the save to finish", vim.log.levels.WARN)
+    return true
+  end
+end
+
+-- Take the lines of the pipelines `ids` off the buffer, keeping its other edits
+local function remove_lines(bufnr, ids)
+  local set = {}
+  for _, id in ipairs(ids) do
+    set[id] = true
+  end
+  local items = tree.parse(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  for i = #items, 1, -1 do
+    if items[i].kind == "pipeline" and set[items[i].id] then
+      vim.api.nvim_buf_set_lines(bufnr, items[i].lnum - 1, items[i].lnum, false, {})
+    end
+  end
+  vim.bo[bufnr].modified = tree.count((detect(bufnr))) > 0
+  decorate(bufnr)
+end
+
+-- Hide the selected pipelines (or show them again when `hide` is false) and save that in the
+-- repository cache
+local function set_hidden(bufnr, hide)
+  local state = buffers[bufnr]
+  local ids = selected_ids(bufnr)
+  if busy(state) then
+    return
+  end
+  if #ids == 0 then
+    notify("No pipeline selected", vim.log.levels.WARN)
+    return
+  end
+  require("workhorse.repos").set_hidden(ids, hide, function(set, err)
+    if not set then
+      notify("Could not update the hidden pipelines: " .. tostring(err or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+    if not buffers[bufnr] or not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+    state.hidden = set
+    if hide and not show_hidden then
+      if vim.bo[bufnr].modified then
+        remove_lines(bufnr, ids)
+      else
+        render(bufnr)
+      end
+    else
+      decorate(bufnr)
+    end
+    local plural = #ids == 1 and "" or "s"
+    notify(hide and ("Hid %d pipeline%s"):format(#ids, plural)
+      or ("%d pipeline%s no longer hidden"):format(#ids, plural))
+  end)
+end
+
+-- Show the hidden pipelines too, or hide them again (asks first when the list has unsaved changes)
+local function toggle_hidden(bufnr)
+  local state = buffers[bufnr]
+  if vim.fn.mode() ~= "n" then
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  end
+  if busy(state) then
+    return
+  end
+  local action = show_hidden and "hide" or "show"
+  if vim.bo[bufnr].modified
+    and vim.fn.confirm(("Discard the pending changes and %s the hidden pipelines?"):format(action), "&Discard\n&Cancel", 2) ~= 1 then
+    return
+  end
+  show_hidden = not show_hidden
+  render(bufnr)
+  local count = vim.tbl_count(state.hidden)
+  notify(("%s %d hidden pipeline%s"):format(show_hidden and "Showing" or "Hiding", count, count == 1 and "" or "s"))
 end
 
 local function setup_keymaps(bufnr)
@@ -142,6 +287,19 @@ local function setup_keymaps(bufnr)
     end
     require("workhorse.builds").open_runs(pipeline.id, pipeline.name)
   end, "open the runs of the pipeline")
+  -- Hiding works on the cursor line or the visual selection
+  local function map_nx(lhs, fn, desc)
+    vim.keymap.set({ "n", "x" }, lhs, fn, { buffer = bufnr, silent = true, desc = "Workhorse: " .. desc })
+  end
+  map_nx("<leader>wh", function()
+    set_hidden(bufnr, true)
+  end, "hide the pipelines from the pickers")
+  map_nx("<leader>wH", function()
+    set_hidden(bufnr, false)
+  end, "stop hiding the pipelines")
+  map_nx("<leader>w<C-h>", function()
+    toggle_hidden(bufnr)
+  end, "show or hide the hidden pipelines")
   map("gw", function()
     local pipeline = current_pipeline(bufnr)
     if not pipeline then
@@ -206,7 +364,7 @@ function M.open_all()
   vim.bo[bufnr].filetype = "workhorse-pipelines"
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading pipelines..." })
   vim.bo[bufnr].modified = false
-  buffers[bufnr] = { originals = {} }
+  buffers[bufnr] = { originals = {}, hidden = {} }
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
   fold.attach(bufnr, fold_spec)

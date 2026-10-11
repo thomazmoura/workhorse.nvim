@@ -1,8 +1,8 @@
 local M = {}
 
 -- Pick a pipeline (build definition) using Telescope. The pipelines come from the repository
--- cache (workhorse.repos), or from opts.definitions when given (e.g. those of one repository);
--- opts.prompt_title replaces the title
+-- cache (workhorse.repos), or from opts.definitions when given (e.g. those of one repository),
+-- without the hidden ones; opts.prompt_title replaces the title
 function M.pick(opts)
   opts = opts or {}
 
@@ -57,16 +57,17 @@ function M.pick(opts)
     }):find()
   end
 
-  if opts.definitions then
-    show(opts.definitions)
-    return
-  end
-  require("workhorse.repos").get(function(cache, err)
+  -- Hidden pipelines (hidden in the All tab of the pipelines screen) are left out
+  local repos = require("workhorse.repos")
+  repos.get(function(cache, err)
     if not cache then
+      if opts.definitions then
+        return show(opts.definitions)
+      end
       vim.notify("Workhorse: Failed to load pipelines: " .. tostring(err or "unknown error"), vim.log.levels.ERROR)
       return
     end
-    show(cache.definitions)
+    show(repos.visible(cache, opts.definitions))
   end)
 end
 

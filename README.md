@@ -17,7 +17,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
-- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk with a `workhorse` keyring)
+- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk with a `workhorse` keyring or a password)
 
 ## Requirements
 
@@ -25,8 +25,9 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query and pipeline pickers)
 - Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
-- Optional, to keep the repository cache across sessions: a GNOME keyring named `workhorse`,
-  `gdbus`, `secret-tool` (`libsecret-tools`) and `openssl` (see "Repository cache")
+- Optional, to keep the repository cache across sessions: `openssl`, plus a GNOME keyring named
+  `workhorse`, `gdbus` and `secret-tool` (`libsecret-tools`), or just a password (see
+  "Repository cache")
 
 ## Installation
 
@@ -638,6 +639,24 @@ in the browser, and
 `:Workhorse pipelines list` (or `<leader>wB`) again on a tab reloads it from scratch, like when
 it was first opened: every folder folded again and the run statuses fetched anew.
 
+#### Hiding pipelines
+
+Pipelines you never open can be hidden: they leave the All tab and both pipeline pickers
+(`:Workhorse builds`, `<leader>w/`, and the pipelines of the current repository, `<leader>wb`).
+Each key works on the pipeline under the cursor, on every pipeline of a closed folder under the
+cursor, or on the visual selection:
+
+| Key | Action |
+|-----|--------|
+| `<leader>wh` | Hide the pipelines |
+| `<leader>wH` | Stop hiding the pipelines |
+| `<leader>w<C-h>` | Show the hidden pipelines too (muted, `WorkhorsePipelineHidden`), or hide them again |
+
+Hidden pipelines are not deleted when you save: their lines are only missing from the buffer.
+Hiding keeps your pending edits; showing or hiding them all asks first when there are some (it
+redraws the list). The hidden list is kept in the repository cache (see "Repository cache"), so
+it survives `<leader>wR` and, with a cache key, new sessions.
+
 Folders fold like the work item tree: every folder starts folded, showing how many pipelines
 they hold (`Infra/  ⋯ 3 pipelines`). `<CR>` or `<Space>` on a folder folds or unfolds it, and the
 usual fold commands (`zo`, `zc`, `za`, `zR`, `zM`...) work too. Folded lines are still edited and
@@ -772,18 +791,28 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 | `<leader>w<C-p>` | Reopen the pull requests of the last opened repository |
 | `<leader>wR` | Update the repository cache |
 
-Without a keyring the cache lives in memory only, for the session. To keep it across sessions,
+Without a key the cache lives in memory only, for the session. To keep it across sessions,
 create a keyring named `workhorse` in **Passwords and Keys** (`seahorse`: **+** → **Password
 keyring**). The cache is then saved as JSON encrypted with AES-256 by `openssl`
 (`~/.cache/nvim/workhorse/repos.enc`, readable by you only), with a random key stored in that
 keyring and passed to `openssl` through its environment, never on the command line, as
 paperboy.nvim does for its contacts. The key is
 read once per session: the first read shows GNOME's unlock prompt, and the keyring is locked again
-right after. If the prompt is dismissed, the cache stays in memory for that session
-(`<leader>wR` asks again). The cache is tied to `server_url` and `project`. To delete it:
+right after. The cache is tied to `server_url` and `project`.
+
+To open the cache where the keyring cannot be (over SSH, or with the keyring locked), the first
+time the keyring gives the key Workhorse also asks a password (twice; leave it empty to skip for
+that session) and keeps a copy of the key encrypted with it
+(`~/.cache/nvim/workhorse/cache-key.enc`, AES-256 with 600 000 PBKDF2 iterations). Then, when
+the keyring cannot be opened (or its unlock prompt is dismissed), Neovim asks that password
+instead: three tries, empty to keep the cache in memory for the session (`<leader>wR` asks
+again). On a machine with no keyring and no cache yet, it asks a new password and the cache is
+kept with it only; once such a machine gets the keyring, the password is asked once more to store
+the same key in the keyring. To change the password, delete `cache-key.enc` where the keyring
+opens: it is asked again. To delete the cache:
 
 ```bash
-rm ~/.cache/nvim/workhorse/repos.enc
+rm ~/.cache/nvim/workhorse/repos.enc ~/.cache/nvim/workhorse/cache-key.enc
 secret-tool clear workhorse cache-key
 ```
 

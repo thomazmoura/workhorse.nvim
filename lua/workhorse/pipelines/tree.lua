@@ -127,8 +127,10 @@ end
 
 --- Changes from `originals` ({ [id] = { name, path } }) to the parsed `items`:
 --- { moves = { { id, name, path, old_name, old_path } }, creates = { { name, path, lnum, level } },
----   deletes = { { id, name, path } } }, plus a list of errors
-function M.detect(originals, items)
+---   deletes = { { id, name, path } } }, plus a list of errors. The pipelines in `absent` ({ [id] =
+--- true }: those not rendered, as hidden) are not deleted when their line is missing
+function M.detect(originals, items, absent)
+  absent = absent or {}
   local changes = { moves = {}, creates = {}, deletes = {} }
   local errors, seen = {}, {}
   for _, item in ipairs(items) do
@@ -157,7 +159,7 @@ function M.detect(originals, items)
     end
   end
   for id, original in pairs(originals) do
-    if not seen[id] then
+    if not seen[id] and not absent[id] then
       table.insert(changes.deletes, { id = id, name = original.name, path = M.normalize_path(original.path) })
     end
   end
@@ -176,15 +178,16 @@ function M.count(changes)
 end
 
 --- Tree guides and highlights of the buffer, plus hints of the pending changes when `originals`
---- is given
-function M.decorate(bufnr, originals)
+--- is given; `hidden` ({ [id] = true }) mutes the hidden pipelines, `absent` is passed to detect
+function M.decorate(bufnr, originals, hidden, absent)
+  hidden = hidden or {}
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   guides.draw(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local items = M.parse(lines)
   local moves = {}
   if originals then
-    for _, move in ipairs(M.detect(originals, items).moves) do
+    for _, move in ipairs(M.detect(originals, items, absent).moves) do
       moves[move.lnum] = move
     end
   end
@@ -195,7 +198,10 @@ function M.decorate(bufnr, originals)
       vim.api.nvim_buf_set_extmark(bufnr, ns, row, item.prefix_len, { end_col = #line, hl_group = "Directory" })
     elseif item.kind == "pipeline" then
       local bar = line:find("|", item.prefix_len + 1, true)
-      if bar then
+      if hidden[item.id] then
+        -- Hidden pipelines are muted as a whole
+        vim.api.nvim_buf_set_extmark(bufnr, ns, row, item.prefix_len, { end_col = #line, hl_group = "WorkhorsePipelineHidden" })
+      elseif bar then
         vim.api.nvim_buf_set_extmark(bufnr, ns, row, item.prefix_len, { end_col = bar, hl_group = "Comment" })
       end
       local move = moves[item.lnum]

@@ -203,7 +203,8 @@ function M.repo_builds()
       vim.notify("Workhorse: " .. tostring(reason) .. "; showing every pipeline", vim.log.levels.WARN)
       return require("workhorse.builds").pick()
     end
-    local definitions = require("workhorse.repos").pipelines_of(cache, repo)
+    local repos = require("workhorse.repos")
+    local definitions = repos.visible(cache, repos.pipelines_of(cache, repo))
     if #definitions == 0 then
       vim.notify(("Workhorse: %s/%s has no pipelines in %s; showing every pipeline"):format(repo.project.name,
         repo.name, config.get().project), vim.log.levels.WARN)
