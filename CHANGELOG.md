@@ -2,6 +2,13 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [d4e9cf3] - 2026-10-11
+
+### Added
+- Hidden pipelines: on the All tab, `<leader>wh` hides the pipeline under the cursor (or the visual selection), `<leader>wH` stops hiding it and `<leader>w<C-h>` shows the hidden pipelines (muted, `WorkhorsePipelineHidden`) or hides them again
+- The hidden pipelines are kept in the repository cache and left out of both pipeline pickers (`:Workhorse builds` and the pipelines of the current repository)
+- Password fallback for the repository cache: the first time the keyring gives the cache key, a password is asked and a copy of the key is kept encrypted with it (`cache-key.enc`); when the keyring cannot be opened (e.g. over SSH), the password is asked instead. Without a keyring and a cache, a password-only cache is created
+
 ## [bed3f0f] - 2026-10-10
 
 ### Added
