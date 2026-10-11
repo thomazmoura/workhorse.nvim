@@ -4,6 +4,9 @@ if vim.g.loaded_workhorse then
 end
 vim.g.loaded_workhorse = true
 
+-- :NvimVault, shared with paperboy.nvim (whichever loads first defines it)
+require("workhorse.vault").create_command()
+
 -- User commands
 vim.api.nvim_create_user_command("Workhorse", function(opts)
   local args = opts.fargs

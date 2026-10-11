@@ -17,7 +17,8 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
-- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk with a `workhorse` keyring or a password)
+- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk, its key in the vault)
+- **Secrets under a master password** - The PAT and the cache key in a vault shared with paperboy.nvim, encrypted with a master password asked once per Neovim (see "The vault")
 
 ## Requirements
 
@@ -25,9 +26,10 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query and pipeline pickers)
 - Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
-- Optional, to keep the repository cache across sessions: `openssl`, plus a GNOME keyring named
-  `workhorse`, `gdbus` and `secret-tool` (`libsecret-tools`), or just a password (see
-  "Repository cache")
+- OpenSSL's `libcrypto`, to keep the PAT in the vault, and `openssl`, to keep the repository
+  cache across sessions
+- Optional: `libsecret-tools` and `gdbus` to keep the vault in the GNOME Keyring (files
+  otherwise)
 
 ## Installation
 
@@ -87,8 +89,52 @@ export AZURE_DEVOPS_URL="https://dev.azure.com/your-organization"
 # Or for Azure DevOps Server:
 export AZURE_DEVOPS_URL="https://your-server/tfs/DefaultCollection"
 
+# The PAT: in the vault (asks the master password, then the PAT; see "The vault")
+bin/nvim-vault set workhorse/pat
+# or in the environment (readable by any program running as you)
 export AZURE_DEVOPS_PAT="your-personal-access-token"
 ```
+
+### The vault
+
+Workhorse keeps its secrets (the PAT and the key of the repository cache) in a **vault** shared
+with [paperboy.nvim](https://github.com/thomazmoura/paperboy.nvim): each secret is encrypted
+with a **master password** that is never stored, so nothing in it is readable by other
+programs, even with the keyring holding it unlocked.
+
+- **Encryption:** AES-256-GCM, with the item's name authenticated along with it, under a key
+  derived from the master password by PBKDF2-SHA256 (600,000 iterations). It runs inside
+  Neovim through libcrypto (LuaJIT FFI, OpenSSL 1.1 or 3): neither the master password nor a
+  secret ever appears in another process's arguments, environment or input.
+- **Storage:** with a Secret Service (GNOME Keyring), `secret-tool` items labelled
+  `nvim-vault workhorse/…`, in a keyring named `workhorse` in **Passwords and Keys**
+  (`seahorse`) when there is one, the default keyring otherwise. Since the items are encrypted,
+  that keyring can be set to unlock at login. The vault never unlocks a keyring itself (its
+  prompt may be out of reach, e.g. over SSH): a locked one is reported. Without a Secret Service
+  (no `secret-tool` or `gdbus`, no session bus: other desktops, containers), files in
+  `$XDG_DATA_HOME/nvim-vault/workhorse/` (mode 0600). `NVIM_VAULT_BACKEND=file` or `keyring`
+  forces one.
+- **Once per Neovim:** the master password is asked on the first read (the first request,
+  when the PAT is not in `setup()` or `AZURE_DEVOPS_PAT`) and kept in memory, for workhorse and
+  paperboy alike. Left empty (or wrong three times), it is not asked again in that Neovim until
+  `:NvimVault unlock`. `:NvimVault lock` forgets it. When it changes elsewhere, a Neovim
+  holding the old one asks for the new one.
+
+Commands (`bin/nvim-vault` is a headless Neovim; it makes itself non-dumpable first):
+
+| Command line | In Neovim | |
+|---|---|---|
+| `nvim-vault list` | `:NvimVault list` | Names of the secrets (no password needed) |
+| `nvim-vault set NAME` | `:NvimVault set NAME` | Store a secret: typed, hidden, or piped (`… \| nvim-vault set NAME`) |
+| `nvim-vault get NAME` | | Print a secret |
+| `nvim-vault delete NAME` | `:NvimVault delete NAME` | Delete a secret |
+| `nvim-vault passwd` | `:NvimVault passwd` | Change the master password: the current one (asked if not in memory) opens every secret, encrypted again with the new one; nothing changes when one fails |
+| | `:NvimVault unlock` / `lock` | Enter the master password again / forget it |
+
+Workhorse's items: `workhorse/pat`, `workhorse/cache-key` (created when missing; a plaintext
+`secret-tool … workhorse cache-key` from older versions is moved into the vault). It cannot
+stop a program running as you that modifies your Neovim config or this plugin and waits for you
+to type the master password.
 
 ### Setup Options
 
@@ -99,7 +145,7 @@ require("workhorse").setup({
 
   -- Optional: Override environment variables
   server_url = nil,  -- Falls back to AZURE_DEVOPS_URL
-  pat = nil,         -- Falls back to AZURE_DEVOPS_PAT
+  pat = nil,         -- Falls back to AZURE_DEVOPS_PAT, then to workhorse/pat in the vault
 
   -- Team name (required for board_column grouping mode)
   team = nil,  -- e.g., "MyProject Team"
@@ -791,29 +837,18 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 | `<leader>w<C-p>` | Reopen the pull requests of the last opened repository |
 | `<leader>wR` | Update the repository cache |
 
-Without a key the cache lives in memory only, for the session. To keep it across sessions,
-create a keyring named `workhorse` in **Passwords and Keys** (`seahorse`: **+** → **Password
-keyring**). The cache is then saved as JSON encrypted with AES-256 by `openssl`
-(`~/.cache/nvim/workhorse/repos.enc`, readable by you only), with a random key stored in that
-keyring and passed to `openssl` through its environment, never on the command line, as
-paperboy.nvim does for its contacts. The key is
-read once per session: the first read shows GNOME's unlock prompt, and the keyring is locked again
-right after. The cache is tied to `server_url` and `project`.
-
-To open the cache where the keyring cannot be (over SSH, or with the keyring locked), the first
-time the keyring gives the key Workhorse also asks a password (twice; leave it empty to skip for
-that session) and keeps a copy of the key encrypted with it
-(`~/.cache/nvim/workhorse/cache-key.enc`, AES-256 with 600 000 PBKDF2 iterations). Then, when
-the keyring cannot be opened (or its unlock prompt is dismissed), Neovim asks that password
-instead: three tries, empty to keep the cache in memory for the session (`<leader>wR` asks
-again). On a machine with no keyring and no cache yet, it asks a new password and the cache is
-kept with it only; once such a machine gets the keyring, the password is asked once more to store
-the same key in the keyring. To change the password, delete `cache-key.enc` where the keyring
-opens: it is asked again. To delete the cache:
+The cache is saved as JSON encrypted with AES-256 by `openssl`
+(`~/.cache/nvim/workhorse/repos.enc`, readable by you only), with a random key stored in the
+vault (`workhorse/cache-key`, see "The vault") and passed to `openssl` through its environment,
+never on the command line, as paperboy.nvim does for its contacts. The key is read once per
+session. Without it (master password not entered, keyring locked) the cache lives in memory only,
+for the session (`<leader>wR` asks the master password again). The cache is tied to `server_url`
+and `project`. The `cache-key.enc` of older versions is deleted once the vault gives the key.
+To delete the cache:
 
 ```bash
-rm ~/.cache/nvim/workhorse/repos.enc ~/.cache/nvim/workhorse/cache-key.enc
-secret-tool clear workhorse cache-key
+rm ~/.cache/nvim/workhorse/repos.enc
+nvim-vault delete workhorse/cache-key
 ```
 
 With lazy-loading by `keys`, list these keymaps there too (without an action) so they load the
@@ -866,7 +901,7 @@ If no environment variable is set, the lualine component will not fetch any data
 4. Select scopes:
    - **Work Items**: Read & Write
    - **Project and Team**: Read (for queries)
-5. Copy the token and set it as `AZURE_DEVOPS_PAT`
+5. Copy the token and store it with `nvim-vault set workhorse/pat` (or set it as `AZURE_DEVOPS_PAT`)
 
 ## License
 

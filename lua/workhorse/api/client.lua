@@ -2,6 +2,11 @@ local M = {}
 
 local curl = require("plenary.curl")
 local config = require("workhorse.config")
+local vault = require("workhorse.vault")
+
+local PAT_NAME = "workhorse/pat"
+-- Callbacks waiting for the PAT from the vault (concurrent requests share one prompt)
+local pat_waiting = nil
 
 -- Base64 encode (fallback for Neovim < 0.10)
 local function base64_encode(str)
@@ -18,10 +23,35 @@ local function base64_encode(str)
   error("Failed to base64 encode - neither vim.base64 nor base64 command available")
 end
 
-local function get_auth_header()
+--- The PAT: setup()'s pat or $AZURE_DEVOPS_PAT, else workhorse/pat from the vault (its master
+--- password is asked on the first request), kept in the config once read
+---@param callback function Callback(pat, error)
+local function get_pat(callback)
   local cfg = config.get()
+  if cfg.pat then
+    return callback(cfg.pat, nil)
+  end
+  if pat_waiting then
+    return table.insert(pat_waiting, callback)
+  end
+  pat_waiting = { callback }
+  vault.get(PAT_NAME, function(pat, err)
+    if not pat and not err then
+      err = "no PAT: store it with `nvim-vault set " .. PAT_NAME .. "` (or :NvimVault set " .. PAT_NAME
+        .. "), or set AZURE_DEVOPS_PAT"
+    end
+    cfg.pat = pat
+    local callbacks = pat_waiting
+    pat_waiting = nil
+    for _, cb in ipairs(callbacks) do
+      cb(pat, err)
+    end
+  end)
+end
+
+local function get_auth_header(pat)
   -- PAT auth uses Basic with empty username
-  return "Basic " .. base64_encode(":" .. cfg.pat)
+  return "Basic " .. base64_encode(":" .. pat)
 end
 
 local function get_base_url()
@@ -94,8 +124,17 @@ local function handle_transport_error(err, opts)
 end
 
 function M.request(opts)
+  get_pat(function(pat, err)
+    if not pat then
+      return handle_transport_error({ message = err }, opts)
+    end
+    M.request_with(opts, get_auth_header(pat))
+  end)
+end
+
+--- Send a request with this Authorization header
+function M.request_with(opts, auth)
   local url = get_base_url() .. opts.path
-  local auth = get_auth_header()
 
   local headers = {
     authorization = auth,
@@ -159,7 +198,7 @@ function M.test()
   vim.notify("Workhorse Debug Info:\n" ..
     "  Server URL: " .. (cfg.server_url or "NOT SET") .. "\n" ..
     "  Project: " .. (cfg.project or "NOT SET") .. "\n" ..
-    "  PAT: " .. (cfg.pat and (cfg.pat:sub(1, 4) .. "..." .. cfg.pat:sub(-4)) or "NOT SET") .. "\n" ..
+    "  PAT: " .. (cfg.pat and (cfg.pat:sub(1, 4) .. "..." .. cfg.pat:sub(-4)) or "not read yet (vault)") .. "\n" ..
     "  Full test URL: " .. full_url,
     vim.log.levels.INFO
   )

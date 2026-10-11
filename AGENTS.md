@@ -48,7 +48,13 @@ Change types detected: CREATED, UPDATED, DELETED, STATE_CHANGED (by moving lines
 
 Environment variables:
 - `AZURE_DEVOPS_URL` - Organization URL (e.g., https://dev.azure.com/org)
-- `AZURE_DEVOPS_PAT` - Personal Access Token
+- `AZURE_DEVOPS_PAT` - Personal Access Token (optional: otherwise `workhorse/pat` from the vault)
+
+## Secrets vault
+
+`lua/workhorse/vault.lua` is kept byte-identical to paperboy.nvim's `lua/paperboy/vault.lua`
+(both plugins share its state in one Neovim): change it in both repos. `bin/nvim-vault` is its
+command line.
 
 ## Plugin Commands
 

@@ -3,7 +3,7 @@ local M = {}
 local defaults = {
   -- Server configuration (falls back to env vars)
   server_url = nil,
-  pat = nil,
+  pat = nil, -- falls back to $AZURE_DEVOPS_PAT, then to workhorse/pat in the vault (vault.lua)
 
   -- Required: project name
   project = nil,
@@ -187,10 +187,6 @@ function M.validate()
     table.insert(warnings, "server_url not set (use setup() or AZURE_DEVOPS_URL env var)")
   end
 
-  if not config.pat then
-    table.insert(warnings, "pat not set (use setup() or AZURE_DEVOPS_PAT env var)")
-  end
-
   if not config.project then
     table.insert(warnings, "project is required in setup()")
   end
@@ -214,7 +210,8 @@ end
 
 -- Check if config is valid (can be called before API operations)
 function M.is_valid()
-  return config.server_url ~= nil and config.pat ~= nil and config.project ~= nil
+  -- The PAT may come from the vault, read on the first request (api/client.lua)
+  return config.server_url ~= nil and config.project ~= nil
 end
 
 function M.get()
