@@ -2,6 +2,21 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [cc421fb] - 2026-10-11
+
+### Added
+- Secrets vault shared with paperboy.nvim: secrets are encrypted with a master password (AES-256-GCM, PBKDF2-SHA256 with 600,000 iterations, through libcrypto in Neovim), asked once per Neovim and kept in memory
+- The PAT can be stored in the vault as `workhorse/pat` (used when neither `setup()` nor `AZURE_DEVOPS_PAT` gives it), read on the first request
+- `:NvimVault` command (`list`, `set`, `delete`, `passwd`, `unlock`, `lock`) and the `bin/nvim-vault` command line (`list`, `set`, `get`, `delete`, `passwd`)
+- Vault storage in the GNOME Keyring (`secret-tool` and `gdbus`) or, without a Secret Service, in files under `$XDG_DATA_HOME/nvim-vault/workhorse/`; `NVIM_VAULT_BACKEND` forces one
+
+### Changed
+- The repository cache key now lives in the vault (`workhorse/cache-key`); a plaintext key from older versions is moved into it and `cache-key.enc` is deleted
+- A missing PAT is no longer a configuration warning: the plugin counts as configured with `server_url` and `project`
+
+### Removed
+- The cache password fallback (`cache-key.enc`), replaced by the vault's master password
+
 ## [d4e9cf3] - 2026-10-11
 
 ### Added
