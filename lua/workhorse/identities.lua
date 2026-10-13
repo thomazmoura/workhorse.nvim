@@ -1,13 +1,12 @@
 -- Identity cache: every user and group of the collection (teams included), for the repository
 -- Security tab (adding a user or group) and the required reviewers of the Policies tab. Listing
 -- them takes a few hundred lookups (see api/identities.lua), so, like paperboy.nvim's company
--- directory, it is kept in memory and on disk encrypted when there is a cache key (see
--- keyring.lua), and only queried again on demand (M.update, <leader>wR on the repository screens
+-- directory, it is kept in memory and on disk in the locksmith.nvim store (see store.lua), and only queried again on demand (M.update, <leader>wR on the repository screens
 -- or :Workhorse identities refresh).
 local M = {}
 
 local config = require("workhorse.config")
-local keyring = require("workhorse.keyring")
+local store = require("workhorse.store")
 
 local CACHE_NAME = "identities"
 
@@ -97,7 +96,7 @@ local function fetch(retry_key)
     sort(unique)
     data = { server_url = config.get().server_url, fetched_at = os.time(), identities = unique }
     build_index()
-    keyring.save(CACHE_NAME, data, function(saved, save_err)
+    store.save(CACHE_NAME, data, function(saved, save_err)
       if save_err then
         notify("Could not save the identity cache: " .. save_err, vim.log.levels.WARN)
       end
@@ -134,7 +133,7 @@ function M.get(callback)
     return
   end
   waiting = { callback }
-  keyring.load(CACHE_NAME, function(cached, err)
+  store.load(CACHE_NAME, function(cached, err)
     if err then
       notify(err .. ": querying Azure DevOps again", vim.log.levels.WARN)
     end

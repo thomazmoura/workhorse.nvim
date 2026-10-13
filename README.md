@@ -18,8 +18,8 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
 - **Repositories** - Create, rename and delete the project's repositories from an editable list, and edit their permissions (Security) and branch policies (required reviewers, builds, linked work items...) as text, with every value completed
-- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk, its key in the vault)
-- **Secrets under a master password** - The PAT and the cache key in a vault shared with paperboy.nvim, encrypted with a master password asked once per Neovim (see "The vault")
+- **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk by locksmith.nvim)
+- **Secrets under one password** - The PAT and the caches in the [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim) store shared with paperboy.nvim, unlocked once per Neovim (see "The PAT and locksmith")
 
 ## Requirements
 
@@ -27,10 +27,10 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query and pipeline pickers)
 - Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
-- OpenSSL's `libcrypto`, to keep the PAT in the vault, and `openssl`, to keep the repository
-  cache across sessions
-- Optional: `libsecret-tools` and `gdbus` to keep the vault in the GNOME Keyring (files
-  otherwise)
+- [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim), with its requirements
+  (LuaJIT, libcrypto and libargon2 or OpenSSL >= 3.2), to keep the PAT and the caches across
+  sessions. Optional: without it, the PAT comes from `setup()` or `AZURE_DEVOPS_PAT` and the
+  caches live in memory only
 
 ## Installation
 
@@ -42,6 +42,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
   dependencies = {
     "nvim-lua/plenary.nvim",
     "nvim-telescope/telescope.nvim",
+    "thomazmoura/locksmith.nvim",
   },
   config = function()
     require("workhorse").setup({
@@ -59,6 +60,7 @@ use {
   requires = {
     "nvim-lua/plenary.nvim",
     "nvim-telescope/telescope.nvim",
+    "thomazmoura/locksmith.nvim",
   },
   config = function()
     require("workhorse").setup({
@@ -73,6 +75,7 @@ use {
 ```vim
 Plug 'nvim-lua/plenary.nvim'
 Plug 'nvim-telescope/telescope.nvim'
+Plug 'thomazmoura/locksmith.nvim'
 Plug 'thomazmoura/workhorse.nvim'
 
 " In your init.lua or after/plugin:
@@ -90,52 +93,39 @@ export AZURE_DEVOPS_URL="https://dev.azure.com/your-organization"
 # Or for Azure DevOps Server:
 export AZURE_DEVOPS_URL="https://your-server/tfs/DefaultCollection"
 
-# The PAT: in the vault (asks the master password, then the PAT; see "The vault")
-bin/nvim-vault set workhorse/pat
+# The PAT: in the locksmith store (asks its password, then the PAT; see "The PAT and locksmith")
+locksmith set workhorse/pat     # or :Locksmith set workhorse/pat in Neovim
 # or in the environment (readable by any program running as you)
 export AZURE_DEVOPS_PAT="your-personal-access-token"
 ```
 
-### The vault
+### The PAT and locksmith
 
-Workhorse keeps its secrets (the PAT and the key of the repository cache) in a **vault** shared
-with [paperboy.nvim](https://github.com/thomazmoura/paperboy.nvim): each secret is encrypted
-with a **master password** that is never stored, so nothing in it is readable by other
-programs, even with the keyring holding it unlocked.
+Workhorse keeps its secrets and caches in the [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim)
+store, an encrypted store shared with [paperboy.nvim](https://github.com/thomazmoura/paperboy.nvim)
+and unlocked once per Neovim with a password that is never stored (see locksmith's README for
+its design):
 
-- **Encryption:** AES-256-GCM, with the item's name authenticated along with it, under a key
-  derived from the master password by PBKDF2-SHA256 (600,000 iterations). It runs inside
-  Neovim through libcrypto (LuaJIT FFI, OpenSSL 1.1 or 3): neither the master password nor a
-  secret ever appears in another process's arguments, environment or input.
-- **Storage:** with a Secret Service (GNOME Keyring), `secret-tool` items labelled
-  `nvim-vault workhorse/…`, in a keyring named `workhorse` in **Passwords and Keys**
-  (`seahorse`) when there is one, the default keyring otherwise. Since the items are encrypted,
-  that keyring can be set to unlock at login. The vault never unlocks a keyring itself (its
-  prompt may be out of reach, e.g. over SSH): a locked one is reported. Without a Secret Service
-  (no `secret-tool` or `gdbus`, no session bus: other desktops, containers), files in
-  `$XDG_DATA_HOME/nvim-vault/workhorse/` (mode 0600). `NVIM_VAULT_BACKEND=file` or `keyring`
-  forces one.
-- **Once per Neovim:** the master password is asked on the first read (the first request,
-  when the PAT is not in `setup()` or `AZURE_DEVOPS_PAT`) and kept in memory, for workhorse and
-  paperboy alike. Left empty (or wrong three times), it is not asked again in that Neovim until
-  `:NvimVault unlock`. `:NvimVault lock` forgets it. When it changes elsewhere, a Neovim
-  holding the old one asks for the new one.
+- **The PAT** is the secret `workhorse/pat`, read on the first request when it is not in
+  `setup()` or `AZURE_DEVOPS_PAT`. That read unlocks the store, asking its password, unless
+  another plugin (paperboy) already did. Store it with `:Locksmith set workhorse/pat` or, on the
+  command line, `locksmith set workhorse/pat` (`pass show azure/pat | locksmith set workhorse/pat`).
+- **The repository and identity caches** are locksmith caches of the `workhorse` namespace
+  (`~/.cache/locksmith/workhorse/`), sealed with the store's key.
+- **Password declined** (prompt left empty): locksmith does not ask again in that Neovim, and
+  the caches live in memory only. `<leader>wR` (or `:Locksmith unlock`) asks again.
+- **Without locksmith** (not installed, or missing its crypto libraries): the PAT must come
+  from `setup()` or `AZURE_DEVOPS_PAT`, and the caches live in memory only, for the session.
 
-Commands (`bin/nvim-vault` is a headless Neovim; it makes itself non-dumpable first):
+`:Locksmith status`, `:Locksmith passwd`, `:Locksmith lock` and the other commands are
+locksmith's: see its README.
 
-| Command line | In Neovim | |
-|---|---|---|
-| `nvim-vault list` | `:NvimVault list` | Names of the secrets (no password needed) |
-| `nvim-vault set NAME` | `:NvimVault set NAME` | Store a secret: typed, hidden, or piped (`… \| nvim-vault set NAME`) |
-| `nvim-vault get NAME` | | Print a secret |
-| `nvim-vault delete NAME` | `:NvimVault delete NAME` | Delete a secret |
-| `nvim-vault passwd` | `:NvimVault passwd` | Change the master password: the current one (asked if not in memory) opens every secret, encrypted again with the new one; nothing changes when one fails |
-| | `:NvimVault unlock` / `lock` | Enter the master password again / forget it |
-
-Workhorse's items: `workhorse/pat`, `workhorse/cache-key` (created when missing; a plaintext
-`secret-tool … workhorse cache-key` from older versions is moved into the vault). It cannot
-stop a program running as you that modifies your Neovim config or this plugin and waits for you
-to type the master password.
+The `nvim-vault` items and the `openssl`-encrypted caches of older versions are not imported:
+store the PAT again with `locksmith set workhorse/pat`. The old cache files
+(`~/.cache/nvim/workhorse/*.enc`) are deleted when the new caches are first saved; remove the
+old secrets with `nvim-vault delete workhorse/pat` and `nvim-vault delete workhorse/cache-key`
+(from an older checkout), or delete `$XDG_DATA_HOME/nvim-vault/workhorse/` (or the
+`nvim-vault workhorse/…` items in Passwords and Keys).
 
 ### Setup Options
 
@@ -146,7 +136,7 @@ require("workhorse").setup({
 
   -- Optional: Override environment variables
   server_url = nil,  -- Falls back to AZURE_DEVOPS_URL
-  pat = nil,         -- Falls back to AZURE_DEVOPS_PAT, then to workhorse/pat in the vault
+  pat = nil,         -- Falls back to AZURE_DEVOPS_PAT, then to workhorse/pat in the locksmith store
 
   -- Team name (required for board_column grouping mode)
   team = nil,  -- e.g., "MyProject Team"
@@ -939,7 +929,7 @@ server's; under a folder, those in it).
 Adding a user or group, and naming required reviewers, completes from a cache of every user and
 group of the collection (teams included), listed through the members of "Project Collection Valid
 Users". Like paperboy.nvim's company directory it is kept encrypted on disk
-(`~/.cache/nvim/workhorse/identities.enc`, same key and format as the repository cache below),
+(the locksmith cache `workhorse/identities`, like the repository cache below),
 queried the first time it is needed, and only queried again on demand: `<leader>wR` on a
 repository screen (which also updates the repository cache) or `:Workhorse identities refresh`.
 
@@ -966,18 +956,14 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 | `<leader>wR` | Update the repository cache |
 | `<leader>wg` | Repositories screen (`:Workhorse repos list`) |
 
-The cache is saved as JSON encrypted with AES-256 by `openssl`
-(`~/.cache/nvim/workhorse/repos.enc`, readable by you only), with a random key stored in the
-vault (`workhorse/cache-key`, see "The vault") and passed to `openssl` through its environment,
-never on the command line, as paperboy.nvim does for its contacts. The key is read once per
-session. Without it (master password not entered, keyring locked) the cache lives in memory only,
-for the session (`<leader>wR` asks the master password again). The cache is tied to `server_url`
-and `project`. The `cache-key.enc` of older versions is deleted once the vault gives the key.
-To delete the cache:
+The cache is a locksmith cache (`~/.cache/locksmith/workhorse/repos.json`, readable by you
+only), sealed with AES-256-GCM by the key of the locksmith store (see "The PAT and locksmith").
+Reading it unlocks the store, asking its password when locked. Without locksmith, or with its
+password declined, the cache lives in memory only, for the session (`<leader>wR` asks the
+password again). The cache is tied to `server_url` and `project`. To delete it:
 
 ```bash
-rm ~/.cache/nvim/workhorse/repos.enc
-nvim-vault delete workhorse/cache-key
+rm ~/.cache/locksmith/workhorse/repos.json
 ```
 
 With lazy-loading by `keys`, list these keymaps there too (without an action) so they load the
@@ -1035,7 +1021,7 @@ If no environment variable is set, the lualine component will not fetch any data
      rename and delete repositories
    - **Identity**: Read (users and groups of the Security and Policies sections)
    - **Security**: Manage (to change the permissions on the Security tab)
-5. Copy the token and store it with `nvim-vault set workhorse/pat` (or set it as `AZURE_DEVOPS_PAT`)
+5. Copy the token and store it with `locksmith set workhorse/pat` (or `:Locksmith set workhorse/pat`) (or set it as `AZURE_DEVOPS_PAT`)
 
 ## License
 

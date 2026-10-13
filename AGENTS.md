@@ -59,13 +59,13 @@ Change types detected: CREATED, UPDATED, DELETED, STATE_CHANGED (by moving lines
 
 Environment variables:
 - `AZURE_DEVOPS_URL` - Organization URL (e.g., https://dev.azure.com/org)
-- `AZURE_DEVOPS_PAT` - Personal Access Token (optional: otherwise `workhorse/pat` from the vault)
+- `AZURE_DEVOPS_PAT` - Personal Access Token (optional: otherwise `workhorse/pat` from the locksmith store)
 
-## Secrets vault
+## Secrets and encrypted caches
 
-`lua/workhorse/vault.lua` is kept byte-identical to paperboy.nvim's `lua/paperboy/vault.lua`
-(both plugins share its state in one Neovim): change it in both repos. `bin/nvim-vault` is its
-command line.
+`lua/workhorse/store.lua` wraps [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim)
+(optional dependency, shared with paperboy.nvim): the PAT is the secret `workhorse/pat`, and the
+repository and identity caches are locksmith caches of the `workhorse` namespace.
 
 ## Plugin Commands
 

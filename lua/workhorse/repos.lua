@@ -2,14 +2,13 @@
 -- of the configured project (with the repository each one builds). It backs the repository and
 -- pipeline pickers, and finds the repository of Neovim's working directory from its git remotes.
 -- It also keeps the pipelines hidden from the pickers (hidden in the All tab of the pipelines
--- screen). Kept in memory, and also on disk encrypted when there is a cache key (a "workhorse"
--- keyring or its password, see keyring.lua), so a new session reads it without querying Azure
--- DevOps. M.update replaces it, keeping the hidden pipelines.
+-- screen). Kept in memory, and also on disk in the locksmith.nvim store (see store.lua), so a
+-- new session reads it without querying Azure DevOps. M.update replaces it, keeping the hidden pipelines.
 local M = {}
 
 local async = require("workhorse.async")
 local config = require("workhorse.config")
-local keyring = require("workhorse.keyring")
+local store = require("workhorse.store")
 
 local CACHE_NAME = "repos"
 
@@ -68,7 +67,7 @@ local function fetch(retry_key, previous)
       definitions = definitions,
       hidden = hidden,
     }
-    keyring.save(CACHE_NAME, data, function(saved, err)
+    store.save(CACHE_NAME, data, function(saved, err)
       if err then
         notify("Could not save the repository cache: " .. err, vim.log.levels.WARN)
       end
@@ -102,12 +101,12 @@ function M.update(callback)
   end
   waiting = { callback or function() end }
   notify("Updating the repository cache...")
-  -- An explicit update looks the keyring up again when this session's lookup failed
+  -- An explicit update asks the store's password again when it was declined this session
   if data and matches_config(data) then
     return fetch(true, data)
   end
   -- Not loaded yet: the hidden pipelines are kept from the cache on disk
-  keyring.load(CACHE_NAME, function(cached)
+  store.load(CACHE_NAME, function(cached)
     fetch(true, cached and matches_config(cached) and cached or nil)
   end, true)
 end
@@ -126,7 +125,7 @@ function M.get(callback)
     return
   end
   waiting = { callback }
-  keyring.load(CACHE_NAME, function(cached, err)
+  store.load(CACHE_NAME, function(cached, err)
     if err then
       notify(err .. ": querying Azure DevOps again", vim.log.levels.WARN)
     end
@@ -183,7 +182,7 @@ function M.set_hidden(ids, hidden, callback)
     end
     cache.hidden = vim.tbl_keys(set)
     table.sort(cache.hidden)
-    keyring.save(CACHE_NAME, cache, function(_, save_err)
+    store.save(CACHE_NAME, cache, function(_, save_err)
       if save_err then
         notify("Could not save the repository cache: " .. save_err, vim.log.levels.WARN)
       end

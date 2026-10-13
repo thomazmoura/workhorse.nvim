@@ -1,5 +1,0 @@
-#!/bin/sh
-# The master-password vault of workhorse.nvim and paperboy.nvim on the command line (the same
-# script is in both): see lua/*/vault.lua and the README
-root=$(dirname "$(dirname "$(readlink -f "$0")")")
-exec nvim --headless --clean -l "$root/bin/nvim-vault.lua" "$@"

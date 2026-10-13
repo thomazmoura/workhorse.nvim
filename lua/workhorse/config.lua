@@ -3,7 +3,7 @@ local M = {}
 local defaults = {
   -- Server configuration (falls back to env vars)
   server_url = nil,
-  pat = nil, -- falls back to $AZURE_DEVOPS_PAT, then to workhorse/pat in the vault (vault.lua)
+  pat = nil, -- falls back to $AZURE_DEVOPS_PAT, then to workhorse/pat in the locksmith store
 
   -- Required: project name
   project = nil,
@@ -210,7 +210,7 @@ end
 
 -- Check if config is valid (can be called before API operations)
 function M.is_valid()
-  -- The PAT may come from the vault, read on the first request (api/client.lua)
+  -- The PAT may come from the locksmith store, read on the first request (api/client.lua)
   return config.server_url ~= nil and config.project ~= nil
 end
 

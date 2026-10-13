@@ -2,10 +2,10 @@ local M = {}
 
 local curl = require("plenary.curl")
 local config = require("workhorse.config")
-local vault = require("workhorse.vault")
+local store = require("workhorse.store")
 
-local PAT_NAME = "workhorse/pat"
--- Callbacks waiting for the PAT from the vault (concurrent requests share one prompt)
+local PAT_NAME = "pat"
+-- Callbacks waiting for the PAT from the locksmith store (concurrent requests share one prompt)
 local pat_waiting = nil
 
 -- Base64 encode (fallback for Neovim < 0.10)
@@ -23,7 +23,7 @@ local function base64_encode(str)
   error("Failed to base64 encode - neither vim.base64 nor base64 command available")
 end
 
---- The PAT: setup()'s pat or $AZURE_DEVOPS_PAT, else workhorse/pat from the vault (its master
+--- The PAT: setup()'s pat or $AZURE_DEVOPS_PAT, else workhorse/pat from the locksmith store (its
 --- password is asked on the first request), kept in the config once read
 ---@param callback function Callback(pat, error)
 local function get_pat(callback)
@@ -35,10 +35,13 @@ local function get_pat(callback)
     return table.insert(pat_waiting, callback)
   end
   pat_waiting = { callback }
-  vault.get(PAT_NAME, function(pat, err)
+  store.get_secret(PAT_NAME, function(pat, err)
     if not pat and not err then
-      err = "no PAT: store it with `nvim-vault set " .. PAT_NAME .. "` (or :NvimVault set " .. PAT_NAME
-        .. "), or set AZURE_DEVOPS_PAT"
+      local name = store.NAMESPACE .. "/" .. PAT_NAME
+      err = "no PAT: store it with `:Locksmith set " .. name .. "` (or `locksmith set " .. name
+        .. "`), or set AZURE_DEVOPS_PAT"
+    elseif err and not pat then
+      err = err .. " (or set AZURE_DEVOPS_PAT)"
     end
     cfg.pat = pat
     local callbacks = pat_waiting
@@ -200,7 +203,7 @@ function M.test()
   vim.notify("Workhorse Debug Info:\n" ..
     "  Server URL: " .. (cfg.server_url or "NOT SET") .. "\n" ..
     "  Project: " .. (cfg.project or "NOT SET") .. "\n" ..
-    "  PAT: " .. (cfg.pat and (cfg.pat:sub(1, 4) .. "..." .. cfg.pat:sub(-4)) or "not read yet (vault)") .. "\n" ..
+    "  PAT: " .. (cfg.pat and (cfg.pat:sub(1, 4) .. "..." .. cfg.pat:sub(-4)) or "not read yet (locksmith)") .. "\n" ..
     "  Full test URL: " .. full_url,
     vim.log.levels.INFO
   )
