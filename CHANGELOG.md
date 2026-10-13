@@ -2,6 +2,20 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c90734c] - 2026-10-13
+
+### Added
+- Repositories screen (`:Workhorse repos list`, `<leader>wg`): the project's Git repositories as an editable list (`#id | name`, the id being the start of the repository's GUID), with each one's default branch and size; saving renames, creates (through a "New repository" form) and deletes (one confirmation each) them
+- "New repository" form with the default branch, a `.gitignore` template (completed from GitHub's templates) and an optional `README.md` (`no` by default); the first commit creates the branch, and with nothing to commit the repository starts without branches
+- Screen of one repository (`<CR>` on the list): one buffer with a Security section and a Policies section, `{`/`}` and `g1`/`g2` to move between them, `<Tab>`/`<S-Tab>` to move between values and `<CR>`/`<Space>` to fold; one confirmation lists the changes of both sections
+- Security section: permissions of every user and group on the repository as text, set or inherited (also from their groups), with inheritance on/off and users or groups added from the identity cache (`<leader>wa`)
+- Policies section: the branch policies of each branch as text (minimum reviewers, linked work items, comment resolution, merge types, builds, required reviewers), with branches grouped in nested folds by folder and status checks shown read-only
+- Encrypted identity cache of the users and groups of the collection (`:Workhorse identities refresh`, `<leader>wR`)
+- Dropdown-like completion of line values (blink.cmp or native) and a confirmation float listing the changes of a save
+
+### Changed
+- The build forms share their completion with the repository screen (`ui/choices.lua`)
+
 ## [cc421fb] - 2026-10-11
 
 ### Added
