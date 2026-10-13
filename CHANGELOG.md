@@ -2,6 +2,16 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [d53c7d7] - 2026-10-13
+
+### Changed
+- The PAT (`workhorse/pat`) and the repository and identity caches are kept in the [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim) store shared with paperboy.nvim, unlocked once per Neovim, instead of workhorse's own vault; the caches are locksmith caches (`~/.cache/locksmith/workhorse/`) instead of `openssl`-encrypted files
+- Without locksmith, the PAT must come from `setup()` or `AZURE_DEVOPS_PAT` and the caches live in memory only
+- Store the PAT again with `:Locksmith set workhorse/pat` or `locksmith set workhorse/pat`: the old vault items are not imported
+
+### Removed
+- `vault.lua`, `keyring.lua`, `bin/nvim-vault` and the `:NvimVault` command (use `:Locksmith`)
+
 ## [c90734c] - 2026-10-13
 
 ### Added
