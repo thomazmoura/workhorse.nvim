@@ -1,12 +1,13 @@
--- blink.cmp source for the build forms ("Run new build", "New pipeline"): the choices of a
--- field (a branch, a parameter with allowed values...). The form asks for them on every
--- keystroke, matched against the whole value typed so far (blink.cmp alone would match only
--- its last word, e.g. "C" of "DMZ C"), and only this source runs on those fields, so buffer
--- words and snippets stay out.
+-- blink.cmp source for the build forms ("Run new build", "New pipeline") and the editable
+-- repository screen (see ui/choices.lua): the choices of a field (a branch, a parameter with
+-- allowed values...). The form asks for them on every keystroke, matched against the whole
+-- value typed so far (blink.cmp alone would match only its last word, e.g. "C" of "DMZ C"), and
+-- only this source runs on those fields, so buffer words and snippets stay out.
 local M = {}
 
 local ID = "workhorse_run"
-local FILETYPE = "workhorse-run"
+-- Filetypes of the buffers completed by ui/choices.lua
+local FILETYPES = { "workhorse-run", "workhorse-repo" }
 
 local Source = {}
 Source.__index = Source
@@ -16,11 +17,11 @@ function M.new()
 end
 
 function Source:enabled()
-  return require("workhorse.builds.form").choice_completion() ~= nil
+  return require("workhorse.ui.choices").choice_completion() ~= nil
 end
 
 function Source:get_completions(context, callback)
-  local completion = require("workhorse.builds.form").choice_completion()
+  local completion = require("workhorse.ui.choices").choice_completion()
   local items = {}
   if completion then
     local line, col = context.cursor[1] - 1, context.cursor[2]
@@ -56,17 +57,19 @@ function M.register()
     return false
   end
   local per_filetype = require("blink.cmp.config").sources.per_filetype
-  if per_filetype[FILETYPE] == nil then
-    -- Only the choices on fields that have them, the usual sources elsewhere
-    per_filetype[FILETYPE] = function()
-      if require("workhorse.builds.form").choice_completion() then
-        return { ID }
+  for _, filetype in ipairs(FILETYPES) do
+    if per_filetype[filetype] == nil then
+      -- Only the choices on fields that have them, the usual sources elsewhere
+      per_filetype[filetype] = function()
+        if require("workhorse.ui.choices").choice_completion() then
+          return { ID }
+        end
+        return { inherit_defaults = true }
       end
-      return { inherit_defaults = true }
+    else
+      -- The user configured the filetype: add to it
+      blink.add_filetype_source(filetype, ID)
     end
-  else
-    -- The user configured the filetype: add to it
-    blink.add_filetype_source(FILETYPE, ID)
   end
   registered = true
   return true

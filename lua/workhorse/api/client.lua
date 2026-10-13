@@ -78,7 +78,8 @@ local function handle_response(response, opts)
         end
       end
       if opts.on_success then
-        opts.on_success(data)
+        -- The response too, for its headers (e.g. continuation tokens)
+        opts.on_success(data, response)
       end
     else
       local error_msg = "API Error: " .. response.status
@@ -132,9 +133,10 @@ function M.request(opts)
   end)
 end
 
---- Send a request with this Authorization header
+--- Send a request with this Authorization header (opts.base_url replaces the server URL, e.g.
+--- for another host of the organization)
 function M.request_with(opts, auth)
-  local url = get_base_url() .. opts.path
+  local url = (opts.base_url or get_base_url()) .. opts.path
 
   local headers = {
     authorization = auth,

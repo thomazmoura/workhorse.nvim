@@ -42,6 +42,10 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").repo_prs()
   elseif cmd == "repos" and args[2] == "refresh" then
     require("workhorse").refresh_repos()
+  elseif cmd == "repos" and args[2] == "list" then
+    require("workhorse").list_repos()
+  elseif cmd == "identities" and args[2] == "refresh" then
+    require("workhorse").refresh_identities()
   elseif cmd == "PRs" or cmd == "prs" then
     require("workhorse").pick_prs()
   elseif cmd == "live" then
@@ -73,6 +77,8 @@ Workhorse commands:
   :Workhorse PRs here    - Pull requests of the repository of the working directory
   :Workhorse PRs resume  - Reopen the pull requests of the last repository
   :Workhorse repos refresh - Update the repository cache (repositories and pipelines)
+  :Workhorse repos list  - Repositories of the project: create, rename, delete, security and policies
+  :Workhorse identities refresh - Update the identity cache (users and groups)
   :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
   :Workhorse refresh     - Refresh current buffer
@@ -87,8 +93,8 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "PRs", "apply", "builds", "live", "pipelines", "query", "refresh", "repos", "resume", "resume-build", "state",
-        "test" })
+      end, { "PRs", "apply", "builds", "identities", "live", "pipelines", "query", "refresh", "repos", "resume",
+        "resume-build", "state", "test" })
     end
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
@@ -101,6 +107,11 @@ end, {
       end, { "here", "resume" })
     end
     if #parts == 3 and parts[2] == "repos" then
+      return vim.tbl_filter(function(item)
+        return item:find(arg_lead, 1, true) == 1
+      end, { "list", "refresh" })
+    end
+    if #parts == 3 and parts[2] == "identities" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
       end, { "refresh" })
@@ -175,6 +186,13 @@ local function setup_highlights()
     WorkhorsePRCommentAuthor = { link = "Identifier" },
     WorkhorsePRTab = { link = "TabLine" },
     WorkhorsePRTabSel = { link = "TabLineSel" },
+    -- Repository screens
+    WorkhorseRepoDisabled = { link = "DiagnosticWarn" },
+    WorkhorseRepoAllow = { link = "DiagnosticOk" },
+    WorkhorseRepoDeny = { link = "DiagnosticError" },
+    WorkhorseRepoInherited = { link = "Comment" },
+    WorkhorsePolicyReadonly = { link = "Comment" },
+    WorkhorsePolicyFolder = { link = "Directory" },
     -- Decoration-only highlights (for composability - no colors, only styles)
     WorkhorseBold = { bold = true },
     WorkhorseItalic = { italic = true },
@@ -229,3 +247,7 @@ end, { silent = true, desc = "Workhorse: Resume last repository (pull requests)"
 vim.keymap.set("n", "<leader>wR", function()
   require("workhorse").refresh_repos()
 end, { silent = true, desc = "Workhorse: Update the repository cache" })
+
+vim.keymap.set("n", "<leader>wg", function()
+  require("workhorse").list_repos()
+end, { silent = true, desc = "Workhorse: Repositories (security and policies)" })

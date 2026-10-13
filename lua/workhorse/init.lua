@@ -240,6 +240,23 @@ function M.refresh_repos()
   require("workhorse.repos").update()
 end
 
+-- Open the repositories screen (the repositories of the project as an editable list; <CR> on one
+-- opens its Security and Policies tabs)
+function M.list_repos()
+  if not check_config() then
+    return
+  end
+  require("workhorse.repos_screen").open()
+end
+
+-- Query Azure DevOps to update the identity cache (users and groups)
+function M.refresh_identities()
+  if not check_config() then
+    return
+  end
+  require("workhorse.identities").update()
+end
+
 -- Cancel the running build of the current build buffer
 function M.cancel_build()
   require("workhorse.builds").cancel()
@@ -255,8 +272,10 @@ end
 -- opts.focus_title: title to land on when the item had no id yet (just created)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
+  local repo_tabs = package.loaded["workhorse.repos_screen.repo"]
   if require("workhorse.builds").refresh() or require("workhorse.pipelines").refresh()
-    or require("workhorse.prs").refresh() then
+    or require("workhorse.prs").refresh() or require("workhorse.repos_screen").refresh()
+    or (repo_tabs and repo_tabs.refresh()) then
     return
   end
 

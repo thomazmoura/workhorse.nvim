@@ -26,6 +26,17 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `state_menu.lua` - Floating window for state selection
 - `area_picker.lua` - Area selection dropdown
 - `confirm.lua` - Confirmation dialog
+- `choices.lua` - Dropdown-like completion of line values (build forms, repository screen; blink.cmp or native)
+- `list_confirm.lua` - Confirmation float listing the changes of a save
+
+**Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wg`)
+- `init.lua` + `list.lua` - Editable list of the project's repositories (rename, create, delete one confirmation each)
+- `new_repo.lua` - "New repository" form (default branch, .gitignore and optional README.md: first commit through the pushes API)
+- `repo.lua` - Screen of one repository: one buffer with a Security and a Policies section (`{`/`}` between them), winbar, combined save
+- `security.lua` - Permissions as text (Git Repositories security namespace ACLs; well-known group aliases mapped to the real groups)
+- `policies.lua` - Branch policies as text, diffed against the policy configurations
+- API: `api/repositories.lua`, `api/security.lua`, `api/policies.lua`, `api/identities.lua`
+- `identities.lua` - Encrypted identity cache (users and groups, via the members of Project Collection Valid Users)
 
 ### Data Flow
 
@@ -63,6 +74,8 @@ command line.
 - `:Workhorse state` - Change state of item under cursor
 - `:Workhorse refresh` - Refresh from server
 - `:Workhorse resume` - Reopen last query
+- `:Workhorse repos list` - Repositories screen (also `<leader>wg`)
+- `:Workhorse identities refresh` - Update the identity cache
 
 ## Development Notes
 

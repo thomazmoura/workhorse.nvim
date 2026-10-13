@@ -17,6 +17,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
+- **Repositories** - Create, rename and delete the project's repositories from an editable list, and edit their permissions (Security) and branch policies (required reviewers, builds, linked work items...) as text, with every value completed
 - **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk, its key in the vault)
 - **Secrets under a master password** - The PAT and the cache key in a vault shared with paperboy.nvim, encrypted with a master password asked once per Neovim (see "The vault")
 
@@ -301,6 +302,8 @@ In this mode:
 | `:Workhorse PRs here` | Pull requests of the repository of the working directory |
 | `:Workhorse PRs resume` | Reopen the pull requests of the last opened repository |
 | `:Workhorse repos refresh` | Update the repository cache from Azure DevOps |
+| `:Workhorse repos list` | The repositories of the project as an editable list (create, rename, delete them), each with its Security and Policies screen (see "Repositories") |
+| `:Workhorse identities refresh` | Update the identity cache (users and groups) from Azure DevOps |
 
 ### Buffer Keymaps
 
@@ -815,6 +818,131 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<leader>R` | Reload from Azure DevOps |
 | `q` | Close the buffer |
 
+## Repositories
+
+`:Workhorse repos list` (or `<leader>wg`) lists the Git repositories of the configured `project`
+as an editable list, with each one's default branch and size on the right:
+
+```
+#3f2a9c1e | DIAT                         master  37.6 MB
+#a07d55b2 | Intranet                     main  4.1 MB
+```
+
+`#id` is the start of the repository's id (a GUID), like a short commit hash: 8 characters, more
+when two repositories share them. Edit it like any buffer, then save with
+`:w` (or `<leader><leader>`): pending changes show as `[was Old name]` and `[new]`. Saving
+applies them in this order:
+
+1. **Renames** are applied right away, each with a notification.
+2. **New repositories** — any line without `#id |` — open the "New repository" form one at a
+   time, pre-filled with the line's name:
+
+   ```
+   # New repository
+   Name: my-repo
+   Default branch: main
+   .gitignore: none
+   README.md: no
+   ```
+
+   The repository is created in the configured project. With a default branch and something to
+   commit — the chosen `.gitignore` template (completed from GitHub's templates, the ones the web
+   UI offers) and/or a `README.md` (`yes`; `no` by default) — a first commit creates the branch,
+   so its policies can be set right away. With nothing to commit (`.gitignore: none`,
+   `README.md: no`) or an empty default branch, the repository starts without branches.
+   `<CR>` (normal mode), `<leader><leader>` or `:w` creates it after a confirmation; `q`/`<Esc>`
+   skips it (the line stays pending).
+3. **Deletions** are confirmed one repository at a time: **Delete** deletes it (with its
+   branches, pull requests and history; recent servers keep it in a recycle bin for a while),
+   **Keep** puts its line back, **Stop** stops the remaining deletions.
+
+`<C-c>` on a form (or its prompt) stops the rest of the save; what was applied stays applied, and
+the repository cache is updated in the background. `<CR>` on a repository opens its screen (see
+below), `gw` opens it in the browser and `<leader>R` (or `:Workhorse refresh`) reloads the list.
+
+### Security and Policies
+
+The screen of a repository is one buffer with two sections, each under its header line:
+`══ [Security] ══` first, then `══ [Policies] ══`. `}` and `{` move to the next and previous
+section (`g1`/`g2` jump to one; the window bar names them, the cursor's highlighted, and they can
+be clicked), and `<Tab>`/`<S-Tab>` move to the start of the next and previous value (opening its
+fold), like on the build forms; in insert mode they indent on a line still blank before the
+cursor, and move in an open completion menu. It is edited as text and indented like the work item
+tree (tree guides, folds; `<CR>` or `<Space>` on a line with a fold folds and unfolds it): every
+value is completed as you type (blink.cmp or the native menu, like the build forms), and
+`:w` (or `<leader><leader>`) lists the changes of both sections in one confirmation float, then
+applies them and reloads the sections that changed. Pending changes show on the right
+(`[was Not set]`, `[new]`); `-` goes back to the repositories list, `gw` opens the repository
+settings page of the cursor's section in the browser and `<leader>R` reloads the screen.
+
+**Security** lists, like the web UI, every user and group with permissions on the repository,
+set on it or inherited (from the project's permissions, or a group they belong to), groups
+first, each folded with its Read permission in the summary:
+
+```
+Inheritance: on
+[DTI]\Project Collection Administrators
+├─ Bypass policies when completing pull requests: Not set
+├─ Contribute: Allow (inherited)
+└─ Read: Allow (inherited)
+[GTI]\Equipe Gtracs
+└─ Read: Allow
+```
+
+A permission is `Not set`, `Allow` or `Deny` on this repository, or `Allow (inherited)` /
+`Deny (inherited)` when it is not set here (writing `Not set` over it keeps it inherited). To add
+a user or group, type its name on a new top-level line (completed from the identity cache) or
+pick it with `<leader>wa`: its current permissions are fetched and listed under it. Deleting an
+identity's block removes the permissions set here for it (the inherited ones stay). `Inheritance:
+off` stops the project's permissions from applying.
+
+**Policies** lists the branches (the default branch first, even before it exists, then those with
+policies, then the others), each with its branch policies indented under it:
+
+```
+main
+├─ Minimum reviewers: 2, required, reset on push
+├─ Linked work items: required
+├─ Comment resolution: optional
+├─ Merge types: squash, rebase
+├─ Build: CI-DIAT, required, automatic, expires 720
+└─ Reviewer: [GTI]\Revisor Gtracs, required
+features/
+└─ new/
+   ├─ 138
+   │  └─ Linked work items: required
+   └─ 64
+```
+
+Branches are grouped by folder: each part of their path is a `name/` line (showing how many
+branches it holds) with its own fold, so opening `features/` shows `new/`, and opening `new/` shows
+`138` and `64`. A branch line under a folder is named by the folders above it; a new branch can
+also be typed with its whole name (`features/new/65`) anywhere a branch goes.
+
+| Line | Values |
+|------|--------|
+| `Minimum reviewers` | `off`, or a number, `required`/`optional`, and `creator vote counts`, `allow downvotes`, `reset on push` |
+| `Linked work items` | `required`, `optional` or `off` |
+| `Comment resolution` | `required`, `optional` or `off` |
+| `Merge types` | `off`, or the ones allowed: `squash`, `no fast-forward`, `rebase`, `rebase merge` |
+| `Build` | a pipeline (the repository's first), `required`/`optional`, `automatic`/`manual`, `expires <minutes>`/`never expires`, `off` |
+| `Reviewer` | a user or group (several joined by ` + `), `required`/`optional`, `off` |
+
+The first four are one per branch: `off` or a missing line turns one off. `Build` and `Reviewer`
+lines are added and deleted freely; `off` at their end keeps one disabled. Status checks are shown
+under their branch, read-only, and settings this section does not show (path filters,
+messages...) are kept when a policy changes. A new branch line adds a branch (completed from the
+server's; under a folder, those in it).
+
+### Identity cache
+
+Adding a user or group, and naming required reviewers, completes from a cache of every user and
+group of the collection (teams included), listed through the members of "Project Collection Valid
+Users". Like paperboy.nvim's company directory it is kept encrypted on disk
+(`~/.cache/nvim/workhorse/identities.enc`, same key and format as the repository cache below),
+queried the first time it is needed, and only queried again on demand: `<leader>wR` on a
+repository screen (which also updates the repository cache) or `:Workhorse identities refresh`.
+
 ## Repository cache
 
 The repository and pipeline pickers, and the keymaps that open what belongs to the repository
@@ -836,6 +964,7 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 | `<leader>wP` | Pull requests of any repository (picker) |
 | `<leader>w<C-p>` | Reopen the pull requests of the last opened repository |
 | `<leader>wR` | Update the repository cache |
+| `<leader>wg` | Repositories screen (`:Workhorse repos list`) |
 
 The cache is saved as JSON encrypted with AES-256 by `openssl`
 (`~/.cache/nvim/workhorse/repos.enc`, readable by you only), with a random key stored in the
@@ -901,6 +1030,11 @@ If no environment variable is set, the lualine component will not fetch any data
 4. Select scopes:
    - **Work Items**: Read & Write
    - **Project and Team**: Read (for queries)
+   - **Build**: Read & execute (pipelines, runs)
+   - **Code**: Read & write (pull requests, branch policies); **Read, write, & manage** to create,
+     rename and delete repositories
+   - **Identity**: Read (users and groups of the Security and Policies sections)
+   - **Security**: Manage (to change the permissions on the Security tab)
 5. Copy the token and store it with `nvim-vault set workhorse/pat` (or set it as `AZURE_DEVOPS_PAT`)
 
 ## License

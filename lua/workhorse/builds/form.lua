@@ -6,11 +6,12 @@
 local M = {}
 
 local config = require("workhorse.config")
+local choices = require("workhorse.ui.choices")
 
 -- Shared by the forms, so the blink.cmp source (builds/blink_source.lua) covers all of them
 M.FILETYPE = "workhorse-run"
 
--- Per-buffer form state: { spec, prev, engine, completed, ... } plus each form's own fields
+-- Per-buffer form state: { spec, prev, ... } plus each form's own fields
 local forms = {}
 
 local counter = 0
@@ -22,155 +23,16 @@ end
 
 -- Completion ------------------------------------------------------------------
 
--- Choices of the field on line `lnum` (see spec.choices)
-local function choices(bufnr, lnum)
-  local form = forms[bufnr]
-  if not form then
-    return nil
-  end
-  return form.spec.choices(bufnr, lnum)
-end
+-- The completion engine is ui/choices.lua: each form attaches its spec.choices to it
 
---- omnifunc of the forms (<C-x><C-o> on fields with choices)
-function M.omnifunc(findstart, base)
-  local bufnr = vim.api.nvim_get_current_buf()
-  local lnum = vim.api.nvim_win_get_cursor(0)[1]
-  local line = vim.api.nvim_get_current_line()
-  if findstart == 1 then
-    local colon = line:find(":")
-    if not colon or not forms[bufnr] then
-      return -3
-    end
-    local start = colon + #(line:sub(colon + 1):match("^%s*"))
-    local _, list = choices(bufnr, lnum)
-    if list then
-      -- Complete the item after the last comma before the cursor
-      local before = line:sub(start + 1, vim.api.nvim_win_get_cursor(0)[2])
-      local after_comma = before:match(".*,()")
-      if after_comma then
-        start = start + after_comma - 1 + #(before:sub(after_comma):match("^%s*"))
-      end
-    end
-    return start
-  end
-  -- Values starting with the text, then containing it, then fuzzy matches (best first, e.g.
-  -- "fealog" for "feature/login-page")
-  local prefix, rest, seen = {}, {}, {}
-  local query = base:lower()
-  local words = choices(bufnr, lnum) or {}
-  for _, word in ipairs(words) do
-    local lower = word:lower()
-    if lower:find(query, 1, true) == 1 then
-      table.insert(prefix, word)
-      seen[word] = true
-    elseif lower:find(query, 1, true) then
-      table.insert(rest, word)
-      seen[word] = true
-    end
-  end
-  vim.list_extend(prefix, rest)
-  if query ~= "" then
-    for _, word in ipairs(vim.fn.matchfuzzy(words, base)) do
-      if not seen[word] then
-        table.insert(prefix, word)
-      end
-    end
-  end
-  return prefix
-end
-
---- Choices matching the value typed before the cursor of the current window, for a field
---- with choices: { start = 0-based column of the value, base = typed text, matches = {...} }
---- or nil (another buffer, a free-text field, the cursor before the value)
+--- Choices matching the value typed before the cursor (see ui/choices.lua)
 function M.choice_completion()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  if not forms[bufnr] or not choices(bufnr, cursor[1]) then
-    return nil
-  end
-  local start = M.omnifunc(1, "")
-  if start < 0 or cursor[2] < start then
-    return nil
-  end
-  local base = vim.api.nvim_get_current_line():sub(start + 1, cursor[2])
-  local matches = M.omnifunc(0, base)
-  -- Nothing to offer once the value is exactly the only match (e.g. right after accepting it)
-  if #matches == 1 and matches[1]:lower() == base:lower() then
-    matches = {}
-  end
-  return { start = start, base = base, matches = matches }
-end
-
--- Whether blink.cmp drives the form's completion (see builds/blink_source.lua), loading it if
--- installed but not loaded yet
-local function use_blink()
-  local ok, blink = pcall(require, "blink.cmp")
-  return ok and type(blink.add_source_provider) == "function"
-    and require("workhorse.builds.blink_source").register()
-end
-
--- Native menu: open (or narrow) it while typing the value of a field with choices, so they
--- show up like a dropdown
-local function autocomplete(bufnr)
-  local form = forms[bufnr]
-  if not form or form.engine ~= "native" or vim.fn.mode() ~= "i" then
-    return
-  end
-  local completion = M.choice_completion()
-  if not completion then
-    return
-  end
-  -- Moving through the menu inserts the selected item, and going back to the typed text
-  -- repeats it: neither is typing, so leave the menu as is
-  local typed = vim.api.nvim_win_get_cursor(0)[1] .. ":" .. completion.base
-  if vim.fn.pumvisible() == 1 then
-    if typed == form.completed or vim.fn.complete_info({ "selected" }).selected ~= -1 then
-      return
-    end
-  end
-  form.completed = typed
-  if #completion.matches > 0 or vim.fn.pumvisible() == 1 then
-    vim.fn.complete(completion.start + 1, completion.matches)
-  end
+  return choices.choice_completion()
 end
 
 --- Show the choices again after they changed (e.g. finished loading) while typing in the form
 function M.refresh_completion(bufnr)
-  local form = forms[bufnr]
-  if not form or vim.api.nvim_get_current_buf() ~= bufnr or vim.fn.mode() ~= "i" then
-    return
-  end
-  if form.engine == "native" then
-    form.completed = nil
-    autocomplete(bufnr)
-  elseif form.engine == "blink" then
-    local completion = M.choice_completion()
-    if completion and #completion.matches > 0 then
-      local blink = require("blink.cmp")
-      if blink.is_menu_visible() then
-        pcall(blink.hide)
-      end
-      vim.schedule(function()
-        pcall(blink.show)
-      end)
-    end
-  end
-end
-
--- Pick the completion engine on the first insert: blink.cmp when available, the native
--- menu otherwise (with blink.cmp, if loaded, kept out of the way)
-local function setup_engine(bufnr)
-  local form = forms[bufnr]
-  if not form or form.engine then
-    return
-  end
-  form.engine = use_blink() and "blink" or "native"
-  if form.engine == "native" then
-    -- Nothing selected until <Tab>, which inserts the item as it goes; <CR> takes the
-    -- first item when none is selected
-    vim.b[bufnr].completion = false
-    vim.bo[bufnr].completeopt = "menuone,noselect"
-  end
+  choices.refresh(bufnr)
 end
 
 -- Navigation ------------------------------------------------------------------
@@ -186,10 +48,12 @@ local function field_lines(bufnr)
   return result
 end
 
---- Move the cursor to the end of the next (dir = 1) or previous (dir = -1) value
-function M.jump(dir)
+--- Move the cursor to the end of the next (dir = 1) or previous (dir = -1) value. `fields`
+--- (default: the "name: value" lines of a form) lists the line numbers holding a value, in order;
+--- with opts.at_start the cursor goes to the value's first character instead
+function M.jump(dir, fields, opts)
   local bufnr = vim.api.nvim_get_current_buf()
-  local fields = field_lines(bufnr)
+  fields = fields or field_lines(bufnr)
   if #fields == 0 then
     return
   end
@@ -210,33 +74,37 @@ function M.jump(dir)
     line = line .. " "
     vim.api.nvim_buf_set_lines(bufnr, target - 1, target, false, { line })
   end
-  vim.api.nvim_win_set_cursor(0, { target, #line })
+  local col = #line
+  if opts and opts.at_start then
+    local value = line:find("%S", line:find(":", 1, true) + 1)
+    col = value and value - 1 or #line
+  end
+  vim.api.nvim_win_set_cursor(0, { target, col })
+  -- Inside a closed fold: open it
+  vim.cmd("normal! zv")
+end
+
+--- Keys moving in the open completion menu (blink.cmp or native) to its next (dir = 1) or
+--- previous item, nil when no menu is open
+function M.menu_key(dir)
+  local blink = package.loaded["blink.cmp"]
+  if blink and blink.is_menu_visible and blink.is_menu_visible() then
+    return ("<Cmd>lua require('blink.cmp').select_%s()<CR>"):format(dir > 0 and "next" or "prev")
+  end
+  if vim.fn.pumvisible() == 1 then
+    return dir > 0 and "<C-n>" or "<C-p>"
+  end
 end
 
 -- Insert-mode <Tab>/<S-Tab>: move in an open completion menu, jump between fields otherwise
 local function insert_tab(dir)
   return function()
-    local blink = package.loaded["blink.cmp"]
-    if blink and blink.is_menu_visible and blink.is_menu_visible() then
-      return ("<Cmd>lua require('blink.cmp').select_%s()<CR>"):format(dir > 0 and "next" or "prev")
-    end
-    if vim.fn.pumvisible() == 1 then
-      return dir > 0 and "<C-n>" or "<C-p>"
+    local menu = M.menu_key(dir)
+    if menu then
+      return menu
     end
     return ("<Cmd>lua require('workhorse.builds.form').jump(%d)<CR>"):format(dir)
   end
-end
-
--- Insert-mode <CR>: accept the selected item, or the first one when none is selected
-local function insert_cr()
-  local blink = package.loaded["blink.cmp"]
-  if blink and blink.is_menu_visible and blink.is_menu_visible() then
-    return "<Cmd>lua require('blink.cmp').select_and_accept()<CR>"
-  end
-  if vim.fn.pumvisible() == 0 then
-    return "<CR>"
-  end
-  return vim.fn.complete_info({ "selected" }).selected == -1 and "<C-n><C-y>" or "<C-y>"
 end
 
 -- Window ----------------------------------------------------------------------
@@ -299,7 +167,7 @@ local function setup_keymaps(bufnr, spec)
   end
   vim.keymap.set("i", "<Tab>", insert_tab(1), with_desc("next field", { expr = true }))
   vim.keymap.set("i", "<S-Tab>", insert_tab(-1), with_desc("previous field", { expr = true }))
-  vim.keymap.set("i", "<CR>", insert_cr, with_desc("accept the completion", { expr = true }))
+  vim.keymap.set("i", "<CR>", choices.insert_cr, with_desc("accept the completion", { expr = true }))
   vim.keymap.set("n", "<Tab>", function()
     M.jump(1)
   end, with_desc("next field"))
@@ -343,10 +211,10 @@ function M.create(spec, form, name, lines)
   vim.bo[bufnr].swapfile = false
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
   vim.bo[bufnr].modified = false
-  vim.bo[bufnr].omnifunc = "v:lua.require'workhorse.builds.form'.omnifunc"
   vim.bo[bufnr].filetype = M.FILETYPE
   form.spec = spec
   forms[bufnr] = form
+  choices.attach(bufnr, { choices = spec.choices })
   setup_keymaps(bufnr, spec)
 
   local group = vim.api.nvim_create_augroup("workhorse_form_" .. bufnr, { clear = true })
@@ -365,20 +233,6 @@ function M.create(spec, form, name, lines)
         spec.on_change(bufnr)
       end
       spec.decorate(bufnr)
-    end,
-  })
-  vim.api.nvim_create_autocmd("InsertEnter", {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      setup_engine(bufnr)
-    end,
-  })
-  vim.api.nvim_create_autocmd({ "TextChangedI", "TextChangedP" }, {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      autocomplete(bufnr)
     end,
   })
   -- A float left behind (e.g. <C-h> to another window) would linger over it: close the form.
