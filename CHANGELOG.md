@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [474b447] - 2026-10-14
+
+### Added
+- `gb` opens in the browser from every buffer with a web page: the item under the cursor on lists (work items, pipelines, runs, pull requests) and the page of the screen itself on details (run tree, step log, pull request, the description and tags panels, the new build form)
+
 ## [2894952] - 2026-10-14
 
 ### Added
