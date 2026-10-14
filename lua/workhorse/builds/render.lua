@@ -65,9 +65,13 @@ function M.run_status(run, opts)
   return chunks
 end
 
--- Stage pips (one status icon per stage, dash-separated) for a run, as virtual text chunks
+-- Stage pips (one status icon per stage, dash-separated) for a run, as virtual text chunks,
+-- after a warning when a stage waits for a pipeline permission
 function M.stage_pips(records)
   local chunks = {}
+  if #builds_api.awaiting_permission(records) > 0 then
+    table.insert(chunks, { "needs permission ", "WorkhorseBuildRetry" })
+  end
   for i, stage in ipairs(builds_api.stages(records)) do
     if i > 1 then
       table.insert(chunks, { "-", "WorkhorseBuildMeta" })
@@ -161,8 +165,9 @@ local add_separator = M.add_separator
 -- Shared header: "# Definition", then the path from the run down to the current
 -- level (path = { stage, job, step }, each one level deeper). Every header line is
 -- a "nav" item linking back to the buffer of its level. `rerun` offers rerunning a stage
--- of the finished run (the run tree picks which, a log reruns its own).
-local function add_header(view, definition_name, run, path, width, live, rerun)
+-- of the finished run (the run tree picks which, a log reruns its own); `permit`, permitting the
+-- pipeline to use the resources a stage of the running run waits for.
+local function add_header(view, definition_name, run, path, width, live, rerun, permit)
   local title = "# " .. definition_name
   add_line(view, { { title, "WorkhorseBuildHeader" } }, { kind = "nav", target = "runs" })
   if run then
@@ -187,6 +192,11 @@ local function add_header(view, definition_name, run, path, width, live, rerun)
       add_line(view, { { "" } }, { kind = "nav", target = "rerun_stage" }, { { " Rerun stage", "WorkhorseBuildRetry" } })
     end
   elseif run then
+    -- A stage waits for a pipeline permission: <CR> on the line lists the resources to permit
+    if permit then
+      add_line(view, { { "" } }, { kind = "nav", target = "permit" },
+        { { " Waiting for permission: Permit access", "WorkhorseBuildRetry" } })
+    end
     -- Live watching status of a running run, right-aligned on its own line; <CR> anywhere on it toggles it
     local status = live and { " Live watching enabled", "WorkhorseBuildLive" }
       or { " Live watching disabled", "WorkhorseBuildMeta" }
@@ -229,14 +239,25 @@ end
 -- children are shown; everything starts collapsed to the stage level.
 function M.render_stages(run, records, width, expanded, live)
   local view = new_view()
+  local waiting = {}
+  for _, w in ipairs(builds_api.awaiting_permission(records)) do
+    if w.stage then
+      waiting[w.stage.id] = true
+    end
+  end
   -- A finished run offers picking one of its stages to rerun (e.g. its deploy, for a rollback)
-  add_header(view, definition_of(run), run, nil, width, live, #builds_api.rerunnable_stages(records) > 0)
+  add_header(view, definition_of(run), run, nil, width, live, #builds_api.rerunnable_stages(records) > 0,
+    next(waiting) ~= nil)
   add_separator(view, width)
   for _, stage in ipairs(builds_api.stages(records)) do
     local jobs = builds_api.jobs_of_stage(records, stage)
     local stage_open = expanded[stage.id]
+    local virt = duration_virt(stage)
+    if waiting[stage.id] then
+      virt = vim.list_extend({ { "needs permission ", "WorkhorseBuildRetry" } }, virt or {})
+    end
     add_line(view, tree_segments(stage, 2, #jobs, stage_open, "WorkhorseBuildTitle"),
-      { kind = "stage", record = stage, has_children = #jobs > 0 }, duration_virt(stage))
+      { kind = "stage", record = stage, has_children = #jobs > 0 }, virt)
     if stage_open then
       for _, job in ipairs(jobs) do
         local steps = builds_api.steps_of_job(records, job)
@@ -256,12 +277,13 @@ function M.render_stages(run, records, width, expanded, live)
   return view
 end
 
--- Header of the log view, at the top of the log buffer
-function M.render_log_header(run, stage, job, step, width, live)
+-- Header of the log view, at the top of the log buffer. `permit`: a stage of the run waits for a
+-- pipeline permission
+function M.render_log_header(run, stage, job, step, width, live, permit)
   local view = new_view()
   -- The log's stage can be rerun (classic pipelines pass a phase, which cannot)
   local rerun = stage ~= nil and builds_api.can_rerun_stage(stage)
-  add_header(view, definition_of(run), run, { stage, job, step }, width, live, rerun)
+  add_header(view, definition_of(run), run, { stage, job, step }, width, live, rerun, permit)
   add_separator(view, width)
   return view
 end

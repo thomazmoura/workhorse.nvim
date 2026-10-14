@@ -592,7 +592,7 @@ local function render_header(bufnr)
   local ctx = state.ctx
   local width = view_width(bufnr)
   local stage = ctx.stage or ctx.job
-  local header = render.render_log_header(ctx.run, stage, ctx.job, ctx.step, width, live)
+  local header = render.render_log_header(ctx.run, stage, ctx.job, ctx.step, width, live, ctx.awaiting_permission)
   render.replace(bufnr, header, 0, state.head_count)
   state.head_count = #header.lines
   state.items = header.items
@@ -710,6 +710,8 @@ loaders.log = function(bufnr, opts)
       end
       local step = builds_api.find(records, ctx.step.id) or ctx.step
       ctx.step = step
+      -- A later stage may be waiting for a pipeline permission (shown in the header)
+      ctx.awaiting_permission = #builds_api.awaiting_permission(records) > 0
       ctx.job = builds_api.find(records, ctx.job.id) or ctx.job
       ctx.stage = builds_api.stage_of(records, ctx.job)
       ctx.step_done = builds_api.is_completed(step.state)
@@ -745,6 +747,8 @@ local function select_item(bufnr)
       M.toggle_live()
     elseif item.target == "cancel" then
       M.cancel(bufnr)
+    elseif item.target == "permit" then
+      M.permit(bufnr)
     elseif item.target == "new_run" then
       M.new_run(nil, bufnr)
     elseif item.target == "run_again" then
@@ -875,6 +879,9 @@ local function set_keymaps(bufnr)
   end, opts)
   vim.keymap.set("n", "<leader>ws", function()
     M.rerun_stage(bufnr)
+  end, opts)
+  vim.keymap.set("n", "<leader>wa", function()
+    M.permit(bufnr)
   end, opts)
   vim.keymap.set("n", "gw", function()
     open_url(browser_url(bufnr))
@@ -1318,6 +1325,108 @@ function M.cancel(bufnr)
     end
     if vim.api.nvim_buf_is_valid(bufnr) then
       M.refresh(bufnr)
+    end
+  end)
+end
+
+-- Protected resources by type, as the web names them
+local RESOURCE_KINDS = {
+  queue = "agent queue",
+  endpoint = "service connection",
+  environment = "environment",
+  variablegroup = "variable group",
+  securefile = "secure file",
+  repository = "repository",
+}
+
+-- Ask to permit `run`'s pipeline to use `resources`, then permit it and reload the view
+local function confirm_permit(bufnr, run, resources)
+  local label = "#" .. (run.build_number or run.id)
+  local pipeline = run.definition_name or ("pipeline " .. run.definition_id)
+  local lines = {}
+  for _, r in ipairs(resources) do
+    table.insert(lines, ("  %s %s%s"):format(RESOURCE_KINDS[r.type] or r.type, r.name or ("#" .. r.id),
+      r.stage and (" (stage " .. r.stage .. ")") or ""))
+  end
+  local prompt = ("Run %s is waiting for permission to use:\n%s\nPermit %s to use %s in this and future runs?")
+    :format(label, table.concat(lines, "\n"), pipeline, #resources == 1 and "it" or "them")
+  if vim.fn.confirm(prompt, "&Permit\n&Cancel", 1) ~= 1 then
+    return
+  end
+  builds_api.permit_resources(run.definition_id, resources, function(ok, err)
+    if not ok then
+      vim.notify("Workhorse: Failed to permit access: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+    vim.notify(("Workhorse: Permitted %s to use %d resource%s; run %s continues"):format(pipeline, #resources,
+      #resources == 1 and "" or "s", label), vim.log.levels.INFO)
+    -- The checkpoint passes shortly after
+    vim.defer_fn(function()
+      if vim.api.nvim_buf_is_valid(bufnr) then
+        M.refresh(bufnr)
+      end
+    end, 2000)
+  end)
+end
+
+-- Permit the pipeline of the run of a build view (on the runs list: the run under the cursor) to
+-- use the protected resources (agent queue, service connection, environment...) its stages wait
+-- for, after confirming: "Permit" on the web
+function M.permit(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  if not state then
+    return
+  end
+  local item = current_item(bufnr)
+  local run = (item and item.run) or state.ctx.run
+  if not run then
+    vim.notify("Workhorse: No run under the cursor", vim.log.levels.WARN)
+    return
+  end
+  local label = "#" .. (run.build_number or run.id)
+  if builds_api.is_completed(run.status) then
+    vim.notify("Workhorse: Run " .. label .. " is not running", vim.log.levels.INFO)
+    return
+  end
+  builds_api.get_timeline(run.id, function(records, err)
+    if not records then
+      vim.notify("Workhorse: Failed to load the timeline: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+    local waiting = builds_api.awaiting_permission(records)
+    if #waiting == 0 then
+      vim.notify("Workhorse: Run " .. label .. " is not waiting for a permission", vim.log.levels.INFO)
+      return
+    end
+    -- The resources of every waiting checkpoint, once each
+    local resources, seen, failed = {}, {}, nil
+    local pending = #waiting
+    for _, w in ipairs(waiting) do
+      builds_api.missing_permissions(w.checkpoint.id, function(list, list_err)
+        failed = failed or (not list and (list_err or "unknown error")) or nil
+        for _, r in ipairs(list or {}) do
+          local key = r.type .. ":" .. r.id
+          if not seen[key] then
+            seen[key] = true
+            r.stage = w.stage and w.stage.name
+            table.insert(resources, r)
+          end
+        end
+        pending = pending - 1
+        if pending > 0 then
+          return
+        end
+        if #resources > 0 then
+          confirm_permit(bufnr, run, resources)
+        elseif failed then
+          vim.notify("Workhorse: Failed to list the resources run " .. label .. " waits for: " .. failed,
+            vim.log.levels.ERROR)
+        else
+          vim.notify("Workhorse: Run " .. label .. " waits for a permission, but no resource needing it was found"
+            .. " (gb opens the run on the web)", vim.log.levels.WARN)
+        end
+      end)
     end
   end)
 end

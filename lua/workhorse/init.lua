@@ -262,6 +262,11 @@ function M.cancel_build()
   require("workhorse.builds").cancel()
 end
 
+-- Permit the pipeline of the current build buffer to use the resources its run waits for
+function M.permit_build()
+  require("workhorse.builds").permit()
+end
+
 -- Toggle live watching of build logs (follows the latest step's log)
 function M.toggle_build_live()
   require("workhorse.builds").toggle_live()

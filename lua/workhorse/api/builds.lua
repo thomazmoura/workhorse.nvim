@@ -32,11 +32,15 @@ end
 local function map_run(b)
   strip_nulls(b)
   local trigger = b.triggerInfo or {}
+  local repo = type(b.repository) == "table" and b.repository or {}
   return {
     id = b.id,
     build_number = b.buildNumber,
     definition_id = b.definition and b.definition.id,
     definition_name = b.definition and b.definition.name,
+    definition_path = b.definition and type(b.definition.path) == "string" and b.definition.path or nil,
+    -- The Azure Repos Git repository the run built (nil for other sources)
+    repository_id = repo.type == "TfsGit" and type(repo.id) == "string" and repo.id or nil,
     status = b.status,
     result = b.result,
     source_branch = b.sourceBranch,
@@ -663,6 +667,79 @@ function M.stage_of(records, record)
     current = parent
   end
   return current
+end
+
+-- Pipeline permissions -------------------------------------------------------
+
+-- Checkpoints of a run waiting for a pipeline permission: before a stage starts, its Checkpoint
+-- record's Checkpoint.Authorization child stays in progress until the pipeline is permitted to
+-- use the protected resources the stage needs (agent queue, service connection, environment...).
+-- Returns { { checkpoint = record, stage = record } }
+function M.awaiting_permission(records)
+  local result = {}
+  for _, r in ipairs(records or {}) do
+    if r.type == "Checkpoint.Authorization" and r.state == "inProgress" then
+      local checkpoint = r.parentId and M.find(records, r.parentId)
+      if checkpoint then
+        table.insert(result, { checkpoint = checkpoint, stage = M.stage_of(records, checkpoint) })
+      end
+    end
+  end
+  return result
+end
+
+-- Statuses of a check run that is over
+local CHECK_DONE = { approved = true, rejected = true, canceled = true, timedOut = true, failed = true }
+
+-- Resources a waiting checkpoint needs permission to use: the pending Authorization checks of its
+-- check suite (the suite id is the Checkpoint record's id; $expand names the resources).
+-- callback({ { type, id, name } })
+function M.missing_permissions(checkpoint_id, callback)
+  client.get("/" .. config.get().project .. "/_apis/pipelines/checks/runs/" .. checkpoint_id
+    .. "?$expand=1&api-version=7.1-preview.1", {
+    on_success = function(data)
+      local resources = {}
+      for _, check in ipairs(type(data) == "table" and type(data.checkRuns) == "table" and data.checkRuns or {}) do
+        local ref = type(check.checkConfigurationRef) == "table" and check.checkConfigurationRef or {}
+        local resource = type(ref.resource) == "table" and ref.resource or nil
+        if type(ref.type) == "table" and ref.type.name == "Authorization" and resource and resource.type
+          and not CHECK_DONE[check.status] then
+          table.insert(resources, {
+            type = resource.type,
+            id = tostring(resource.id),
+            name = type(resource.name) == "string" and resource.name or nil,
+          })
+        end
+      end
+      callback(resources)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Permit the pipeline `definition_id` to use `resources` ({ { type, id } }), in this run and the
+-- next ones ("Permit" on the web): the waiting checkpoints then pass. callback(true)
+function M.permit_resources(definition_id, resources, callback)
+  local body = {}
+  for _, r in ipairs(resources) do
+    table.insert(body, {
+      resource = { type = r.type, id = r.id },
+      pipelines = { { id = definition_id, authorized = true } },
+    })
+  end
+  client.request({
+    path = "/" .. config.get().project .. "/_apis/pipelines/pipelinePermissions?api-version=7.1-preview.1",
+    method = "PATCH",
+    body = body,
+    on_success = function()
+      callback(true)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
 end
 
 -- Formatting helpers -------------------------------------------------------

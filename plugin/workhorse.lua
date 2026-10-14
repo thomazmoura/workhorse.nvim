@@ -23,6 +23,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").repo_builds()
   elseif cmd == "builds" and args[2] == "cancel" then
     require("workhorse").cancel_build()
+  elseif cmd == "builds" and args[2] == "permit" then
+    require("workhorse").permit_build()
   elseif cmd == "pipelines" and args[2] == "new" then
     require("workhorse").new_pipeline()
   elseif cmd == "pipelines" and args[2] == "list" then
@@ -68,6 +70,7 @@ Workhorse commands:
   :Workhorse builds new [id] - Run a new build of a pipeline (default: the current one)
   :Workhorse builds here - Pipelines of the repository of the working directory
   :Workhorse builds cancel - Cancel the running build of the current build buffer
+  :Workhorse builds permit - Permit the pipeline to use the resources its waiting run needs
   :Workhorse pipelines new - Create a YAML pipeline
   :Workhorse pipelines list - Recent pipelines, and all of them as a tree of folders
   :Workhorse PRs         - Browse the pull requests of a repository (picker)
@@ -96,7 +99,7 @@ end, {
     if #parts == 3 and parts[2] == "builds" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "cancel", "here", "new", "resume" })
+      end, { "cancel", "here", "new", "permit", "resume" })
     end
     if #parts == 3 and (parts[2] == "PRs" or parts[2] == "prs") then
       return vim.tbl_filter(function(item)

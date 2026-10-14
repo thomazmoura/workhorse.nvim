@@ -285,6 +285,7 @@ In this mode:
 | `:Workhorse resume-build` | Reopen the runs of the last opened pipeline (alias: `:Workhorse builds resume`) |
 | `:Workhorse builds new [id]` | Run a new build of a pipeline (default: the pipeline of the current build buffer) |
 | `:Workhorse builds cancel` | Cancel the running build of the current build buffer |
+| `:Workhorse builds permit` | Permit the pipeline to use the resources the run of the current build buffer waits for (see "Permitting a waiting build") |
 | `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
 | `:Workhorse builds here` | Pipelines of the repository of the working directory (see "Repository cache") |
 | `:Workhorse pipelines list` | The pipelines that ran most recently (Recent tab) and all of them as an editable tree of folders (All tab): move, rename, create and delete them |
@@ -526,6 +527,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wr` | Run a new build pre-filled with the values of the run (see "Running a build again") |
 | `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
 | `<leader>ws` | Rerun the stage under the cursor, or pick one, e.g. to redeploy an older run (see "Running a build again") |
+| `<leader>wa` | Permit the pipeline to use the resources the run waits for (see "Permitting a waiting build") |
 | `gw` | Open the run, job or step in the browser; on the `# Pipeline` line, open the pipeline definition |
 | `gb` | Open the view itself in the browser: the run of a run tree, the step of a log; on the runs list, the run under the cursor (the pipeline elsewhere) |
 | `q` | Close the buffer |
@@ -637,7 +639,8 @@ each with the status of its latest run on the right:
 `<CR>` on `Load 20 more` (or `<leader>wm`) lists the next 20 (`pipelines.recent_top`). `<CR>` on a
 pipeline opens its runs, `gw` (or `gb`) opens it in the browser and `<leader>R` reloads the list. The
 statuses come with the list and are then refreshed like those of the tree, only for the pipelines
-on screen; the All tab fetches nothing until it is opened.
+on screen; the All tab fetches nothing until it is opened. Both tabs update the pipelines of the
+repository cache with what they list (see "Repository cache").
 
 On both tabs, `<leader>w/` opens the pipeline picker (`:Workhorse builds`).
 
@@ -738,6 +741,25 @@ deploy stage: the build stage is not run again. Only YAML pipelines have stages 
 The run tree and log headers of a running build show a `Cancel build` line. `<CR>` on it,
 `<leader>wx` (on the runs list: for the run under the cursor) or `:Workhorse builds cancel`
 cancels the run after a confirmation (`<CR>` accepts it). The line shows `Cancelling…` until the run stops.
+
+### Permitting a waiting build
+
+The first time a YAML pipeline uses a protected resource (an agent queue, service connection,
+environment, variable group, secure file or repository), its run waits before the stage that needs
+it until the pipeline is permitted to use it. Such a run shows `needs permission` (in orange,
+`WorkhorseBuildRetry`) before its stage pips on the runs list and on the waiting stage of the run
+tree, and its run tree and log headers show a `Waiting for permission: Permit access` line.
+`<CR>` on it, `<leader>wa` (on the runs list: for the run under the cursor) or
+`:Workhorse builds permit` lists the resources the run waits for:
+
+```
+Run #20261014.1 is waiting for permission to use:
+  agent queue DTI (stage Build)
+Permit CQ to use it in this and future runs?
+```
+
+`<CR>` permits them ("Permit" on the web) and the run carries on. Permitting needs a PAT with the
+**Pipeline Resources (Use and manage)** scope (or full access).
 
 Global keymaps (set by default): `<leader>wb` opens the pipelines of the repository Neovim is in
 (`:Workhorse builds here`: its runs when it has one, a picker of them when more; the picker of every
@@ -954,7 +976,10 @@ The repository and pipeline pickers, and the keymaps that open what belongs to t
 Neovim is in, read a cache of every Git repository the PAT can see (with its HTTPS and SSH clone
 URLs) and of the pipelines of the configured `project`, each with the repository it builds. It is
 queried once, the first time it is needed, and `<leader>wR` (`:Workhorse repos refresh`) queries
-Azure DevOps again to update it, e.g. after a repository or pipeline is created.
+Azure DevOps again to update it, e.g. after a repository or pipeline is created. The pipelines
+screen (`<leader>wB`) also keeps its pipelines up to date: its Recent tab adds the pipelines it
+lists (so a new pipeline joins the cache once it has run), and its All tab, which lists every
+pipeline, adds, renames, moves and drops them to match.
 
 "The repository Neovim is in" is the one of the working directory (`:pwd`): its git remotes
 (`origin` first) are matched against the cached clone URLs, and the first remote that matches
