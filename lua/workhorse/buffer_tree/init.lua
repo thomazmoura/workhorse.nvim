@@ -464,6 +464,9 @@ function M.setup_keymaps(bufnr)
   vim.keymap.set("n", "gw", function()
     M.open_in_browser(bufnr)
   end, opts)
+  vim.keymap.set("n", "gb", function()
+    M.open_in_browser(bufnr)
+  end, opts)
 end
 
 function M.get_state(bufnr)

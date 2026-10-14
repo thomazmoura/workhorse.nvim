@@ -489,6 +489,10 @@ local spec = {
     vim.keymap.set("n", "<leader>R", function()
       M.reload(bufnr)
     end, with_desc("reload parameters for the branch"))
+    vim.keymap.set("n", "gb", function()
+      local form = forms.get(bufnr)
+      require("workhorse.builds").open_definition_in_browser(form and form.definition.id)
+    end, with_desc("open the pipeline in the browser"))
   end,
 }
 

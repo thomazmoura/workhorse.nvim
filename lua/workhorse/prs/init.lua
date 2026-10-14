@@ -1055,6 +1055,18 @@ local function browser_url(bufnr)
   return prs_api.pr_url(ctx.repo, ctx.id)
 end
 
+-- Web page of the view itself: the pull request (on its tab's page); the list is a list, so the
+-- pull request under the cursor (the repository's pull requests elsewhere)
+local function page_url(bufnr)
+  local state = views[bufnr]
+  local ctx = state.ctx
+  if state.kind == "list" then
+    local item = current_item(bufnr)
+    return item and item.kind == "pr" and item.pr.url or (prs_api.repo_url(ctx.repo) .. "/pullrequests")
+  end
+  return prs_api.pr_url(ctx.repo, ctx.id) .. (ctx.tab == "changes" and "?_a=files" or "")
+end
+
 local function select_item(bufnr)
   local state = views[bufnr]
   local item = current_item(bufnr)
@@ -1111,6 +1123,9 @@ local function set_keymaps(bufnr, kind)
   end)
   map("gw", function()
     open_url(browser_url(bufnr))
+  end)
+  map("gb", function()
+    open_url(page_url(bufnr))
   end)
   map("<leader>R", function()
     M.refresh(bufnr)

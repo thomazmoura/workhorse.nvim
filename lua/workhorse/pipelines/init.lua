@@ -300,14 +300,16 @@ local function setup_keymaps(bufnr)
   map_nx("<leader>w<C-h>", function()
     toggle_hidden(bufnr)
   end, "show or hide the hidden pipelines")
-  map("gw", function()
+  local function open_in_browser()
     local pipeline = current_pipeline(bufnr)
     if not pipeline then
       notify("No pipeline on this line", vim.log.levels.WARN)
       return
     end
     require("workhorse.builds").open_definition_in_browser(pipeline.id)
-  end, "open the pipeline in the browser")
+  end
+  map("gw", open_in_browser, "open the pipeline in the browser")
+  map("gb", open_in_browser, "open the pipeline in the browser")
   tabs.setup_buffer(bufnr)
 end
 

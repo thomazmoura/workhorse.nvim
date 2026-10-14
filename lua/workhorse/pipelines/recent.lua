@@ -163,14 +163,16 @@ local function setup_keymaps(bufnr)
       load_more()
     end
   end, "open the runs of the pipeline")
-  map("gw", function()
+  local function open_in_browser()
     local item = current_item(bufnr)
     if item and item.kind == "pipeline" then
       require("workhorse.builds").open_definition_in_browser(item.id)
     else
       notify("No pipeline on this line", vim.log.levels.WARN)
     end
-  end, "open the pipeline in the browser")
+  end
+  map("gw", open_in_browser, "open the pipeline in the browser")
+  map("gb", open_in_browser, "open the pipeline in the browser")
   map("<leader>wm", load_more, "load more recent pipelines")
   map("<leader>R", function()
     M.refresh(bufnr)

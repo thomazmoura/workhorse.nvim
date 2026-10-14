@@ -304,7 +304,7 @@ When in a workhorse buffer (flat queries):
 | `<CR>` | Toggle description and tags side panels for work item under cursor |
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
-| `gw` | Open work item in browser |
+| `gw` or `gb` | Open work item in browser |
 
 When in a workhorse buffer (tree queries):
 
@@ -315,7 +315,7 @@ When in a workhorse buffer (tree queries):
 | `<leader>ws` | Open column/state selection menu |
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
-| `gw` | Open work item in browser |
+| `gw` or `gb` | Open work item in browser |
 
 ### Cursor Tracking
 
@@ -433,6 +433,7 @@ Press `<CR>` on any work item to open the description and tags side panels on th
 - **Headers**: The `═══ Description ═══` and `═══ Tags ═══` headers are readonly
 - **Toggle**: Press `<CR>` again on the same item to close the panels
 - **Close**: Press `<CR>` in normal mode inside either panel to close both (insert mode still inserts a newline)
+- **Browser**: Press `gb` inside either panel to open the work item in the browser
 - **Apply**: Press `<leader><leader>` in normal mode inside either panel to close both and apply the pending changes
 - **Save**: Panel edits are kept in memory and are sent to Azure DevOps when you apply changes with `<leader><leader>`, from the panels or from the work item buffer
 
@@ -467,7 +468,7 @@ In the log view the header goes down to the step. In every view the header stays
 you scroll: once its lines leave the window, a copy of it is pinned over the top of the window
 (like nvim-treesitter-context), with the same line numbers the buffer shows, and the cursor never
 hides under it. The pinned copy is not clickable: `gg` brings back the real header lines and their
-links, and the view keymaps (`-`, `gw`, live watching, cancel) work from anywhere in the buffer.
+links, and the view keymaps (`-`, `gw`, `gb`, live watching, cancel) work from anywhere in the buffer.
 Build windows hide the sign and fold columns to leave more room for the content.
 
 The header lines are links: `<CR>` on the pipeline name opens the runs list, and on the run,
@@ -526,6 +527,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
 | `<leader>ws` | Rerun the stage under the cursor, or pick one, e.g. to redeploy an older run (see "Running a build again") |
 | `gw` | Open the run, job or step in the browser; on the `# Pipeline` line, open the pipeline definition |
+| `gb` | Open the view itself in the browser: the run of a run tree, the step of a log; on the runs list, the run under the cursor (the pipeline elsewhere) |
 | `q` | Close the buffer |
 
 ### Running a new build
@@ -553,7 +555,8 @@ system.debug: false
   with their defaults. The display name sits above each line, and the type, allowed values
   and `required` (no default) on the right. `object` parameters are edited as one line of JSON.
   Parameters are read from the YAML file on the default branch; after changing the branch,
-  `<leader>R` reloads them from that branch, keeping the values you changed.
+  `<leader>R` reloads them from that branch, keeping the values you changed (`gb` opens the
+  pipeline in the browser).
 - **Variables**: the pipeline variables marked "settable at queue time".
 
 `<Tab>`/`<S-Tab>` move between the values. Typing in the branch (from the repository's branches
@@ -632,7 +635,7 @@ each with the status of its latest run on the right:
 ```
 
 `<CR>` on `Load 20 more` (or `<leader>wm`) lists the next 20 (`pipelines.recent_top`). `<CR>` on a
-pipeline opens its runs, `gw` opens it in the browser and `<leader>R` reloads the list. The
+pipeline opens its runs, `gw` (or `gb`) opens it in the browser and `<leader>R` reloads the list. The
 statuses come with the list and are then refreshed like those of the tree, only for the pipelines
 on screen; the All tab fetches nothing until it is opened.
 
@@ -674,8 +677,8 @@ changes show on the right: `[from \Infra]` / `[was Old name]` on moved or rename
 not reloaded after saving, so unsaved edits are kept: it stays modified while changes are
 pending. A pipeline line copied (duplicate `#ID`), an `#ID` not in the list, or a line indented
 without a folder above it blocks the save. Folders exist only through their pipelines, so a
-folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, `gw` opens it
-in the browser, and
+folder line with nothing under it is ignored. `<CR>` on a pipeline opens its runs, `gw` (or `gb`)
+opens it in the browser, and
 `<leader>R` (or `:Workhorse refresh`) reloads the list, asking first if it has changes. Running
 `:Workhorse pipelines list` (or `<leader>wB`) again on a tab reloads it from scratch, like when
 it was first opened: every folder folded again and the run statuses fetched anew.
@@ -807,6 +810,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<leader>wm` | Load 20 more pull requests (list) |
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
+| `gb` | Open the pull request itself in the browser (its files on the Changes tab); on the list, the pull request under the cursor |
 | `<leader>R` | Reload from Azure DevOps |
 | `q` | Close the buffer |
 

@@ -187,6 +187,17 @@ local function setup_close_keymap(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
 end
 
+-- Open the work item of the panels in the browser with gb
+local function setup_browser_keymap(bufnr)
+  vim.keymap.set("n", "gb", function()
+    if not current_item_id then
+      return
+    end
+    local cfg = require("workhorse.config").get()
+    vim.ui.open(cfg.server_url:gsub("/$", "") .. "/" .. cfg.project .. "/_workitems/edit/" .. current_item_id)
+  end, { buffer = bufnr, silent = true, desc = "Workhorse: open the work item in the browser" })
+end
+
 -- Resolve the work item buffer the panels belong to. Falls back to any visible
 -- workhorse buffer when the origin was never recorded or is gone.
 local function resolve_origin_buffer()
@@ -269,6 +280,7 @@ local function get_or_create_description_buffer()
 
   setup_header_protection(desc_bufnr, DESC_HEADER, save_description_to_memory)
   setup_close_keymap(desc_bufnr)
+  setup_browser_keymap(desc_bufnr)
   setup_apply_keymap(desc_bufnr)
 
   return desc_bufnr
@@ -292,6 +304,7 @@ local function get_or_create_tags_buffer()
 
   setup_header_protection(tags_bufnr, TAGS_HEADER, save_tags_to_memory)
   setup_close_keymap(tags_bufnr)
+  setup_browser_keymap(tags_bufnr)
   setup_apply_keymap(tags_bufnr)
 
   return tags_bufnr

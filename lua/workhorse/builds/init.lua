@@ -791,6 +791,17 @@ local function go_parent(bufnr)
   end
 end
 
+-- Logs page of a timeline record (stage: the run itself)
+local function record_url(run_url, record)
+  if not record or record.type == "Stage" then
+    return run_url
+  end
+  if record.type == "Task" then
+    return run_url .. "&view=logs&j=" .. record.parentId .. "&t=" .. record.id
+  end
+  return run_url .. "&view=logs&j=" .. record.id
+end
+
 local function browser_url(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
@@ -806,14 +817,26 @@ local function browser_url(bufnr)
   if not run_url then
     return nil
   end
-  local record = (item and item.record) or ctx.step or ctx.job
-  if not record or record.type == "Stage" then
-    return run_url
+  return record_url(run_url, (item and item.record) or ctx.step or ctx.job)
+end
+
+-- Web page of the view itself: the run of a run tree, the step of a log; a runs list is a
+-- list, so the run under the cursor (the pipeline elsewhere)
+local function page_url(bufnr)
+  local state = views[bufnr]
+  local ctx = state.ctx
+  if state.kind == "runs" then
+    local item = current_item(bufnr)
+    if item and item.kind == "run" then
+      return item.run.url
+    end
+    return M.definition_url(ctx.definition_id)
   end
-  if record.type == "Task" then
-    return run_url .. "&view=logs&j=" .. record.parentId .. "&t=" .. record.id
+  local run_url = ctx.run and ctx.run.url
+  if state.kind == "log" and run_url then
+    return record_url(run_url, ctx.step or ctx.job)
   end
-  return run_url .. "&view=logs&j=" .. record.id
+  return run_url
 end
 
 local function set_keymaps(bufnr)
@@ -855,6 +878,9 @@ local function set_keymaps(bufnr)
   end, opts)
   vim.keymap.set("n", "gw", function()
     open_url(browser_url(bufnr))
+  end, opts)
+  vim.keymap.set("n", "gb", function()
+    open_url(page_url(bufnr))
   end, opts)
   vim.keymap.set("n", "q", function()
     vim.api.nvim_buf_delete(bufnr, { force = true })

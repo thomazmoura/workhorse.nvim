@@ -350,8 +350,11 @@ function M.setup_keymaps(bufnr)
     require("workhorse").refresh()
   end, opts)
 
-  -- gx to open in browser
+  -- gw (or gb) to open the work item in the browser
   vim.keymap.set("n", "gw", function()
+    M.open_in_browser(bufnr)
+  end, opts)
+  vim.keymap.set("n", "gb", function()
     M.open_in_browser(bufnr)
   end, opts)
 end
