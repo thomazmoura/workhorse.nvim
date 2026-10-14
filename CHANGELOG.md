@@ -2,6 +2,17 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [3d0a64d] - 2026-10-14
+
+### Added
+- Runs waiting for a pipeline permission (agent queue, service connection, environment...) show `needs permission` on the runs list and the waiting stage, and a `Waiting for permission: Permit access` line in the run tree and log headers
+- `<CR>` on that line, `<leader>wa` or `:Workhorse builds permit` lists the resources the run waits for and permits the pipeline to use them, after a confirmation
+
+## [641a06a] - 2026-10-14
+
+### Changed
+- The pipelines screen (`<leader>wB`) updates the repository cache with what it lists: the Recent tab adds the pipelines it finds, the All tab adds, renames, moves and drops them, so a new pipeline no longer needs `<leader>wR`
+
 ## [474b447] - 2026-10-14
 
 ### Added
