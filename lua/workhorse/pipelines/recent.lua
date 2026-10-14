@@ -2,7 +2,8 @@
 -- their folders, `pipelines.recent_top` at a time (`↓ Load N more` at the end loads the next
 -- ones). They are found by paging the project's runs (newest first) until enough distinct
 -- pipelines show up; the run found for each is its latest, so it seeds the status column
--- (pipelines/status.lua), which then keeps the visible ones up to date.
+-- (pipelines/status.lua), which then keeps the visible ones up to date. The repository cache
+-- learns the pipelines found (a new one is added to it).
 local M = {}
 
 local builds_api = require("workhorse.api.builds")
@@ -79,10 +80,15 @@ local function load(bufnr, count, focus_new)
   local generation = state.generation
   local first_new = #state.pipelines + 1
   local found, pages = 0, 0
+  -- The pipelines found, for the repository cache
+  local learned = {}
 
   local function done()
     state.loading = false
     render(bufnr)
+    if #learned > 0 then
+      require("workhorse.repos").learn_definitions(learned)
+    end
     if focus_new and state.pipelines[first_new] then
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
         vim.api.nvim_win_set_cursor(win, { first_new, 0 })
@@ -118,6 +124,10 @@ local function load(bufnr, count, focus_new)
           if id and not state.seen[id] then
             state.seen[id] = true
             table.insert(state.pipelines, { id = id, name = run.definition_name or tostring(id) })
+            if run.definition_name then
+              table.insert(learned, { id = id, name = run.definition_name, path = run.definition_path,
+                repository_id = run.repository_id })
+            end
             -- The newest run of the pipeline: its status needs no request of its own
             status.seed(id, run)
             found = found + 1

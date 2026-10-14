@@ -96,7 +96,7 @@ local function render(bufnr)
 end
 
 -- Fetch the definitions (and the hidden ones, from the repository cache) and render them,
--- replacing the buffer content. A hard load starts over like the first opening: the folds all
+-- replacing the buffer content; the repository cache is brought up to date with them. A hard load starts over like the first opening: the folds all
 -- closed, the run statuses fetched again and the cursor on the first line
 local function load(bufnr, hard)
   local state = buffers[bufnr]
@@ -107,6 +107,7 @@ local function load(bufnr, hard)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading pipelines..." })
     vim.bo[bufnr].modified = false
   end
+  local repos = require("workhorse.repos")
   local definitions, list_err, hidden
   local pending = 2
   local function joined()
@@ -119,6 +120,8 @@ local function load(bufnr, hard)
       notify("Failed to list the pipelines: " .. tostring(list_err or "unknown error"), vim.log.levels.ERROR)
       return
     end
+    -- Every pipeline of the project: the repository cache learns the new ones
+    repos.learn_definitions(definitions, true)
     state.originals = {}
     for _, d in ipairs(definitions) do
       state.originals[d.id] = { name = d.name, path = d.path }
@@ -131,11 +134,10 @@ local function load(bufnr, hard)
       end
     end
   end
-  builds_api.list_definitions(function(result, err)
+  builds_api.list_definitions_full(function(result, err)
     definitions, list_err = result, err
     joined()
   end)
-  local repos = require("workhorse.repos")
   repos.get(function(cache, err)
     if not cache then
       notify("Could not read the hidden pipelines: " .. tostring(err or "unknown error"), vim.log.levels.WARN)

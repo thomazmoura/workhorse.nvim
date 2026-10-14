@@ -191,6 +191,75 @@ function M.set_hidden(ids, hidden, callback)
   end)
 end
 
+--- Bring the cached pipelines up to date with `definitions` ({ id, name, path, repository_id }),
+--- as a screen just listed them: the new ones added, the renamed or moved ones changed. With
+--- `complete` (every pipeline of the project), the cached ones missing from it are dropped (and no
+--- longer hidden). The cache is saved only when it changed
+---@param definitions table[]
+---@param complete boolean|nil
+function M.learn_definitions(definitions, complete)
+  M.get(function(cache)
+    if not cache then
+      return
+    end
+    local by_id, cached = {}, {}
+    for _, d in ipairs(cache.definitions) do
+      cached[d.id] = d
+    end
+    local added, changed = 0, false
+    for _, d in ipairs(definitions) do
+      local old = cached[d.id]
+      local new = {
+        id = d.id,
+        name = d.name,
+        path = d.path or (old and old.path) or "\\",
+        -- A run's repository is not known for other sources: the cached one stays
+        repository_id = d.repository_id or (not complete and old and old.repository_id) or nil,
+      }
+      by_id[d.id] = new
+      if not old then
+        added = added + 1
+      elseif old.name ~= new.name or old.path ~= new.path or old.repository_id ~= new.repository_id then
+        changed = true
+      end
+    end
+    local result, exists = {}, {}
+    for _, d in ipairs(cache.definitions) do
+      if by_id[d.id] or not complete then
+        table.insert(result, by_id[d.id] or d)
+        by_id[d.id] = nil
+        exists[d.id] = true
+      else
+        changed = true
+      end
+    end
+    if added == 0 and not changed then
+      return
+    end
+    for _, d in ipairs(definitions) do
+      if by_id[d.id] then
+        table.insert(result, by_id[d.id])
+      end
+    end
+    -- In name order, as Azure DevOps lists them
+    table.sort(result, function(a, b)
+      return tostring(a.name):lower() < tostring(b.name):lower()
+    end)
+    cache.definitions = result
+    -- The hidden pipelines that still exist stay hidden
+    cache.hidden = vim.tbl_filter(function(id)
+      return exists[id] == true
+    end, cache.hidden or {})
+    store.save(CACHE_NAME, cache, function(_, err)
+      if err then
+        notify("Could not save the repository cache: " .. err, vim.log.levels.WARN)
+      elseif added > 0 then
+        notify(("Added %d new pipeline%s to the repository cache"):format(added, added == 1 and "" or "s"))
+      end
+    end)
+  end)
+end
+
 -- URLs ------------------------------------------------------------------------
 
 local function decode(text)
