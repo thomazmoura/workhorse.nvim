@@ -2,6 +2,19 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [2894952] - 2026-10-14
+
+### Added
+- `gb` on the screen of a repository opens the repository itself in the browser (`gw` still opens the settings page of the cursor's section)
+
+## [0eb33dc] - 2026-10-14
+
+### Added
+- `gb` on the repositories list opens the repository under the cursor in the browser, like `gw`
+
+### Changed
+- Deleting a repository (repositories list) or pipelines (pipelines list) now asks you to type its name (case aside) after the confirmation; a typo keeps it, and `<Esc>` while typing cancels the pipeline deletions
+
 ## [98bf38c] - 2026-10-13
 
 ### Added
