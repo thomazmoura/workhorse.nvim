@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [98bf38c] - 2026-10-13
+
+### Added
+- Repository options menu (`<leader>wo`) in the screen of a repository: copies the SSH or HTTPS clone URL, or a push script for an existing local repository (`git remote add origin <url>;` then `git push -u origin --all`), to the clipboard
+- The menu can also run a push script in a terminal split in Neovim's working directory, after a confirmation, so SSH passphrase and HTTPS credential prompts can be answered; once the push succeeds the repository screen reloads, showing the pushed branches and the default branch set by the first push
+
 ## [d53c7d7] - 2026-10-13
 
 ### Changed
