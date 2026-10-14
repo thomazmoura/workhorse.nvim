@@ -271,6 +271,108 @@ local function web_url(repo, section)
     or config.project), repo.id, section == "policies" and "policies" or "permissions")
 end
 
+-- Clone URLs of `repo`: the ones the server reports, or else built from server_url
+local function clone_urls(repo)
+  local config = require("workhorse.config").get()
+  local server = (config.server_url or ""):gsub("/$", "")
+  local path = ("/%s/_git/%s"):format(repo.project and repo.project.name or config.project, repo.name)
+  return {
+    https = repo.remote_url or (server .. path),
+    ssh = repo.ssh_url or (server:gsub("^https?://([^/]+)", "ssh://%1:22") .. path),
+  }
+end
+
+local function push_script(url)
+  return ("git remote add origin %s;\ngit push -u origin --all"):format(url)
+end
+
+-- The screen's repository table is shared with its sections: it is updated in place
+local function set_repo(bufnr, repo)
+  local current = repo_of_buffer[bufnr]
+  if not current then
+    repo_of_buffer[bufnr] = repo
+    return
+  end
+  if current ~= repo then
+    for k in pairs(current) do
+      current[k] = nil
+    end
+    for k, v in pairs(repo) do
+      current[k] = v
+    end
+  end
+end
+
+-- Runs `script` in a terminal split, in Neovim's working directory, so its output shows and
+-- credential prompts (SSH passphrase, HTTPS login) can be answered. Once it succeeds, the
+-- repository (its default branch, set by a first push) and the screen of `bufnr` are reloaded
+local function run_script(bufnr, script)
+  local cwd = vim.fn.getcwd()
+  if vim.fn.confirm(("Run in %s?\n\n%s"):format(cwd, script), "&Run\n&Cancel", 2) ~= 1 then
+    return
+  end
+  vim.cmd("botright 12split")
+  vim.api.nvim_win_set_buf(0, vim.api.nvim_create_buf(false, true))
+  vim.fn.jobstart({ vim.o.shell, vim.o.shellcmdflag, script }, {
+    term = true,
+    cwd = cwd,
+    on_exit = function(_, code)
+      local repo = repo_of_buffer[bufnr]
+      if code ~= 0 or not repo then
+        return
+      end
+      require("workhorse.api.repositories").get(repo.id, function(fresh, err)
+        if not vim.api.nvim_buf_is_valid(bufnr) then
+          return
+        end
+        if fresh then
+          set_repo(bufnr, fresh)
+        else
+          notify("Failed to reload the repository: " .. tostring(err), vim.log.levels.WARN)
+        end
+        M.refresh(bufnr)
+      end)
+    end,
+  })
+end
+
+local function copy(text)
+  if not pcall(vim.fn.setreg, "+", text) then
+    notify("no clipboard available", vim.log.levels.ERROR)
+    return
+  end
+  notify("copied: " .. text:gsub("\n", " "))
+end
+
+--- Menu of the repository's options (<leader>wo): copying its clone URLs and push scripts to
+--- the clipboard, or running a push script
+function M.options_menu(bufnr)
+  local repo = repo_of_buffer[bufnr]
+  local urls = clone_urls(repo)
+  local options = {
+    { label = "Copy the SSH URL", text = urls.ssh },
+    { label = "Copy the HTTPS URL", text = urls.https },
+    { label = "Copy the push script (SSH)", text = push_script(urls.ssh) },
+    { label = "Copy the push script (HTTPS)", text = push_script(urls.https) },
+    { label = "Run the push script (SSH)", text = push_script(urls.ssh), run = true },
+    { label = "Run the push script (HTTPS)", text = push_script(urls.https), run = true },
+  }
+  vim.ui.select(options, {
+    prompt = repo.name .. ":",
+    format_item = function(option)
+      return option.label
+    end,
+  }, function(option)
+    if option then
+      if option.run then
+        run_script(bufnr, option.text)
+      else
+        copy(option.text)
+      end
+    end
+  end)
+end
+
 -- Completion and folds go to the module of the line's section
 local function in_section(bufnr, lnum, fn)
   local section = M.section_at(bufnr, lnum)
@@ -386,6 +488,9 @@ local function setup_keymaps(bufnr, repo)
   map("gw", function()
     vim.ui.open(web_url(repo, M.section_at(bufnr, vim.api.nvim_win_get_cursor(0)[1])))
   end, "open the repository settings in the browser")
+  map("<leader>wo", function()
+    M.options_menu(bufnr)
+  end, "repository options (clone URLs and push scripts)")
   map("<leader>wR", function()
     require("workhorse.identities").update(function(data)
       if data and vim.api.nvim_buf_is_valid(bufnr) then
@@ -545,7 +650,7 @@ end
 function M.open(repo, section)
   local bufnr = screens[repo.id]
   if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
-    repo_of_buffer[bufnr] = repo
+    set_repo(bufnr, repo)
     vim.api.nvim_win_set_buf(0, bufnr)
   else
     bufnr = create(repo)

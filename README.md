@@ -864,6 +864,13 @@ value is completed as you type (blink.cmp or the native menu, like the build for
 applies them and reloads the sections that changed. Pending changes show on the right
 (`[was Not set]`, `[new]`); `-` goes back to the repositories list, `gw` opens the repository
 settings page of the cursor's section in the browser and `<leader>R` reloads the screen.
+`<leader>wo` opens a menu of the repository's options. Most copy a text to the system
+clipboard (`+` register): the SSH or HTTPS clone URL, or a push script for an existing local
+repository (`git remote add origin <url>;` then `git push -u origin --all`), over SSH or HTTPS.
+The menu can also run a push script: after confirming, it runs in a terminal split in Neovim's
+working directory (`:pwd`), where SSH passphrase or HTTPS credential prompts can be answered.
+Once the push succeeds, the repository screen reloads, showing the pushed branches (and the
+default branch the first push sets).
 
 **Security** lists, like the web UI, every user and group with permissions on the repository,
 set on it or inherited (from the project's permissions, or a group they belong to), groups

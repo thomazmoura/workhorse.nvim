@@ -69,6 +69,17 @@ function M.list(callback)
   })
 end
 
+--- One repository, by id: callback(repo) or callback(nil, err)
+function M.get(id, callback)
+  client.get(project_path("/" .. id .. "?api-version=7.1"), {
+    silent = true,
+    on_success = function(data)
+      callback(map_repo(data or {}))
+    end,
+    on_error = on_error(callback),
+  })
+end
+
 --- Create an empty repository: callback(repo) or callback(nil, err)
 function M.create(name, callback)
   client.post(project_path("?api-version=7.1"), { name = name }, {
