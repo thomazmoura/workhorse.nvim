@@ -103,9 +103,11 @@ local function setup_keymaps(bufnr)
   map("<CR>", with_repo(bufnr, function(repo)
     require("workhorse.repos_screen.repo").open(repo)
   end), "open the security and policies of the repository")
-  map("gw", with_repo(bufnr, function(repo)
+  local open_repo = with_repo(bufnr, function(repo)
     vim.ui.open(require("workhorse.api.pullrequests").repo_url(repo))
-  end), "open the repository in the browser")
+  end)
+  map("gw", open_repo, "open the repository in the browser")
+  map("gb", open_repo, "open the repository in the browser")
 end
 
 local function setup_autocmds(bufnr)
@@ -220,12 +222,20 @@ local function restore_line(bufnr, id, repo)
 end
 
 -- Ask to delete one repository (its line is gone, so the prompt names it): 1 delete, 2 keep it,
--- anything else stops the deletions
+-- anything else stops the deletions. Deleting asks to type its name: anything else keeps it.
 local function confirm_delete(repo)
   local branch = (repo.default_branch or ""):gsub("^refs/heads/", "")
   local prompt = ("Delete repository %s%s? Its branches, pull requests and history go with it."):format(
     repo.name, branch ~= "" and (" (default branch " .. branch .. ")") or "")
-  return vim.fn.confirm(prompt, "&Delete\n&Keep\n&Stop", 2)
+  local choice = vim.fn.confirm(prompt, "&Delete\n&Keep\n&Stop", 2)
+  if choice ~= 1 then
+    return choice
+  end
+  if require("workhorse.ui.type_name").ask(("Type %s to delete it: "):format(repo.name), repo.name) then
+    return 1
+  end
+  notify("The name did not match: kept repository " .. repo.name, vim.log.levels.WARN)
+  return 2
 end
 
 --- Apply the changes of the repositories list (see the top of this file)

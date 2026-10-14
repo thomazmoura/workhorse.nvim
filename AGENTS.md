@@ -28,6 +28,7 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `confirm.lua` - Confirmation dialog
 - `choices.lua` - Dropdown-like completion of line values (build forms, repository screen; blink.cmp or native)
 - `list_confirm.lua` - Confirmation float listing the changes of a save
+- `type_name.lua` - Type-to-confirm of a deletion (the name must be typed, case aside)
 
 **Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wg`)
 - `init.lua` + `list.lua` - Editable list of the project's repositories (rename, create, delete one confirmation each)

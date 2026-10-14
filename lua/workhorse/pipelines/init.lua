@@ -511,7 +511,7 @@ function M.save(bufnr)
         return finish("Deletions cancelled")
       end
       local deleted, failures = 0, {}
-      each_parallel(changes.deletes, function(d, done)
+      each_parallel(confirmed, function(d, done)
         builds_api.delete_definition(d.id, function(ok, err)
           if ok then
             deleted = deleted + 1

@@ -664,8 +664,10 @@ changes show on the right: `[from \Infra]` / `[was Old name]` on moved or rename
 2. **New pipelines** — any line without `#ID |` that does not end in `/` — open the "New
    pipeline" form (see above) one at a time, pre-filled with the line's name and folder.
    Creating it gives the line its `#ID |`; `q`/`<Esc>` skips it (the line stays pending).
-3. **Deletions** are listed together in one confirmation; `<CR>`, `y` or `:w` deletes them
-   (with their runs).
+3. **Deletions** are listed together in one confirmation; `<CR>`, `y` or `:w` then asks you to
+   type the name of each pipeline (case aside) and deletes the ones typed right (with their
+   runs). Any typo keeps that pipeline (its deletion stays pending); `<Esc>` while typing cancels
+   all the deletions.
 
 `<C-c>` on a form, on its "Create pipeline?" prompt, or on the deletion confirmation (also `q`,
 `<Esc>`, `n`) stops the rest of the save; what was already applied stays applied. The buffer is
@@ -842,13 +844,14 @@ applies them in this order:
    `README.md: no`) or an empty default branch, the repository starts without branches.
    `<CR>` (normal mode), `<leader><leader>` or `:w` creates it after a confirmation; `q`/`<Esc>`
    skips it (the line stays pending).
-3. **Deletions** are confirmed one repository at a time: **Delete** deletes it (with its
-   branches, pull requests and history; recent servers keep it in a recycle bin for a while),
-   **Keep** puts its line back, **Stop** stops the remaining deletions.
+3. **Deletions** are confirmed one repository at a time: **Delete** asks you to type the
+   repository's name (case aside) and deletes it (with its branches, pull requests and history;
+   recent servers keep it in a recycle bin for a while) — any typo keeps it instead —, **Keep**
+   puts its line back, **Stop** stops the remaining deletions.
 
 `<C-c>` on a form (or its prompt) stops the rest of the save; what was applied stays applied, and
 the repository cache is updated in the background. `<CR>` on a repository opens its screen (see
-below), `gw` opens it in the browser and `<leader>R` (or `:Workhorse refresh`) reloads the list.
+below), `gw` (or `gb`) opens it in the browser and `<leader>R` (or `:Workhorse refresh`) reloads the list.
 
 ### Security and Policies
 
@@ -863,7 +866,8 @@ value is completed as you type (blink.cmp or the native menu, like the build for
 `:w` (or `<leader><leader>`) lists the changes of both sections in one confirmation float, then
 applies them and reloads the sections that changed. Pending changes show on the right
 (`[was Not set]`, `[new]`); `-` goes back to the repositories list, `gw` opens the repository
-settings page of the cursor's section in the browser and `<leader>R` reloads the screen.
+settings page of the cursor's section in the browser, `gb` opens the repository itself in the
+browser and `<leader>R` reloads the screen.
 `<leader>wo` opens a menu of the repository's options. Most copy a text to the system
 clipboard (`+` register): the SSH or HTTPS clone URL, or a push script for an existing local
 repository (`git remote add origin <url>;` then `git push -u origin --all`), over SSH or HTTPS.
