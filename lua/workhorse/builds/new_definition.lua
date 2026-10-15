@@ -368,8 +368,9 @@ function M.submit(bufnr)
   end
 
   form.creating = true
-  vim.notify("Workhorse: Creating pipeline...", vim.log.levels.INFO)
+  local done = require("workhorse.progress").start("Creating pipeline")
   builds_api.create_definition(opts, function(definition, err)
+    done(err ~= nil or not definition)
     if forms.get(bufnr) then
       forms.get(bufnr).creating = false
     end

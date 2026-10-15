@@ -67,23 +67,26 @@ function M.open_query(query_id, query_name)
 
   -- Helper function that does the actual loading after we have the query name
   local function load_query(name)
-    vim.notify("Workhorse: Loading query...", vim.log.levels.INFO)
+    local done = require("workhorse.progress").start("Loading query")
 
     -- Execute query to get work item IDs
     queries.execute(query_id, function(result, err)
       if err then
+        done(true)
         vim.notify("Workhorse: Failed to execute query: " .. (err or "unknown error"), vim.log.levels.ERROR)
         return
       end
 
       local ids = result and result.ids or {}
       if not ids or #ids == 0 then
+        done()
         vim.notify("Workhorse: Query returned no work items", vim.log.levels.WARN)
         return
       end
 
       -- Fetch work item details
       workitems.get_by_ids(ids, function(items, fetch_err)
+        done(fetch_err ~= nil)
         if fetch_err then
           vim.notify("Workhorse: Failed to fetch work items: " .. (fetch_err or "unknown error"), vim.log.levels.ERROR)
           return
@@ -329,17 +332,19 @@ function M.refresh(opts)
     focus = cursor.capture_focus() or {}
   end
 
-  vim.notify("Workhorse: Refreshing...", vim.log.levels.INFO)
+  local done = require("workhorse.progress").start("Refreshing")
 
   -- Re-execute query
   queries.execute(state.query_id, function(result, err)
     if err then
+      done(true)
       vim.notify("Workhorse: Failed to refresh: " .. (err or "unknown error"), vim.log.levels.ERROR)
       return
     end
 
     local ids = result and result.ids or {}
     if not ids or #ids == 0 then
+      done()
       if buffer_tree.is_tree_buffer(bufnr) then
         buffer_tree.refresh_buffer(bufnr, {}, result and result.relations or nil, focus)
       else
@@ -351,6 +356,7 @@ function M.refresh(opts)
 
     -- Fetch updated work items
     workitems.get_by_ids(ids, function(items, fetch_err)
+      done(fetch_err ~= nil)
       if fetch_err then
         vim.notify("Workhorse: Failed to fetch work items: " .. (fetch_err or "unknown error"), vim.log.levels.ERROR)
         return
@@ -393,9 +399,10 @@ function M.change_state()
         return
       end
 
-      vim.notify("Workhorse: Changing state to " .. new_state .. "...", vim.log.levels.INFO)
+      local done = require("workhorse.progress").start("Changing state to " .. new_state)
 
       workitems.update_state(item.id, new_state, function(updated_item, err)
+        done(err ~= nil)
         if err then
           vim.notify("Workhorse: Failed to update state: " .. (err or "unknown error"), vim.log.levels.ERROR)
           return

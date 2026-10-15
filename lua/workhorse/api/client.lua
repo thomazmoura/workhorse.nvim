@@ -209,14 +209,16 @@ function M.test()
   )
 
   -- Make a test request
-  vim.notify("Workhorse: Testing connection...", vim.log.levels.INFO)
+  local done = require("workhorse.progress").start("Testing connection")
 
   M.get(test_path, {
     on_success = function(data)
+      done()
       local count = data and data.count or (data and data.value and #data.value) or 0
       vim.notify("Workhorse: Connection successful! Found " .. count .. " queries.", vim.log.levels.INFO)
     end,
     on_error = function(err, response)
+      done(true)
       vim.notify("Workhorse: Connection failed!\n  Status: " .. (response and response.status or "unknown") ..
         "\n  URL: " .. full_url ..
         "\n  Error: " .. (err or "unknown"),

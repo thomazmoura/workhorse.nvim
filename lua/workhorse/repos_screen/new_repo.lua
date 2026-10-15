@@ -223,9 +223,10 @@ function M.submit(bufnr)
   end
 
   form.creating = true
-  vim.notify("Workhorse: Creating repository " .. opts.name .. "...", vim.log.levels.INFO)
+  local progress_done = require("workhorse.progress").start("Creating repository " .. opts.name)
   repos_api.create(opts.name, function(repo, err)
     if not repo then
+      progress_done(true)
       if forms.get(bufnr) then
         forms.get(bufnr).creating = false
       end
@@ -233,6 +234,7 @@ function M.submit(bufnr)
       return
     end
     local function done()
+      progress_done()
       vim.notify("Workhorse: Created repository " .. repo.name, vim.log.levels.INFO)
       form.created = repo
       forms.close(bufnr)

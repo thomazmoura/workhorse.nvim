@@ -17,6 +17,8 @@ local CACHE_NAME = "repos"
 local data = nil
 -- Callbacks of the load or update in flight
 local waiting = nil
+-- Ends the progress indicator of the query in flight
+local progress_done = nil
 
 local function notify(msg, level)
   vim.notify("Workhorse: " .. msg, level or vim.log.levels.INFO)
@@ -30,6 +32,10 @@ local function matches_config(cached)
 end
 
 local function finish(result, err)
+  if progress_done then
+    progress_done(err ~= nil)
+    progress_done = nil
+  end
   local callbacks = waiting or {}
   waiting = nil
   for _, cb in ipairs(callbacks) do
@@ -100,7 +106,7 @@ function M.update(callback)
     return
   end
   waiting = { callback or function() end }
-  notify("Updating the repository cache...")
+  progress_done = require("workhorse.progress").start("Updating the repository cache")
   -- An explicit update asks the store's password again when it was declined this session
   if data and matches_config(data) then
     return fetch(true, data)
@@ -133,7 +139,7 @@ function M.get(callback)
       data = cached
       return finish(data)
     end
-    notify("Loading the repositories...")
+    progress_done = require("workhorse.progress").start("Loading the repositories")
     fetch(false, cached and matches_config(cached) and cached or nil)
   end)
 end

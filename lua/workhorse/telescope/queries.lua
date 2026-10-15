@@ -22,10 +22,11 @@ function M.pick(opts)
 
   local queries_api = require("workhorse.api.queries")
 
-  vim.notify("Workhorse: Loading queries...", vim.log.levels.INFO)
+  local done = require("workhorse.progress").start("Loading queries")
 
   -- Fetch queries from Azure DevOps
   queries_api.list(function(query_tree, err)
+    done(err ~= nil)
     if err then
       vim.notify("Workhorse: Failed to load queries: " .. (err or "unknown error"), vim.log.levels.ERROR)
       return

@@ -364,8 +364,9 @@ function M.submit(bufnr)
   end
 
   form.queuing = true
-  vim.notify("Workhorse: Queuing run...", vim.log.levels.INFO)
+  local done = require("workhorse.progress").start("Queuing run")
   builds_api.queue_build(form.definition.id, opts, function(run, err)
+    done(err ~= nil or not run)
     if forms.get(bufnr) then
       forms.get(bufnr).queuing = false
     end
@@ -512,9 +513,10 @@ end
 --- it), the form starts on that run's branch and with the values it was queued with.
 function M.open(definition_id, definition_name, run)
   definition_id = tonumber(definition_id) or definition_id
-  vim.notify("Workhorse: Loading pipeline " .. (definition_name or definition_id) .. "...", vim.log.levels.INFO)
+  local done = require("workhorse.progress").start("Loading pipeline " .. (definition_name or definition_id))
   builds_api.get_definition(definition_id, function(definition, err)
     if err or not definition then
+      done(true)
       vim.notify("Workhorse: Failed to load pipeline: " .. (err or "unknown error"), vim.log.levels.ERROR)
       return
     end
@@ -522,6 +524,7 @@ function M.open(definition_id, definition_name, run)
     local values = run and values_of_run(run)
     local branch = run and run.source_branch or definition.repository.default_branch or "master"
     load_params(definition, branch, function(params, params_err)
+      done()
       local form = {
         definition = definition,
         params = params or {},

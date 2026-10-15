@@ -19,6 +19,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
 - **Repositories** - Create, rename and delete the project's repositories from an editable list, and edit their permissions (Security) and branch policies (required reviewers, builds, linked work items...) as text, with every value completed
 - **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk by locksmith.nvim)
+- **Progress like language servers** - A spinner while loading or saving (queries, refreshes, caches, new runs, pipelines and repositories): in [noice.nvim](https://github.com/folke/noice.nvim)'s LSP progress view when you use it, otherwise as a Neovim 0.12+ progress message
 - **Secrets under one password** - The PAT and the caches in the [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim) store shared with paperboy.nvim, unlocked once per Neovim (see "The PAT and locksmith")
 
 ## Requirements
