@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [dd0c69b] - 2026-10-15
+
+### Changed
+- The pipelines screen now opens on the All tab by default (`pipelines.default_tab = "all"`)
+- The Recent tab lists 40 pipelines per batch, on the first load and on each "Load more" (`pipelines.recent_top = 40`)
+
 ## [a731bd0] - 2026-10-15
 
 ### Changed
