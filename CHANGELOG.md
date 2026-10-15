@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [828f648] - 2026-10-15
+
+### Added
+- `<S-Space>` and `<M-Space>` fold/unfold or activate the line in the tree, builds, pull requests, pipelines and repository screens, like `<Space>`
+
+### Changed
+- `<Space>` is left unmapped in these buffers when it is the `mapleader` or `maplocalleader`, so `<leader>` mappings and which-key keep working
+
 ## [dd0c69b] - 2026-10-15
 
 ### Changed
