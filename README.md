@@ -300,6 +300,11 @@ In this mode:
 
 ### Buffer Keymaps
 
+Wherever `<Space>` folds or activates a line below, `<S-Space>` and `<M-Space>` do the same
+(`<S-Space>` needs a terminal that tells it apart from `<Space>`). When `<Space>` is your
+`mapleader` or `maplocalleader`, Workhorse leaves it unmapped, so `<leader>` keeps its
+mappings and which-key still shows them; use `<S-Space>`/`<M-Space>` (or `<CR>`, `za`) then.
+
 When in a workhorse buffer (flat queries):
 
 | Key | Action |
@@ -314,7 +319,7 @@ When in a workhorse buffer (tree queries):
 | Key | Action |
 |-----|--------|
 | `<CR>` | Unfold the item under cursor when it is folded; otherwise toggle the description and tags side panels |
-| `<Space>` | Fold/unfold the item under cursor |
+| `<Space>` / `<S-Space>` / `<M-Space>` | Fold/unfold the item under cursor |
 | `<leader>ws` | Open column/state selection menu |
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |

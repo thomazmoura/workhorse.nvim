@@ -275,9 +275,11 @@ local function setup_keymaps(bufnr)
     M.refresh(bufnr)
   end, "reload the pipelines")
   -- On a folder: fold or unfold it; on a pipeline <CR> opens its runs
-  map("<Space>", function()
-    fold.toggle(bufnr)
-  end, "fold or unfold the folder")
+  for _, lhs in ipairs(config.space_keys()) do
+    map(lhs, function()
+      fold.toggle(bufnr)
+    end, "fold or unfold the folder")
+  end
   map("<CR>", function()
     if fold.toggle(bufnr) then
       return

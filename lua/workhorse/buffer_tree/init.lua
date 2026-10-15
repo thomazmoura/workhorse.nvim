@@ -449,9 +449,11 @@ function M.setup_keymaps(bufnr)
     end
   end, opts)
 
-  vim.keymap.set("n", "<Space>", function()
-    fold.toggle(bufnr)
-  end, opts)
+  for _, lhs in ipairs(config.space_keys()) do
+    vim.keymap.set("n", lhs, function()
+      fold.toggle(bufnr)
+    end, opts)
+  end
 
   vim.keymap.set("n", "<leader>ws", function()
     show_column_menu(bufnr)

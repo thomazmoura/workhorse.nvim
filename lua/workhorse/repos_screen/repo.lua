@@ -596,9 +596,11 @@ local function setup_keymaps(bufnr, repo)
   map("<leader>R", function()
     M.refresh(bufnr)
   end, "reload the repository screen")
-  map("<Space>", function()
-    fold.toggle(bufnr)
-  end, "fold or unfold")
+  for _, lhs in ipairs(require("workhorse.config").space_keys()) do
+    map(lhs, function()
+      fold.toggle(bufnr)
+    end, "fold or unfold")
+  end
   -- <CR> goes back to the list on the title, folds like <Space> on a line with a fold; elsewhere
   -- it moves down as usual
   map("<CR>", function()

@@ -252,4 +252,15 @@ function M.should_confirm(changes, ChangeType)
   return true  -- Default to confirm for unknown modes
 end
 
+-- Keys of the buffers' fold (or activate) action: <S-Space> and <M-Space>, plus <Space> unless it
+-- is the leader or local leader (a mapping on the leader key itself stops which-key from showing
+-- the <leader> mappings of the buffer)
+function M.space_keys()
+  local keys = { "<S-Space>", "<M-Space>" }
+  if vim.g.mapleader ~= " " and vim.g.maplocalleader ~= " " then
+    table.insert(keys, 1, "<Space>")
+  end
+  return keys
+end
+
 return M
