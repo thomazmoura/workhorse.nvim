@@ -227,8 +227,8 @@ require("workhorse").setup({
 
   -- Pipelines list (see "Organizing pipelines")
   pipelines = {
-    default_tab = "recent",          -- tab the pipelines screen opens on: "recent" or "all"
-    recent_top = 20,                 -- pipelines listed per page of the Recent tab
+    default_tab = "all",             -- tab the pipelines screen opens on: "recent" or "all"
+    recent_top = 40,                 -- pipelines listed per page of the Recent tab
     status = true,                   -- show the latest run of each visible pipeline
     status_running_interval = 5000,  -- refresh (ms) while that run is in progress
     status_idle_interval = 60000,    -- refresh (ms) once it has finished
@@ -623,11 +623,11 @@ pipeline's CI trigger follows the YAML file's `trigger:`.
 ### Recent pipelines
 
 `:Workhorse pipelines list` (or `<leader>wB`) opens the pipelines screen. It has two tabs, shown in
-the window bar (click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`): **Recent**, where
-it opens (`pipelines.default_tab`), and **All**, the editable tree (see "Organizing pipelines").
+the window bar (click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`): **Recent**, and
+**All**, the editable tree (see "Organizing pipelines"), where it opens (`pipelines.default_tab`).
 Each tab is its own buffer, so the pending edits of the tree are kept while you look at Recent.
 
-Recent lists the 20 pipelines that ran most recently, newest first and without their folders,
+Recent lists the 40 pipelines that ran most recently, newest first and without their folders,
 each with the status of its latest run on the right:
 
 ```
@@ -635,13 +635,13 @@ each with the status of its latest run on the right:
 #8 | Mobile                                main (10/10/26 09:12)
 #12 | Build-Infra                          main (09/10/26 18:40)
 
-  ↓ Load 20 more
+  ↓ Load 40 more
 ```
 
-`<CR>` on `Load 20 more` (or `<leader>wm`) lists the next 20 (`pipelines.recent_top`). `<CR>` on a
+`<CR>` on `Load 40 more` (or `<leader>wm`) lists the next 40 (`pipelines.recent_top`). `<CR>` on a
 pipeline opens its runs, `gw` (or `gb`) opens it in the browser and `<leader>R` reloads the list. The
 statuses come with the list and are then refreshed like those of the tree, only for the pipelines
-on screen; the All tab fetches nothing until it is opened. Both tabs update the pipelines of the
+on screen; the Recent tab fetches nothing until it is opened. Both tabs update the pipelines of the
 repository cache with what they list (see "Repository cache").
 
 On both tabs, `<leader>w/` opens the pipeline picker (`:Workhorse builds`).
