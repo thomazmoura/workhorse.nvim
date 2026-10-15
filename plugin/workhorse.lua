@@ -43,6 +43,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").refresh_repos()
   elseif cmd == "repos" and args[2] == "list" then
     require("workhorse").list_repos()
+  elseif cmd == "repos" and args[2] == "here" then
+    require("workhorse").repo_screen()
   elseif cmd == "identities" and args[2] == "refresh" then
     require("workhorse").refresh_identities()
   elseif cmd == "PRs" or cmd == "prs" then
@@ -78,6 +80,7 @@ Workhorse commands:
   :Workhorse PRs resume  - Reopen the pull requests of the last repository
   :Workhorse repos refresh - Update the repository cache (repositories and pipelines)
   :Workhorse repos list  - Repositories of the project: create, rename, delete, security and policies
+  :Workhorse repos here  - Screen of the repository of the working directory (default branch, security, policies)
   :Workhorse identities refresh - Update the identity cache (users and groups)
   :Workhorse live        - Toggle live watching of build logs
   :Workhorse apply       - Apply changes to Azure DevOps
@@ -109,7 +112,7 @@ end, {
     if #parts == 3 and parts[2] == "repos" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "list", "refresh" })
+      end, { "here", "list", "refresh" })
     end
     if #parts == 3 and parts[2] == "identities" then
       return vim.tbl_filter(function(item)
@@ -249,5 +252,9 @@ vim.keymap.set("n", "<leader>wR", function()
 end, { silent = true, desc = "Workhorse: Update the repository cache" })
 
 vim.keymap.set("n", "<leader>wg", function()
+  require("workhorse").repo_screen()
+end, { silent = true, desc = "Workhorse: This repository (default branch, security and policies)" })
+
+vim.keymap.set("n", "<leader>wG", function()
   require("workhorse").list_repos()
-end, { silent = true, desc = "Workhorse: Repositories (security and policies)" })
+end, { silent = true, desc = "Workhorse: Repositories (create, rename, delete)" })

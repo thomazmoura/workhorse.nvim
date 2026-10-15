@@ -30,10 +30,11 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `list_confirm.lua` - Confirmation float listing the changes of a save
 - `type_name.lua` - Type-to-confirm of a deletion (the name must be typed, case aside)
 
-**Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wg`)
+**Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wG`; `<leader>wg` opens the screen of the repository of the working directory)
 - `init.lua` + `list.lua` - Editable list of the project's repositories (rename, create, delete one confirmation each)
 - `new_repo.lua` - "New repository" form (default branch, .gitignore and optional README.md: first commit through the pushes API)
-- `repo.lua` - Screen of one repository: one buffer with a Security and a Policies section (`{`/`}` between them), winbar, combined save
+- `repo.lua` - Screen of one repository, styled like the PR screen: "name" title (`<CR>` back to the list), a General, a Security and a Policies section (bold titles, rules drawn as virtual lines, content indented one level and dedented for the section modules; `{`/`}` between them), winbar, combined save
+- `general.lua` - Repository settings as "key: value" lines (the default branch, completed from its branches)
 - `security.lua` - Permissions as text (Git Repositories security namespace ACLs; well-known group aliases mapped to the real groups)
 - `policies.lua` - Branch policies as text, diffed against the policy configurations
 - API: `api/repositories.lua`, `api/security.lua`, `api/policies.lua`, `api/identities.lua`
@@ -75,7 +76,8 @@ repository and identity caches are locksmith caches of the `workhorse` namespace
 - `:Workhorse state` - Change state of item under cursor
 - `:Workhorse refresh` - Refresh from server
 - `:Workhorse resume` - Reopen last query
-- `:Workhorse repos list` - Repositories screen (also `<leader>wg`)
+- `:Workhorse repos list` - Repositories screen (also `<leader>wG`)
+- `:Workhorse repos here` - Screen of the repository of the working directory (also `<leader>wg`)
 - `:Workhorse identities refresh` - Update the identity cache
 
 ## Development Notes

@@ -293,7 +293,8 @@ In this mode:
 | `:Workhorse PRs here` | Pull requests of the repository of the working directory |
 | `:Workhorse PRs resume` | Reopen the pull requests of the last opened repository |
 | `:Workhorse repos refresh` | Update the repository cache from Azure DevOps |
-| `:Workhorse repos list` | The repositories of the project as an editable list (create, rename, delete them), each with its Security and Policies screen (see "Repositories") |
+| `:Workhorse repos list` | The repositories of the project as an editable list (create, rename, delete them), each with its General, Security and Policies screen (see "Repositories") |
+| `:Workhorse repos here` | The General, Security and Policies screen of the repository of the working directory (the repositories list when it is not a known one) |
 | `:Workhorse identities refresh` | Update the identity cache (users and groups) from Azure DevOps |
 
 ### Buffer Keymaps
@@ -528,7 +529,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
 | `<leader>ws` | Rerun the stage under the cursor, or pick one, e.g. to redeploy an older run (see "Running a build again") |
 | `<leader>wa` | Permit the pipeline to use the resources the run waits for (see "Permitting a waiting build") |
-| `gw` | Open the run, job or step in the browser; on the `# Pipeline` line, open the pipeline definition |
+| `gw` | Open the run, job or step in the browser; on the `Pipeline` line, open the pipeline definition |
 | `gb` | Open the view itself in the browser: the run of a run tree, the step of a log; on the runs list, the run under the cursor (the pipeline elsewhere) |
 | `q` | Close the buffer |
 
@@ -539,16 +540,16 @@ any build buffer, or `:Workhorse builds new [id]` opens a form with everything t
 when queuing a run:
 
 ```
-# Run new build: CI-CD - Application pools
+Run new build: CI-CD - Application pools
 Branch: master                                                                  Infra
 
-## Parameters
+Parameters
 Environment name
 environment_name: Homologação          string · Intranet | DMZ Corp | Homologação
 Application pools, comma separated
 application_pools:                     string  required
 
-## Variables
+Variables
 system.debug: false
 ```
 
@@ -591,7 +592,7 @@ Runtime parameters are only read from Azure Repos Git repositories.
 from a file of an Azure Repos Git repository of the project:
 
 ```
-# New pipeline
+New pipeline
 Name:                                                defaults to the repository name
 Folder: \                                            \ is the root
 Repository: Infra
@@ -838,7 +839,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 
 ## Repositories
 
-`:Workhorse repos list` (or `<leader>wg`) lists the Git repositories of the configured `project`
+`:Workhorse repos list` (or `<leader>wG`) lists the Git repositories of the configured `project`
 as an editable list, with each one's default branch and size on the right:
 
 ```
@@ -856,7 +857,7 @@ applies them in this order:
    time, pre-filled with the line's name:
 
    ```
-   # New repository
+   New repository
    Name: my-repo
    Default branch: main
    .gitignore: none
@@ -879,17 +880,39 @@ applies them in this order:
 the repository cache is updated in the background. `<CR>` on a repository opens its screen (see
 below), `gw` (or `gb`) opens it in the browser and `<leader>R` (or `:Workhorse refresh`) reloads the list.
 
-### Security and Policies
+### General, Security and Policies
 
-The screen of a repository is one buffer with two sections, each under its header line:
-`══ [Security] ══` first, then `══ [Policies] ══`. `}` and `{` move to the next and previous
-section (`g1`/`g2` jump to one; the window bar names them, the cursor's highlighted, and they can
-be clicked), and `<Tab>`/`<S-Tab>` move to the start of the next and previous value (opening its
+The screen of a repository opens from the list (`<CR>`), or straight from the repository Neovim
+is in with `:Workhorse repos here` (or `<leader>wg`; see "Repository cache": the repositories list
+when it is not a known one). It is one buffer styled like the pull request screen: the
+repository's name as its title (its project and size on the right; `<CR>` on it goes back to the
+list), then three sections — **General**, **Security** and **Policies** — each under its bold
+title, separated by horizontal rules, with their lines indented under it (tree guides drawn over
+the indentation):
+
+```
+# my-repo                                   Proj · 37.6 MB
+─────────────────────── ◇ ───────────────────────
+
+General
+└─ Default branch: main
+
+─────────────────────── ◇ ───────────────────────
+
+Security
+├─ Inheritance: on
+└─ [GTI]\Equipe Gtracs
+   └─ Read: Allow
+```
+
+The rules are only drawn, never part of the text. `}` and `{` move to the
+next and previous section (`g1`/`g2`/`g3` jump to one; the window bar names them, the cursor's
+highlighted, and they can be clicked), and `<Tab>`/`<S-Tab>` move to the start of the next and previous value (opening its
 fold), like on the build forms; in insert mode they indent on a line still blank before the
 cursor, and move in an open completion menu. It is edited as text and indented like the work item
 tree (tree guides, folds; `<CR>` or `<Space>` on a line with a fold folds and unfolds it): every
 value is completed as you type (blink.cmp or the native menu, like the build forms), and
-`:w` (or `<leader><leader>`) lists the changes of both sections in one confirmation float, then
+`:w` (or `<leader><leader>`) lists the changes of every section in one confirmation float, then
 applies them and reloads the sections that changed. Pending changes show on the right
 (`[was Not set]`, `[new]`); `-` goes back to the repositories list, `gw` opens the repository
 settings page of the cursor's section in the browser, `gb` opens the repository itself in the
@@ -901,6 +924,17 @@ The menu can also run a push script: after confirming, it runs in a terminal spl
 working directory (`:pwd`), where SSH passphrase or HTTPS credential prompts can be answered.
 Once the push succeeds, the repository screen reloads, showing the pushed branches (and the
 default branch the first push sets).
+
+**General** holds the repository's settings:
+
+```
+Default branch: main
+```
+
+The default branch is completed from the repository's branches, and must be one of them (push a
+new branch first). A repository without branches shows it empty: its first push sets it. Saving
+also updates the default branch shown on the repositories list and the `default` mark of the
+Policies section.
 
 **Security** lists, like the web UI, every user and group with permissions on the repository,
 set on it or inherited (from the project's permissions, or a group they belong to), groups
@@ -994,7 +1028,8 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 | `<leader>wP` | Pull requests of any repository (picker) |
 | `<leader>w<C-p>` | Reopen the pull requests of the last opened repository |
 | `<leader>wR` | Update the repository cache |
-| `<leader>wg` | Repositories screen (`:Workhorse repos list`) |
+| `<leader>wg` | Screen of this repository: default branch, security and policies (`:Workhorse repos here`) |
+| `<leader>wG` | Repositories screen (`:Workhorse repos list`) |
 
 The cache is a locksmith cache (`~/.cache/locksmith/workhorse/repos.json`, readable by you
 only), sealed with AES-256-GCM by the key of the locksmith store (see "The PAT and locksmith").
@@ -1058,7 +1093,7 @@ If no environment variable is set, the lualine component will not fetch any data
    - **Project and Team**: Read (for queries)
    - **Build**: Read & execute (pipelines, runs)
    - **Code**: Read & write (pull requests, branch policies); **Read, write, & manage** to create,
-     rename and delete repositories
+     rename and delete repositories and to change their default branch
    - **Identity**: Read (users and groups of the Security and Policies sections)
    - **Security**: Manage (to change the permissions on the Security tab)
 5. Copy the token and store it with `locksmith set workhorse/pat` (or `:Locksmith set workhorse/pat`) (or set it as `AZURE_DEVOPS_PAT`)

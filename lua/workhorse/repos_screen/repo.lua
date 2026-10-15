@@ -1,14 +1,26 @@
--- Screen of one repository, opened by <CR> on the repositories list: one editable buffer with
--- two sections, each under its header line:
+-- Screen of one repository, opened by <CR> on the repositories list (or <leader>wg for the
+-- repository of the working directory): one editable buffer styled like the pull request
+-- screen, a "name" title (<CR> on it goes back to the list) and three sections, each under its
+-- title line with its lines indented one level:
 --
---   ══ [Security] ══      (repos_screen/security.lua)
---   ...
---   ══ [Policies] ══      (repos_screen/policies.lua)
---   ...
+--   my-repo
+--   ───── ◇ ─────           (virtual lines: never in the text)
+--
+--   General                 (repos_screen/general.lua)
+--     Default branch: main
+--
+--   ───── ◇ ─────
+--
+--   Security                (repos_screen/security.lua)
+--     ...
+--   Policies                (repos_screen/policies.lua)
+--     ...
 --
 -- Each section module only reads and renders the lines of its own section (M.section_lines,
--- M.set_section), with buffer line numbers. Saving confirms the changes of both sections in one
--- list, then applies them. { and } move between the sections; the winbar names them (clickable).
+-- M.set_section), with buffer line numbers; the section's indent is taken off the lines it reads
+-- and put back on the lines it writes, so a module sees its top level at level 0. Saving confirms
+-- the changes of every section in one list, then applies them. { and } move between the
+-- sections; the winbar names them (clickable).
 local M = {}
 
 local fold = require("workhorse.fold")
@@ -16,15 +28,23 @@ local guides = require("workhorse.buffer_tree.guides")
 local choices = require("workhorse.ui.choices")
 local parse_indent = require("workhorse.buffer_tree.parser").parse_indent
 
-local SECTIONS = { "security", "policies" }
-local LABELS = { security = "Security", policies = "Policies" }
-local MODULES = { security = "workhorse.repos_screen.security", policies = "workhorse.repos_screen.policies" }
+local SECTIONS = { "general", "security", "policies" }
+local LABELS = { general = "General", security = "Security", policies = "Policies" }
+local MODULES = {
+  general = "workhorse.repos_screen.general",
+  security = "workhorse.repos_screen.security",
+  policies = "workhorse.repos_screen.policies",
+}
+-- Page of the repository settings in the web UI (?_a=) of each section
+local WEB_PAGES = { general = "settings", security = "permissions", policies = "policies" }
 local SECTION_OF_LABEL = {}
 for _, section in ipairs(SECTIONS) do
   SECTION_OF_LABEL[LABELS[section]:lower()] = section
 end
 
 local ns = vim.api.nvim_create_namespace("workhorse_repo_headers")
+-- Separators, drawn apart so a resize redraws them alone
+local rules_ns = vim.api.nvim_create_namespace("workhorse_repo_rules")
 
 -- [repo id] = bufnr
 local screens = {}
@@ -42,20 +62,54 @@ end
 -- Sections ----------------------------------------------------------------------
 
 local function header(section)
-  return "══ [" .. LABELS[section] .. "] ══"
+  return LABELS[section]
 end
 
---- Section named by a header line, nil for any other line
+--- Section named by a header line (its title, unindented), nil for any other line
 function M.parse_header(line)
-  local label = (line or ""):match("^%s*══+ %[(.-)%] ══+%s*$")
+  local label = (line or ""):match("^(%a+)%s*$")
   return label and SECTION_OF_LABEL[label:lower()]
+end
+
+-- Section named by buffer line `lnum`, never the title (a repository may be named "Security")
+local function header_at(lnum, line)
+  return lnum > 1 and M.parse_header(line) or nil
+end
+
+-- The title line (the repository name), always the first one
+local function title(repo)
+  return repo.name
+end
+
+-- Line 1 is the title unless it was deleted (a blank line or a section header took its place)
+local function is_title(bufnr, lnum)
+  if lnum ~= 1 then
+    return false
+  end
+  local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] or ""
+  local repo = repo_of_buffer[bufnr]
+  return (repo and line == title(repo)) or (not line:match("^%s*$") and not M.parse_header(line))
+end
+
+--- `line` without the indent of its section (one level), as the section modules read it
+function M.dedent(line)
+  local width = guides.width()
+  return line:sub(math.min(#line:match("^ *"), width) + 1)
+end
+
+--- `lines` (of a section module) with the indent of their section, blank ones left blank
+function M.indent(lines)
+  local prefix = guides.prefix(1)
+  return vim.tbl_map(function(line)
+    return line:match("^%s*$") and "" or prefix .. line
+  end, lines)
 end
 
 -- { [section] = header lnum }
 local function headers(bufnr)
   local result = {}
   for lnum, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-    local section = M.parse_header(line)
+    local section = header_at(lnum, line)
     if section and not result[section] then
       result[section] = lnum
     end
@@ -69,7 +123,7 @@ function M.section_range(bufnr, section)
   local all = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local first
   for lnum, line in ipairs(all) do
-    local found = M.parse_header(line)
+    local found = header_at(lnum, line)
     if first and found then
       return first, lnum - 1
     elseif found == section then
@@ -81,21 +135,21 @@ function M.section_range(bufnr, section)
   end
 end
 
---- Lines of `section` and the buffer line number before its first one (line i of the result is
---- buffer line offset + i); nil when its header is gone
+--- Lines of `section`, without its indent (see M.dedent), and the buffer line number before its
+--- first one (line i of the result is buffer line offset + i); nil when its header is gone
 function M.section_lines(bufnr, section)
   local first, last = M.section_range(bufnr, section)
   if not first then
     return nil
   end
-  return vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false), first - 1
+  return vim.tbl_map(M.dedent, vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)), first - 1
 end
 
 --- Section of buffer line `lnum`, nil above the first header
 function M.section_at(bufnr, lnum)
   local current
   for l, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, lnum, false)) do
-    current = M.parse_header(line) or current
+    current = header_at(l, line) or current
     if l == lnum then
       break
     end
@@ -106,7 +160,7 @@ end
 --- Replace the lines of `section` (a blank line keeps it apart from the next one). A section
 --- whose header was deleted gets it back
 function M.set_section(bufnr, section, lines)
-  lines = vim.deepcopy(lines)
+  lines = M.indent(lines)
   local index = vim.fn.index(SECTIONS, section) + 1
   if index < #SECTIONS then
     table.insert(lines, "")
@@ -149,21 +203,87 @@ function M.update_modified(bufnr)
   vim.bo[bufnr].modified = pending(bufnr)
 end
 
+local function window_width(bufnr)
+  local win = vim.fn.win_findbuf(bufnr)[1]
+  local width = win and vim.api.nvim_win_get_width(win) or vim.o.columns
+  if win then
+    width = width - vim.fn.getwininfo(win)[1].textoff
+  end
+  return width
+end
+
+-- The separators, as the pull request screen draws them ("───── ◇ ─────" across the window):
+-- under the title, and above every section title but the first one (after its blank line)
+local function draw_rules(bufnr)
+  vim.api.nvim_buf_clear_namespace(bufnr, rules_ns, 0, -1)
+  local width = window_width(bufnr)
+  local side = math.max(math.floor((width - 3) / 2), 1)
+  local rule = {
+    { string.rep("─", side), "WorkhorseBuildSeparator" },
+    { " ◇ ", "WorkhorseBuildSeparator" },
+    { string.rep("─", math.max(width - 3 - side, 1)), "WorkhorseBuildSeparator" },
+  }
+  if is_title(bufnr, 1) then
+    vim.api.nvim_buf_set_extmark(bufnr, rules_ns, 0, 0, { virt_lines = { rule } })
+  end
+  local found = headers(bufnr)
+  local first
+  for _, section in ipairs(SECTIONS) do
+    if found[section] then
+      first = first or section
+      if section ~= first then
+        vim.api.nvim_buf_set_extmark(bufnr, rules_ns, found[section] - 1, 0,
+          { virt_lines = { rule, { { "" } } }, virt_lines_above = true })
+      end
+    end
+  end
+end
+
+-- Size of a repository ("37.6 MB")
+local function size_text(bytes)
+  if not bytes then
+    return nil
+  end
+  local units = { "B", "KB", "MB", "GB" }
+  local i = 1
+  while bytes >= 1024 and i < #units do
+    bytes = bytes / 1024
+    i = i + 1
+  end
+  return i == 1 and (bytes .. " B") or ("%.1f %s"):format(bytes, units[i])
+end
+
 --- Highlights and hints of the whole buffer
 function M.decorate(bufnr)
-  if not repo_of_buffer[bufnr] then
+  local repo = repo_of_buffer[bufnr]
+  if not repo then
     return
   end
   guides.draw(bufnr, { boundary = M.parse_header })
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  for section, lnum in pairs(headers(bufnr)) do
-    local line = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1]
-    vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, { end_col = #line, hl_group = "WorkhorseBuildHeader" })
-    if section == "security" then
-      vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, { virt_text = { { "  " .. repo_of_buffer[bufnr].name,
-        "WorkhorseBuildMeta" } } })
+  if is_title(bufnr, 1) then
+    local line = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1]
+    local meta = {}
+    for _, part in ipairs({ repo.project and repo.project.name or false, size_text(repo.size) or false,
+      repo.disabled and "disabled" or false }) do
+      if part then
+        table.insert(meta, part)
+      end
     end
+    vim.api.nvim_buf_set_extmark(bufnr, ns, 0, 0, { end_col = #line, hl_group = "WorkhorseBuildHeader" })
+    vim.api.nvim_buf_set_extmark(bufnr, ns, 0, 0, {
+      virt_text = { { table.concat(meta, " · "), repo.disabled and "WorkhorseRepoDisabled"
+        or "WorkhorseBuildMeta" } },
+      virt_text_pos = "right_align",
+    })
   end
+  for _, lnum in pairs(headers(bufnr)) do
+    local line = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1]
+    vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, { end_col = #line, hl_group = "WorkhorseRunSection" })
+    vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, { end_col = #line, hl_group = "WorkhorseBold",
+      priority = 4097 })
+  end
+  draw_rules(bufnr)
   for _, section in ipairs(SECTIONS) do
     module(section).decorate(bufnr)
   end
@@ -206,7 +326,7 @@ end
 local function value_lines(bufnr)
   local result = {}
   for lnum, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-    if not M.parse_header(line) and line:match("^%s*[^%s:][^:]*:") then
+    if lnum > 1 and not M.parse_header(line) and line:match("^%s*[^%s:][^:]*:") then
       table.insert(result, lnum)
     end
   end
@@ -268,7 +388,7 @@ local function web_url(repo, section)
   local server = (config.server_url or ""):gsub("/$", "")
   local url_encode = require("workhorse.api.builds").url_encode
   return ("%s/%s/_settings/repositories?repo=%s&_a=%s"):format(server, url_encode(repo.project and repo.project.name
-    or config.project), repo.id, section == "policies" and "policies" or "permissions")
+    or config.project), repo.id, WEB_PAGES[section] or WEB_PAGES[SECTIONS[1]])
 end
 
 -- Clone URLs of `repo`: the ones the server reports, or else built from server_url
@@ -376,7 +496,7 @@ end
 -- Completion and folds go to the module of the line's section
 local function in_section(bufnr, lnum, fn)
   local section = M.section_at(bufnr, lnum)
-  if section and not M.parse_header(vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1]) then
+  if section and not header_at(lnum, vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1]) then
     return fn(module(section))
   end
 end
@@ -428,6 +548,21 @@ function M.save(bufnr)
   end)
 end
 
+-- Put the title line back when it was deleted or edited (or the repository renamed)
+local function ensure_title(bufnr)
+  local text = title(repo_of_buffer[bufnr])
+  local first = vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] or ""
+  if first == text then
+    return
+  end
+  if is_title(bufnr, 1) then
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { text })
+  else
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { text, "" })
+  end
+  M.update_modified(bufnr)
+end
+
 --- Reload every section of the repository screen `bufnr` (default: current), asking first when
 --- there are unsaved changes; false when it is not one
 function M.refresh(bufnr)
@@ -444,6 +579,7 @@ function M.refresh(bufnr)
   if vim.bo[bufnr].modified and vim.fn.confirm("Discard the pending changes and reload?", "&Discard\n&Cancel", 2) ~= 1 then
     return true
   end
+  ensure_title(bufnr)
   for _, section in ipairs(SECTIONS) do
     module(section).reload(bufnr)
   end
@@ -463,9 +599,14 @@ local function setup_keymaps(bufnr, repo)
   map("<Space>", function()
     fold.toggle(bufnr)
   end, "fold or unfold")
-  -- <CR> folds like <Space> on a line with a fold; elsewhere it moves down as usual
+  -- <CR> goes back to the list on the title, folds like <Space> on a line with a fold; elsewhere
+  -- it moves down as usual
   map("<CR>", function()
     local count = vim.v.count1
+    if is_title(bufnr, vim.api.nvim_win_get_cursor(0)[1]) then
+      require("workhorse.repos_screen").open()
+      return
+    end
     if fold.toggle(bufnr) then
       return
     end
@@ -562,10 +703,20 @@ local function setup_autocmds(bufnr)
       end
     end,
   })
+  -- The separators span the window
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "VimResized", "WinResized" }, {
+    group = group,
+    callback = function()
+      if vim.api.nvim_buf_is_valid(bufnr) and #vim.fn.win_findbuf(bufnr) > 0 then
+        draw_rules(bufnr)
+      end
+    end,
+  })
   vim.api.nvim_create_autocmd("BufWipeout", {
     group = group,
     buffer = bufnr,
     callback = function()
+      pcall(vim.api.nvim_del_augroup_by_id, group)
       local repo = repo_of_buffer[bufnr]
       repo_of_buffer[bufnr] = nil
       if repo and screens[repo.id] == bufnr then
@@ -597,7 +748,7 @@ local function create(repo)
     keys = function(b)
       local result, section, path = {}, nil, {}
       for lnum, line in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
-        local found = M.parse_header(line)
+        local found = header_at(lnum, line)
         if found then
           section, path = found, {}
         elseif section and not line:match("^%s*$") then
@@ -622,7 +773,7 @@ local function create(repo)
       end)
     end,
     start = function(line, lnum)
-      if M.parse_header(line) then
+      if header_at(lnum, line) then
         return nil
       end
       local section = M.section_at(bufnr, lnum)
@@ -632,10 +783,10 @@ local function create(repo)
   setup_keymaps(bufnr, repo)
   setup_autocmds(bufnr)
 
-  local lines = {}
+  local lines = { title(repo), "" }
   for i, section in ipairs(SECTIONS) do
     table.insert(lines, header(section))
-    table.insert(lines, "Loading " .. LABELS[section]:lower() .. "...")
+    table.insert(lines, guides.prefix(1) .. "Loading " .. LABELS[section]:lower() .. "...")
     if i < #SECTIONS then
       table.insert(lines, "")
     end
@@ -655,6 +806,8 @@ function M.open(repo, section)
   if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
     set_repo(bufnr, repo)
     vim.api.nvim_win_set_buf(0, bufnr)
+    ensure_title(bufnr)
+    M.decorate(bufnr)
   else
     bufnr = create(repo)
     vim.api.nvim_win_set_buf(0, bufnr)

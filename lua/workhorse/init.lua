@@ -241,12 +241,28 @@ function M.refresh_repos()
 end
 
 -- Open the repositories screen (the repositories of the project as an editable list; <CR> on one
--- opens its Security and Policies tabs)
+-- opens its General, Security and Policies sections)
 function M.list_repos()
   if not check_config() then
     return
   end
   require("workhorse.repos_screen").open()
+end
+
+-- Screen of the repository of Neovim's working directory (its default branch, security and
+-- policies); the repositories screen when it is not a known one
+function M.repo_screen()
+  if not check_config() then
+    return
+  end
+  require("workhorse.repos").current(function(repo, _, reason)
+    if not repo then
+      vim.notify("Workhorse: " .. tostring(reason) .. "; listing the repositories", vim.log.levels.WARN)
+      return require("workhorse.repos_screen").open()
+    end
+    -- A copy: the screen updates its repository in place (its default branch)
+    require("workhorse.repos_screen.repo").open(vim.deepcopy(repo))
+  end)
 end
 
 -- Query Azure DevOps to update the identity cache (users and groups)

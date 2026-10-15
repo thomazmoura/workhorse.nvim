@@ -1,10 +1,10 @@
--- Repositories screen (:Workhorse repos list, <leader>wg): the repositories of the configured
+-- Repositories screen (:Workhorse repos list, <leader>wG): the repositories of the configured
 -- project as an editable list (see repos_screen/list.lua), like the All tab of the pipelines
 -- screen. Saving applies the edits in order: renames right away, then each new line through a
 -- pre-filled "New repository" form, then each deletion after its own confirmation (Keep puts the
 -- line back). <C-c> on a form or Stop on a confirmation stops the rest of the save; what was
 -- applied stays. <CR> on a
--- repository opens its Security and Policies screen (repos_screen/repo.lua).
+-- repository opens its General, Security and Policies screen (repos_screen/repo.lua).
 local M = {}
 
 local repos_api = require("workhorse.api.repositories")

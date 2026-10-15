@@ -272,7 +272,8 @@ function M.decorate(bufnr)
     pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, lnum - 1, 0, opts)
   end
   if parsed.inherit then
-    mark(parsed.inherit.lnum, { end_col = #INHERITANCE + 1, hl_group = "WorkhorseRunKey" })
+    local indent = #lines[parsed.inherit.lnum]:match("^%s*")
+    mark(parsed.inherit.lnum, { col = indent, end_col = indent + #INHERITANCE + 1, hl_group = "WorkhorseRunKey" })
     if parsed.inherit.value ~= state.inherit then
       mark(parsed.inherit.lnum, { virt_text = { { "  [was " .. (state.inherit and "on" or "off") .. "]", "DiagnosticWarn" } } })
     else
@@ -281,7 +282,7 @@ function M.decorate(bufnr)
   end
   for _, block in ipairs(parsed.blocks) do
     local identity = block.identity
-    mark(block.lnum, { end_col = #lines[block.lnum], hl_group = "WorkhorseBuildTitle" })
+    mark(block.lnum, { col = #lines[block.lnum]:match("^%s*"), end_col = #lines[block.lnum], hl_group = "WorkhorseBuildTitle" })
     local virt
     if not identity then
       virt = { { "  unknown user or group", "DiagnosticError" } }
@@ -444,7 +445,7 @@ local function expand_new(bufnr)
           if b.identity and b.identity.descriptor == descriptor and next(b.actions) == nil then
             local block_text = block_lines(state, b.identity)
             table.remove(block_text, 1)
-            vim.api.nvim_buf_set_lines(bufnr, b.lnum, b.lnum, false, block_text)
+            vim.api.nvim_buf_set_lines(bufnr, b.lnum, b.lnum, false, repo_screen.indent(block_text))
             break
           end
         end
@@ -503,8 +504,8 @@ local function add_identity(bufnr)
           end
         end
       end
-      vim.api.nvim_buf_set_lines(bufnr, at, at, false, { identity.name })
-      vim.api.nvim_win_set_cursor(0, { at + 1, 0 })
+      vim.api.nvim_buf_set_lines(bufnr, at, at, false, repo_screen.indent({ identity.name }))
+      vim.api.nvim_win_set_cursor(0, { at + 1, guides.width() })
       expand_new(bufnr)
     end)
   end)
@@ -649,8 +650,9 @@ function M.reload(bufnr)
   load(bufnr)
 end
 
+-- Level of a buffer line in the section (its indent taken off)
 local function level_of(line)
-  return (parse_indent(line))
+  return (parse_indent(repo_screen.dedent(line)))
 end
 
 -- Completion: the identities on the top-level lines, the values on the permission lines (and
@@ -685,7 +687,8 @@ function M.summary(bufnr, first, last)
   if not state or not state.action_by_name then
     return ""
   end
-  local parsed = parse(state, vim.api.nvim_buf_get_lines(bufnr, first - 2, last, false), first - 2)
+  local parsed = parse(state, vim.tbl_map(repo_screen.dedent, vim.api.nvim_buf_get_lines(bufnr, first - 2, last, false)),
+    first - 2)
   local block = parsed.blocks[1]
   if not block then
     return ""

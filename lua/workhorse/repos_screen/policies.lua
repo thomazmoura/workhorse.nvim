@@ -618,7 +618,7 @@ function M.decorate(bufnr)
     for _, p in ipairs(status) do
       local name = setting(p, "statusName") or "?"
       local genre = setting(p, "statusGenre")
-      table.insert(virt_lines, { { guides.prefix(1) .. "Status check: " .. (genre and (genre .. "/") or "") .. name
+      table.insert(virt_lines, { { lines[b.lnum]:match("^%s*") .. guides.prefix(1) .. "Status check: " .. (genre and (genre .. "/") or "") .. name
         .. ", " .. requirement(p.blocking) .. (p.enabled and "" or ", off") .. "  (read-only)", "WorkhorsePolicyReadonly" } })
     end
     mark(b.lnum, { virt_text = virt, virt_lines = #virt_lines > 0 and virt_lines or nil })
@@ -889,7 +889,7 @@ local OPTIONS = {
 -- The folder path a branch typed on line `lnum` goes under ("" at the top level), nil when the
 -- line is under a branch (a policy line)
 local function folder_of(bufnr, lnum)
-  local line = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1] or ""
+  local line = repo_screen.dedent(vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1] or "")
   local level = parse_indent(line)
   if level == 0 then
     return ""

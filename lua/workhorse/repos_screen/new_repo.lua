@@ -30,11 +30,12 @@ end
 -- Form state (see forms.get): { prev, templates (nil while loading, false when they failed),
 -- creating, on_done, created, cancelled }
 
---- Parse the form lines into { [field id] = value, lnums = { [field id] = lnum }, unknown }
+--- Parse the form lines (the title first) into { [field id] = value, lnums = { [field id] = lnum },
+--- unknown }
 local function parse_lines(lines)
   local result = { lnums = {}, unknown = {} }
   for lnum, line in ipairs(lines) do
-    if not line:match("^%s*$") and not line:match("^#") then
+    if lnum > 1 and not line:match("^%s*$") and not line:match("^#") then
       local key, value = line:match("^([^:]+):%s?(.*)$")
       local id = key and FIELD_BY_KEY[vim.trim(key):lower()]
       if id then
@@ -110,7 +111,7 @@ local function decorate(bufnr)
   end
   for lnum, line in ipairs(lines) do
     local row = lnum - 1
-    if lnum == 1 and line:match("^# ") then
+    if lnum == 1 then
       vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { end_col = #line, hl_group = "WorkhorseBuildHeader" })
     else
       local key = line:match("^([^:#][^:]*):")
@@ -288,7 +289,7 @@ local spec = {
 --- "cancelled" (<C-c>)
 function M.open(name, on_done)
   local form = { prev = vim.api.nvim_get_current_buf(), on_done = on_done }
-  local lines = { "# New repository" }
+  local lines = { "New repository" }
   for _, field in ipairs(FIELDS) do
     table.insert(lines, field.key .. ": " .. (field.id == "name" and (name or "") or field.value))
   end

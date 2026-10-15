@@ -1,5 +1,6 @@
 -- Git repositories of the configured project: listing, creating (with an initial commit),
--- renaming and deleting them, plus their branches and the .gitignore templates
+-- renaming, deleting them and setting their default branch, plus their branches and the
+-- .gitignore templates
 local M = {}
 
 local client = require("workhorse.api.client")
@@ -97,6 +98,21 @@ function M.rename(id, name, callback)
     path = project_path("/" .. id .. "?api-version=7.1"),
     method = "PATCH",
     body = { name = name },
+    silent = true,
+    on_success = function(data)
+      callback(map_repo(data or {}))
+    end,
+    on_error = manage_error(callback),
+  })
+end
+
+--- Set the default branch of a repository to `branch` (without refs/heads/; it must exist):
+--- callback(repo) or callback(nil, err)
+function M.set_default_branch(id, branch, callback)
+  client.request({
+    path = project_path("/" .. id .. "?api-version=7.1"),
+    method = "PATCH",
+    body = { defaultBranch = "refs/heads/" .. branch },
     silent = true,
     on_success = function(data)
       callback(map_repo(data or {}))
