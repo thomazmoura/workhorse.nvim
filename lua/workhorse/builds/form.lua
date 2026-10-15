@@ -37,11 +37,11 @@ end
 
 -- Navigation ------------------------------------------------------------------
 
--- Lines holding a "name: value" field, in order
+-- Lines holding a "name: value" field, in order (line 1 is the form's title)
 local function field_lines(bufnr)
   local result = {}
   for lnum, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
-    if line:match("^[^#%s][^:]*:") then
+    if lnum > 1 and line:match("^[^#%s][^:]*:") then
       table.insert(result, lnum)
     end
   end

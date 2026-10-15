@@ -35,7 +35,7 @@ end
 
 -- Form lines, with the values of `initial` ({ [field id] = value }) over the defaults
 local function build_lines(initial)
-  local lines = { "# New pipeline" }
+  local lines = { "New pipeline" }
   for _, field in ipairs(FIELDS) do
     table.insert(lines, field.key .. ": " .. ((initial or {})[field.id] or field.value))
   end
@@ -43,12 +43,12 @@ local function build_lines(initial)
   return lines
 end
 
---- Parse the form lines into { [field id] = value, lnums = { [field id] = lnum },
+--- Parse the form lines (the title first) into { [field id] = value, lnums = { [field id] = lnum },
 --- unknown = { "line" } }
 function M.parse_lines(lines)
   local result = { lnums = {}, unknown = {} }
   for lnum, line in ipairs(lines) do
-    if not line:match("^%s*$") and not line:match("^#") then
+    if lnum > 1 and not line:match("^%s*$") and not line:match("^#") then
       local key, value = line:match("^([^:]+):%s?(.*)$")
       local id = key and FIELD_BY_KEY[vim.trim(key):lower()]
       if id then
@@ -235,7 +235,7 @@ local function decorate(bufnr)
   local hints = field_hints(form, parsed)
   for lnum, line in ipairs(lines) do
     local row = lnum - 1
-    if lnum == 1 and line:match("^# ") then
+    if lnum == 1 then
       vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { end_col = #line, hl_group = "WorkhorseBuildHeader" })
     elseif line:match("^#") then
       vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { end_col = #line, hl_group = "WorkhorseRunHint" })

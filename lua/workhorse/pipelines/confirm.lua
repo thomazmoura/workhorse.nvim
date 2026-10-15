@@ -31,7 +31,7 @@ end
 --- Ask to delete `deletes` ({ { id, name, path } }); on_result(confirmed) with the ones whose
 --- name was typed (maybe none), on_result(nil) when cancelled; called exactly once
 function M.show(deletes, on_result)
-  local lines = { ("# Delete %d pipeline%s?"):format(#deletes, #deletes == 1 and "" or "s"), "" }
+  local lines = { ("Delete %d pipeline%s?"):format(#deletes, #deletes == 1 and "" or "s"), "" }
   for _, d in ipairs(deletes) do
     table.insert(lines, ("- #%d %s  (%s)"):format(d.id, d.name, d.path))
   end

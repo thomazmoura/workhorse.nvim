@@ -810,7 +810,7 @@ local function browser_url(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
   local item = current_item(bufnr)
-  -- The "# Pipeline" header line opens the pipeline definition
+  -- The "Pipeline" header line opens the pipeline definition
   if item and item.kind == "nav" and item.target == "runs" then
     return M.definition_url(ctx.definition_id or (ctx.run and ctx.run.definition_id))
   end

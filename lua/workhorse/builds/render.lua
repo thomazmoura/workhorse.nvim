@@ -162,13 +162,13 @@ function M.add_separator(view, width)
 end
 local add_separator = M.add_separator
 
--- Shared header: "# Definition", then the path from the run down to the current
+-- Shared header: "Definition", then the path from the run down to the current
 -- level (path = { stage, job, step }, each one level deeper). Every header line is
 -- a "nav" item linking back to the buffer of its level. `rerun` offers rerunning a stage
 -- of the finished run (the run tree picks which, a log reruns its own); `permit`, permitting the
 -- pipeline to use the resources a stage of the running run waits for.
 local function add_header(view, definition_name, run, path, width, live, rerun, permit)
-  local title = "# " .. definition_name
+  local title = definition_name
   add_line(view, { { title, "WorkhorseBuildHeader" } }, { kind = "nav", target = "runs" })
   if run then
     add_line(view, run_segments(run, 1, width), { kind = "nav", target = "stages", run = run }, duration_virt(run))

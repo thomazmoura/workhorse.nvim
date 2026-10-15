@@ -13,8 +13,8 @@ local forms = require("workhorse.builds.form")
 local ns = vim.api.nvim_create_namespace("workhorse_new_run")
 
 -- Section headers; "Branch:" sits above them
-local PARAMETERS = "## Parameters"
-local VARIABLES = "## Variables"
+local PARAMETERS = "Parameters"
+local VARIABLES = "Variables"
 
 -- Form state (see forms.get): { definition, params, params_error, branches, environments,
 -- all_tags, queuing, prev }
@@ -39,7 +39,7 @@ end
 local function build_lines(form, values)
   values = values or { params = {}, variables = {} }
   local lines = {
-    "# Run new build: " .. form.definition.name,
+    "Run new build: " .. form.definition.name,
     "Branch: " .. (values.branch or short_branch(form.definition.repository.default_branch)),
   }
   if form.params_error then
@@ -60,8 +60,8 @@ local function build_lines(form, values)
   return lines
 end
 
---- Parse the form lines into { branch, params = { [name] = value }, variables = {...},
---- lnums = { [section .. name] = lnum }, unknown = { "line" } }
+--- Parse the form lines (the title first) into { branch, params = { [name] = value },
+--- variables = {...}, lnums = { [section .. name] = lnum }, unknown = { "line" } }
 function M.parse_lines(lines)
   local result = { params = {}, variables = {}, lnums = {}, unknown = {} }
   local section
@@ -70,7 +70,7 @@ function M.parse_lines(lines)
       section = "params"
     elseif line == VARIABLES then
       section = "variables"
-    elseif not line:match("^%s*$") and not line:match("^#") then
+    elseif lnum > 1 and not line:match("^%s*$") and not line:match("^#") then
       local key, value = line:match("^([^:]+):%s?(.*)$")
       key = key and vim.trim(key)
       value = value and vim.trim(value)
@@ -175,7 +175,7 @@ local function decorate(bufnr)
   end
   for lnum, line in ipairs(lines) do
     local row = lnum - 1
-    if lnum == 1 and line:match("^# ") then
+    if lnum == 1 then
       vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, { end_col = #line, hl_group = "WorkhorseBuildHeader" })
     elseif line == PARAMETERS or line == VARIABLES then
       section = line

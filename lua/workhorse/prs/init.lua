@@ -161,7 +161,7 @@ local function render_list(bufnr, focus)
   local ctx = state.ctx
   local width = view_width(bufnr)
   local view = render.new_view()
-  render.add_line(view, { { "# " .. repo_label(ctx.repo), "WorkhorseBuildHeader" } }, { kind = "nav", target = "repo" })
+  render.add_line(view, { { repo_label(ctx.repo), "WorkhorseBuildHeader" } }, { kind = "nav", target = "repo" })
   render.add_separator(view, width)
   local any = false
   for _, section in ipairs(SECTIONS) do
@@ -541,7 +541,7 @@ end
 local function add_pr_header(view, ctx, width)
   local pr = ctx.data.pr or ctx.summary
   local title = pr and pr.title or ""
-  render.add_line(view, { { render.truncate("# !" .. ctx.id .. " " .. title, math.max(width - 2, 20)), "WorkhorseBuildHeader" } },
+  render.add_line(view, { { render.truncate("!" .. ctx.id .. " " .. title, math.max(width - 2, 20)), "WorkhorseBuildHeader" } },
     { kind = "nav", target = "list" })
   if pr then
     local icon, hl = prs_api.status_icon(pr)

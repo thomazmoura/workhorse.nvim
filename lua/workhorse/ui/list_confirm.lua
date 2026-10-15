@@ -9,7 +9,7 @@ local ns = vim.api.nvim_create_namespace("workhorse_list_confirm")
 --- Ask to apply `entries` ({ { text, hl } }, hl optional) under the heading `title`;
 --- on_result(true) to apply them, on_result(false) to cancel, called exactly once
 function M.show(title, entries, on_result)
-  local lines = { "# " .. title, "" }
+  local lines = { title, "" }
   for _, entry in ipairs(entries) do
     table.insert(lines, entry.text)
   end
