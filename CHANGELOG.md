@@ -2,6 +2,20 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [e240d4d] - 2026-10-15
+
+### Added
+- The repository screen has a General section (the default branch, completed from the repository's branches), styled like the PR screen with a title, bold section titles and rules
+- `<leader>wg` and `:Workhorse repos here` open the screen of the repository of the working directory (the repositories list when it is not a known one)
+
+### Changed
+- The repositories list moved to `<leader>wG`
+
+## [f8ee71c] - 2026-10-15
+
+### Changed
+- The titles of the build, pull request and confirmation views and of the build forms no longer start with `# `
+
 ## [3d0a64d] - 2026-10-14
 
 ### Added
