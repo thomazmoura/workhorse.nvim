@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [a731bd0] - 2026-10-15
+
+### Changed
+- The "Loading…", "Refreshing…", "Creating…" and "Queuing…" messages (queries, refreshes, state changes, the repository and identity caches, new runs, pipelines and repositories) are now a spinner shown like the progress of language servers: in noice.nvim's LSP progress view when it is running, otherwise as a Neovim 0.12+ progress message
+
 ## [e240d4d] - 2026-10-15
 
 ### Added
