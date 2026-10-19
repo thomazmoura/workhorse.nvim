@@ -12,7 +12,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **State management** - Change work item states through a floating menu
 - **Virtual text** - Work item states displayed as virtual text at end of lines
 - **Confirmation dialog** - Review changes before applying to Azure DevOps
-- **Work item details** - Edit the board column, tags and description of a work item in a buffer on the right
+- **Work item details** - Edit the board column, tags and description of a work item, read its discussion and add comments to it, in a buffer on the right
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
@@ -434,13 +434,25 @@ Tags: frontend, urgent
 
 Description
   Free text of the description
+
+Discussion Comment
+  Text of a new comment, added to the discussion on save
+
+Discussion History                                   2 comments · read-only
+  Ana · 19/10/26 14:32
+    Newest comment first
 ```
 
 - **Column**: The board column, completed from the columns of the board of the item's type. Changing it moves the
   item like `<leader>ws` does: the state follows the column on the server (shown in the title)
 - **Tags**: Comma-separated, completed from the tags of the project; add or remove them by editing the line
 - **Description**: Edit the work item description (converted from HTML), indented one level
-- **Navigation**: `<Tab>`/`<S-Tab>` move between the values and the description
+- **Discussion Comment**: Any text under it is added as a new comment of the discussion when saving (in the same
+  request as the other changes); the section starts empty again afterwards
+- **Discussion History**: The saved comments, newest first, below the new comment. They are plain text (yank and
+  search work) but never saved: edits there are flagged and undone by the next reload or save. A missing or misplaced
+  section header blocks saving until `<leader>R` restores it
+- **Navigation**: `<Tab>`/`<S-Tab>` move between the values, the description and the new comment
 - **Save**: `<leader><leader>` (or `:w`) confirms the changes, sends them in one request and refreshes the work item buffer
 - **Reload**: `<leader>R` discards the pending changes and loads the work item again
 - **Toggle**: Press `<CR>` again on the same item, or in normal mode inside the details, to close them; unsaved edits are kept

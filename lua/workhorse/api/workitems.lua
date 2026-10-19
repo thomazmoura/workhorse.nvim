@@ -252,6 +252,44 @@ function M.list_tags(callback)
   })
 end
 
+-- Discussion comments of a work item, newest first: callback({ { author, date, text (HTML) } }),
+-- or callback(nil, err). Deleted comments are left out; the pages are fetched until the last one
+function M.list_comments(id, callback)
+  local base = "/" .. config.get().project .. "/_apis/wit/workItems/" .. id
+    .. "/comments?api-version=7.1-preview.4&$top=200&order=desc"
+  local comments = {}
+
+  local function fetch(token)
+    local path = base .. (token and ("&continuationToken=" .. token:gsub("[^%w%-_.~]", function(c)
+      return ("%%%02X"):format(c:byte())
+    end)) or "")
+    client.get(path, {
+      on_success = function(data)
+        data = type(data) == "table" and data or {}
+        for _, c in ipairs(type(data.comments) == "table" and data.comments or {}) do
+          if c.isDeleted ~= true then
+            table.insert(comments, {
+              author = type(c.createdBy) == "table" and c.createdBy.displayName or "?",
+              date = c.createdDate,
+              text = type(c.text) == "string" and c.text or "",
+            })
+          end
+        end
+        if type(data.continuationToken) == "string" and data.continuationToken ~= "" then
+          fetch(data.continuationToken)
+        else
+          callback(comments)
+        end
+      end,
+      on_error = function(err)
+        callback(nil, err)
+      end,
+    })
+  end
+
+  fetch(nil)
+end
+
 -- Soft delete (change state to Removed)
 function M.soft_delete(id, callback)
   local cfg = config.get()
@@ -296,7 +334,8 @@ function M.update_stack_rank(id, new_rank, callback)
 end
 
 -- Update multiple fields at once (merges all changes into a single API request)
--- fields: { title = "...", board_column = "...", stack_rank = N, description = "...", tags = "..." }
+-- fields: { title = "...", board_column = "...", stack_rank = N, description = "...", tags = "...",
+--           history = "..." (a discussion comment to add) }
 -- kanban_field_name: optional - the correct WEF field name from the board API (e.g., "WEF_xxx_Kanban.Column")
 --                    If provided, uses this field directly instead of scanning work item fields
 function M.update_fields(id, fields, callback, kanban_field_name)
@@ -323,6 +362,10 @@ function M.update_fields(id, fields, callback, kanban_field_name)
     end
     if fields.state and fields.state ~= "" then
       field_changes["System.State"] = fields.state
+    end
+    -- A new discussion comment (HTML)
+    if fields.history and fields.history ~= "" then
+      field_changes["System.History"] = fields.history
     end
   end
 

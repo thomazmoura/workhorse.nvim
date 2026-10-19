@@ -10,8 +10,17 @@
 --   Description
 --     Free text of the description, indented one level
 --
+--   Discussion Comment
+--     Free text of a new comment, added to the discussion on save
+--
+--   Discussion History                                    (read-only, newest first)
+--     Author · 19/10/26 14:32
+--       Text of the comment
+--
 -- Column and Tags are completed from their choices (ui/choices.lua; the tags one at a time),
--- <Tab>/<S-Tab> move between them and the description. The column is the board column, as
+-- <Tab>/<S-Tab> move between them, the description and the comment. The history is plain text
+-- (it can be yanked and searched) that is never parsed: edits there are not saved, and a render
+-- puts it back. The column is the board column, as
 -- <leader>ws moves it: the state follows it on the server, through the board's state mappings.
 -- A missing Column or Tags line keeps that field as it is. Saving (<leader><leader>, :w) confirms
 -- the changes, sends them in one request, then refreshes the work item buffer the details were
@@ -29,12 +38,24 @@ local ns = vim.api.nvim_create_namespace("workhorse_details")
 -- The separator, drawn apart so a resize redraws it alone
 local rules_ns = vim.api.nvim_create_namespace("workhorse_details_rules")
 
-local COLUMN, TAGS, DESCRIPTION = "Column", "Tags", "Description"
+local COLUMN, TAGS = "Column", "Tags"
 local FIELD_OF_KEY = { [COLUMN:lower()] = "column", [TAGS:lower()] = "tags" }
+-- The section headers, in the order they come in the buffer
+local SECTIONS = {
+  { key = "description", title = "Description" },
+  { key = "comment", title = "Discussion Comment" },
+  { key = "history", title = "Discussion History" },
+}
+local SECTION_OF_TITLE = {}
+for _, section in ipairs(SECTIONS) do
+  SECTION_OF_TITLE[section.title] = section.key
+end
 
 -- [work item id] = bufnr
 local screens = {}
--- [bufnr] = { item, origin = work item buffer it was opened from, saving }
+-- [bufnr] = { item, origin = work item buffer it was opened from, saving, comments (nil until
+-- loaded), comments_error, comments_request (the latest), history (the rendered history lines:
+-- { text, author = byte length of the author on an author line }) }
 local buffers = {}
 -- The split on the right showing the details
 local details_win = nil
@@ -65,8 +86,12 @@ local function html_to_text(html)
   text = text:gsub("&nbsp;", " ")
   text = text:gsub("&lt;", "<")
   text = text:gsub("&gt;", ">")
-  text = text:gsub("&amp;", "&")
   text = text:gsub("&quot;", '"')
+  text = text:gsub("&#(%d+);", function(code)
+    return vim.fn.nr2char(tonumber(code))
+  end)
+  -- Last, so an escaped "&amp;lt;" stays "&lt;"
+  text = text:gsub("&amp;", "&")
   -- Trim trailing whitespace from lines
   text = text:gsub("[ \t]+\n", "\n")
   -- Remove excessive blank lines
@@ -140,32 +165,75 @@ local function is_title(lnum, line)
   return lnum == 1 and (line or ""):match("^#") ~= nil
 end
 
-local function is_header(line)
-  return (line or ""):match("^" .. DESCRIPTION .. "%s*$") ~= nil
+-- Key of the section a header line starts ("description", "comment", "history"), nil for others
+local function header_key(line)
+  return SECTION_OF_TITLE[(line or ""):match("^(%S.-)%s*$") or ""]
 end
 
--- Line number of the Description header, nil when it was deleted
-local function header_lnum(lines)
+local function is_header(line)
+  return header_key(line) ~= nil
+end
+
+-- Line numbers of the section headers ({ description, comment, history }, the first of each),
+-- missing for those deleted
+local function header_lnums(lines)
+  local found = {}
   for lnum, line in ipairs(lines) do
-    if lnum > 1 and is_header(line) then
-      return lnum
+    local key = lnum > 1 and header_key(line)
+    if key and not found[key] then
+      found[key] = lnum
     end
   end
+  return found
+end
+
+-- The first line of the buffer after `lnum` that is a header, or one past the last line
+local function next_header(lines, lnum)
+  for l = lnum + 1, #lines do
+    if is_header(lines[l]) then
+      return l
+    end
+  end
+  return #lines + 1
+end
+
+-- Whether `lnum` is in the text of the description or of the comment
+local function in_text(lines, lnum)
+  local headers = header_lnums(lines)
+  for _, key in ipairs({ "description", "comment" }) do
+    local header = headers[key]
+    if header and lnum > header and lnum < next_header(lines, header) then
+      return true
+    end
+  end
+  return false
 end
 
 local function dedent(line)
   return line:sub(math.min(#line:match("^ *"), guides.width()) + 1)
 end
 
+-- Text of the section under the header at `header`: dedented, without blank lines around it
+local function section_text(lines, header)
+  local text = vim.tbl_map(dedent, vim.list_slice(lines, header + 1, next_header(lines, header) - 1))
+  while #text > 0 and vim.trim(text[1]) == "" do
+    table.remove(text, 1)
+  end
+  while #text > 0 and vim.trim(text[#text]) == "" do
+    table.remove(text)
+  end
+  return table.concat(text, "\n")
+end
+
 -- Parsing and changes -----------------------------------------------------------
 
--- { column, tags, description, lnums = { column, tags, description (its header) } } of the
--- buffer, plus the lines that are no field
+-- { column, tags, description, comment, lnums = { column, tags, description, comment, history
+-- (the headers) } } of the buffer, plus the lines that are no field. The history is not parsed
 local function parse(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local header = header_lnum(lines)
+  local headers = header_lnums(lines)
   local result, errors = { lnums = {} }, {}
-  for lnum = 1, (header or #lines + 1) - 1 do
+  for lnum = 1, next_header(lines, 1) - 1 do
     local line = lines[lnum]
     if not is_title(lnum, line) and not line:match("^%s*$") then
       local key, value = line:match("^%s*([^:]+):%s*(.-)%s*$")
@@ -178,28 +246,35 @@ local function parse(bufnr)
       end
     end
   end
-  if header then
-    local text = vim.tbl_map(dedent, vim.list_slice(lines, header + 1))
-    while #text > 0 and vim.trim(text[1]) == "" do
-      table.remove(text, 1)
+  for _, key in ipairs({ "description", "comment" }) do
+    if headers[key] then
+      result[key] = section_text(lines, headers[key])
     end
-    while #text > 0 and vim.trim(text[#text]) == "" do
-      table.remove(text)
-    end
-    result.description = table.concat(text, "\n")
-    result.lnums.description = header
+  end
+  for _, section in ipairs(SECTIONS) do
+    result.lnums[section.key] = headers[section.key]
   end
   return result, errors
 end
 
--- The changes of the buffer ({ column, tags, added, removed, description }, each only when
--- changed), the errors that block saving them, the parsed buffer, and the problem of each field
+-- The changes of the buffer ({ column, tags, added, removed, description, comment }, each only
+-- when changed), the errors that block saving them, the parsed buffer, and the problem of each
+-- field. A missing or misplaced header blocks saving: the text around it would land in another
+-- section (the history in the new comment, for one)
 local function detect(bufnr)
   local item = buffers[bufnr].item
   local parsed, errors = parse(bufnr)
   local changes, problems = {}, {}
-  if not parsed.lnums.description then
-    table.insert(errors, "The " .. DESCRIPTION .. " line is missing (<leader>R reloads)")
+  local previous = 0
+  for _, section in ipairs(SECTIONS) do
+    local lnum = parsed.lnums[section.key]
+    if not lnum then
+      table.insert(errors, "The " .. section.title .. " line is missing (<leader>R reloads)")
+    elseif lnum < previous then
+      table.insert(errors, ("Line %d: the %s line is out of place (<leader>R reloads)"):format(lnum, section.title))
+    else
+      previous = lnum
+    end
   end
   if parsed.column and parsed.column ~= (item.board_column or "") then
     local columns = allowed_columns(item)
@@ -231,6 +306,9 @@ local function detect(bufnr)
   end
   if parsed.description and parsed.description ~= html_to_text(item.description) then
     changes.description = parsed.description
+  end
+  if parsed.comment and parsed.comment ~= "" then
+    changes.comment = parsed.comment
   end
   return changes, errors, parsed, problems
 end
@@ -319,13 +397,48 @@ function M.decorate(bufnr)
   if parsed.lnums.tags then
     field(parsed.lnums.tags, nil, changes.tags and { "  " .. tags_summary(changes), "DiagnosticWarn" } or nil)
   end
-  local header = parsed.lnums.description
-  if header then
-    mark(header, { end_col = #lines[header], hl_group = "WorkhorseRunSection" })
-    mark(header, { end_col = #lines[header], hl_group = "WorkhorseBold", priority = 4097 })
-    if changes.description then
-      mark(header, { virt_text = { { "  [modified]", "DiagnosticWarn" } } })
+  for _, section in ipairs(SECTIONS) do
+    local header = parsed.lnums[section.key]
+    if header then
+      mark(header, { end_col = #lines[header], hl_group = "WorkhorseRunSection" })
+      mark(header, { end_col = #lines[header], hl_group = "WorkhorseBold", priority = 4097 })
     end
+  end
+  if parsed.lnums.description and changes.description then
+    mark(parsed.lnums.description, { virt_text = { { "  [modified]", "DiagnosticWarn" } } })
+  end
+  if parsed.lnums.comment and changes.comment then
+    mark(parsed.lnums.comment, { virt_text = { { "  [new comment]", "DiagnosticWarn" } } })
+  end
+  local history = parsed.lnums.history
+  if history then
+    -- The history as rendered: highlighted while untouched, flagged once edited
+    local expected = state.history or {}
+    local edited = #lines - history ~= #expected
+    for i, entry in ipairs(expected) do
+      local lnum = history + i
+      if lines[lnum] ~= entry.text then
+        edited = true
+      elseif entry.author then
+        local indent = #entry.text:match("^%s*")
+        mark(lnum, { col = indent, end_col = indent + entry.author, hl_group = "WorkhorseBuildTitle" })
+        mark(lnum, { col = indent + entry.author, end_col = #entry.text, hl_group = "WorkhorseBuildDate" })
+      end
+    end
+    local virt
+    if state.comments_error then
+      virt = { "  failed to load: " .. tostring(state.comments_error), "WorkhorseRunRequired" }
+    elseif not state.comments then
+      virt = { "  loading…", "WorkhorseBuildMeta" }
+    else
+      local n = #state.comments
+      virt = { ("  %d comment%s · read-only"):format(n, n == 1 and "" or "s"), "WorkhorseBuildMeta" }
+    end
+    local chunks = { virt }
+    if edited then
+      table.insert(chunks, { "  [edits here are not saved: <leader>R restores]", "DiagnosticWarn" })
+    end
+    mark(history, { virt_text = chunks })
   end
   draw_rules(bufnr)
   vim.bo[bufnr].modified = next(changes) ~= nil or #errors > 0
@@ -333,36 +446,108 @@ end
 
 -- Rendering ---------------------------------------------------------------------
 
+-- `text` as lines at indent `level` (blank lines left empty)
+local function indented(text, level)
+  local prefix = guides.prefix(level)
+  return vim.tbl_map(function(line)
+    return line:match("^%s*$") and "" or prefix .. line
+  end, vim.split(text, "\n", { plain = true }))
+end
+
+-- Lines of the discussion history ({ text, author }, see `buffers`), newest comment first
+local function history_lines(state)
+  local result = {}
+  for i, comment in ipairs(state.comments or {}) do
+    if i > 1 then
+      table.insert(result, { text = "" })
+    end
+    local date = require("workhorse.api.builds").format_date(comment.date)
+    table.insert(result, {
+      text = guides.prefix(1) .. comment.author .. (date ~= "" and (" · " .. date) or ""),
+      author = #comment.author,
+    })
+    local text = html_to_text(comment.text)
+    for _, line in ipairs(indented(text ~= "" and text or "(empty)", 2)) do
+      table.insert(result, { text = line })
+    end
+  end
+  return result
+end
+
+-- Replace lines of the buffer keeping the view; `clean` leaves no undo step behind (and drops the
+-- undo history: the buffer then is what the server has)
+local function set_lines(bufnr, first, last, lines, clean)
+  local win = vim.fn.win_findbuf(bufnr)[1]
+  local view = win and vim.api.nvim_win_call(win, vim.fn.winsaveview)
+  local undolevels = vim.bo[bufnr].undolevels
+  if clean then
+    vim.bo[bufnr].undolevels = -1
+  end
+  vim.api.nvim_buf_set_lines(bufnr, first, last, false, lines)
+  if clean then
+    vim.bo[bufnr].undolevels = undolevels
+  end
+  if view then
+    vim.api.nvim_win_call(win, function()
+      vim.fn.winrestview(view)
+    end)
+  end
+end
+
 local function render(bufnr)
-  local item = buffers[bufnr].item
+  local state = buffers[bufnr]
+  local item = state.item
   local lines = {
     title(item),
     "",
     COLUMN .. ": " .. (item.board_column or ""),
     TAGS .. ": " .. table.concat(split_tags(item.tags), ", "),
     "",
-    DESCRIPTION,
+    SECTIONS[1].title,
   }
-  local prefix = guides.prefix(1)
   local text = html_to_text(item.description)
-  if text == "" then
-    -- Indented already, so typing starts at the level of the description
-    table.insert(lines, prefix)
-  else
-    for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
-      table.insert(lines, line:match("^%s*$") and "" or prefix .. line)
-    end
+  -- An empty section gets an indented line, so typing starts at the level of its text
+  vim.list_extend(lines, text == "" and { guides.prefix(1) } or indented(text, 1))
+  vim.list_extend(lines, { "", SECTIONS[2].title, guides.prefix(1), "", SECTIONS[3].title })
+  state.history = history_lines(state)
+  for _, entry in ipairs(state.history) do
+    table.insert(lines, entry.text)
   end
-  local win = vim.fn.win_findbuf(bufnr)[1]
-  local view = win and vim.api.nvim_win_call(win, vim.fn.winsaveview)
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-  if view then
-    vim.api.nvim_win_call(win, function()
-      vim.fn.winrestview(view)
-    end)
-  end
+  set_lines(bufnr, 0, -1, lines, true)
   M.decorate(bufnr)
   vim.bo[bufnr].modified = false
+end
+
+-- Put the loaded comments in the history section (when its header is still there): without an
+-- undo step while the buffer has no changes of its own
+local function render_history(bufnr)
+  local state = buffers[bufnr]
+  if not state or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  local header = header_lnums(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)).history
+  if header then
+    local clean = not pending(bufnr)
+    state.history = history_lines(state)
+    set_lines(bufnr, header, -1, vim.tbl_map(function(entry)
+      return entry.text
+    end, state.history), clean)
+  end
+  M.decorate(bufnr)
+end
+
+-- Load the discussion comments of the work item, then show them (only the latest request counts)
+local function load_comments(bufnr)
+  local state = buffers[bufnr]
+  state.comments_request = (state.comments_request or 0) + 1
+  local request = state.comments_request
+  workitems.list_comments(state.item.id, function(comments, err)
+    if buffers[bufnr] ~= state or state.comments_request ~= request then
+      return
+    end
+    state.comments, state.comments_error = comments, comments == nil and (err or "unknown error") or nil
+    render_history(bufnr)
+  end)
 end
 
 -- Tags of the project, loaded once (completion falls back to the item's own tags meanwhile)
@@ -429,17 +614,20 @@ end
 -- Navigation ----------------------------------------------------------------------
 
 -- Places <Tab> moves to: { lnum, kind = "value" | "text" }, the fields then the description
+-- and the comment (the line under their header)
 local function stops(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local header = header_lnum(lines)
+  local headers = header_lnums(lines)
   local result = {}
-  for lnum = 1, (header or #lines + 1) - 1 do
+  for lnum = 1, next_header(lines, 1) - 1 do
     if not is_title(lnum, lines[lnum]) and lines[lnum]:match("^%s*[^%s:][^:]*:") then
       table.insert(result, { lnum = lnum, kind = "value" })
     end
   end
-  if header then
-    table.insert(result, { lnum = header + 1, kind = "text" })
+  for _, key in ipairs({ "description", "comment" }) do
+    if headers[key] then
+      table.insert(result, { lnum = headers[key] + 1, kind = "text" })
+    end
   end
   return result
 end
@@ -463,9 +651,10 @@ function M.jump(dir)
     current = 1
   end
   local target = list[(current - 1 + dir) % #list + 1]
-  if target.lnum > vim.api.nvim_buf_line_count(bufnr) then
-    -- The description is empty and its blank line deleted: give it one back
-    vim.api.nvim_buf_set_lines(bufnr, -1, -1, false, { guides.prefix(1) })
+  local under = vim.api.nvim_buf_get_lines(bufnr, target.lnum - 1, target.lnum, false)[1]
+  if target.kind == "text" and (not under or is_header(under)) then
+    -- The section is empty and its blank line deleted: give it one back
+    vim.api.nvim_buf_set_lines(bufnr, target.lnum - 1, target.lnum - 1, false, { guides.prefix(1) })
   end
   local line = vim.api.nvim_buf_get_lines(bufnr, target.lnum - 1, target.lnum, false)[1]
   local col
@@ -579,6 +768,13 @@ function M.save(bufnr)
     table.insert(entries, { text = "Description: updated", hl = "DiagnosticWarn" })
     fields.description = text_to_html(changes.description)
   end
+  if changes.comment then
+    local count = select(2, changes.comment:gsub("\n", "")) + 1
+    table.insert(entries, { text = ("Discussion: new comment (%d line%s)"):format(count, count == 1 and "" or "s"),
+      hl = "DiagnosticWarn" })
+    -- Through System.History: the comment goes in the same request as the other changes
+    fields.history = text_to_html(changes.comment)
+  end
   require("workhorse.ui.list_confirm").show(("Changes to #%d"):format(item.id), entries, function(confirmed)
     if not confirmed then
       return
@@ -605,7 +801,11 @@ function M.save(bufnr)
         end
         notify(("Updated #%d"):format(item.id))
         if vim.api.nvim_buf_is_valid(bufnr) then
+          -- The comment was sent: its section starts empty again, and the history gets it
           render(bufnr)
+          if fields.history then
+            load_comments(bufnr)
+          end
         end
         refresh_origin(state.origin)
       end)
@@ -636,6 +836,7 @@ function M.reload(bufnr)
     state.item = fresh
     if vim.api.nvim_buf_is_valid(bufnr) then
       render(bufnr)
+      load_comments(bufnr)
     end
   end)
 end
@@ -669,8 +870,8 @@ local function setup_keymaps(bufnr)
   map("<S-Tab>", function()
     M.jump(-1)
   end, "previous value")
-  -- Insert mode: move in an open completion menu; indent on a description line still blank
-  -- before the cursor; jump to the next value otherwise
+  -- Insert mode: move in an open completion menu; indent on a description or comment line still
+  -- blank before the cursor; jump to the next value otherwise
   for dir, lhs in pairs({ [1] = "<Tab>", [-1] = "<S-Tab>" }) do
     vim.keymap.set("i", lhs, function()
       local menu = require("workhorse.builds.form").menu_key(dir)
@@ -678,8 +879,8 @@ local function setup_keymaps(bufnr)
         return menu
       end
       local lnum, col = unpack(vim.api.nvim_win_get_cursor(0))
-      local header = header_lnum(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
-      if header and lnum > header and vim.api.nvim_get_current_line():sub(1, col):match("^%s*$") then
+      if in_text(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), lnum)
+        and vim.api.nvim_get_current_line():sub(1, col):match("^%s*$") then
         return dir > 0 and "<C-t>" or "<C-d>"
       end
       return ("<Cmd>lua require('workhorse.buffer.details').jump(%d)<CR>"):format(dir)
@@ -747,9 +948,8 @@ local function create(item)
         return nil
       end
       local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
-      local header = header_lnum(lines)
       local line = lines[lnum] or ""
-      if (header and lnum >= header) or is_title(lnum, line) then
+      if lnum >= next_header(lines, 1) or is_title(lnum, line) then
         return nil
       end
       if not line:find(":", 1, true) then
@@ -809,6 +1009,7 @@ function M.open(work_item, owner_bufnr)
     render(bufnr)
     vim.api.nvim_win_set_cursor(details_win, { 1, 0 })
     M.jump(1)
+    load_comments(bufnr)
   else
     M.decorate(bufnr)
   end
