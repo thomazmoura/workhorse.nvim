@@ -7,7 +7,7 @@ local M = {}
 
 local ID = "workhorse_run"
 -- Filetypes of the buffers completed by ui/choices.lua
-local FILETYPES = { "workhorse-run", "workhorse-repo" }
+local FILETYPES = { "workhorse-run", "workhorse-repo", "workhorse-workitem" }
 
 local Source = {}
 Source.__index = Source

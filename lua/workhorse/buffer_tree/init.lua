@@ -498,16 +498,7 @@ function M.find_by_query_id(query_id)
 end
 
 local function show_confirm(changes, on_confirm, on_cancel)
-  local side_panels = require("workhorse.buffer.side_panels")
   local formatted = changes_mod.format_for_display(changes)
-  local desc_changes = side_panels.get_pending_description_changes()
-  for _, desc_change in ipairs(desc_changes) do
-    table.insert(formatted, "  ~ #" .. desc_change.id .. ": description updated")
-  end
-  local tag_changes = side_panels.get_pending_tag_changes()
-  for _, tag_change in ipairs(tag_changes) do
-    table.insert(formatted, "  ~ #" .. tag_change.id .. ": tags updated")
-  end
 
   if #formatted == 0 then
     if on_confirm then
@@ -535,7 +526,6 @@ end
 
 function M.on_write(bufnr)
   local state = buffers[bufnr]
-  local side_panels = require("workhorse.buffer.side_panels")
   local cfg = config.get()
 
   if not state then
@@ -573,14 +563,12 @@ function M.on_write(bufnr)
       state.column_definitions
     )
 
-    local has_panel_changes = side_panels.has_pending_changes()
-
     if #errors > 0 then
       vim.notify("Workhorse: Fix errors before applying:\n" .. table.concat(errors, "\n"), vim.log.levels.WARN)
       return
     end
 
-    if #changes == 0 and not has_panel_changes then
+    if #changes == 0 then
       vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
       vim.bo[bufnr].modified = false
       return
@@ -642,8 +630,8 @@ function M.on_write(bufnr)
   end)
 end
 
--- Group changes by work item ID and merge field updates (including description and tags)
-local function group_and_merge_changes(changes, column_definitions, desc_changes, tag_changes)
+-- Group changes by work item ID and merge field updates
+local function group_and_merge_changes(changes, column_definitions)
   local creates = {}
   local deletes = {}
   local parent_changes = {} -- Can't merge with field updates (relation changes)
@@ -679,42 +667,17 @@ local function group_and_merge_changes(changes, column_definitions, desc_changes
     end
   end
 
-  -- Merge description changes into updates_by_id
-  for _, desc_change in ipairs(desc_changes or {}) do
-    local id = desc_change.id
-    if not updates_by_id[id] then
-      updates_by_id[id] = { fields = {} }
-    end
-    updates_by_id[id].fields.description = desc_change.description
-    updates_by_id[id].desc_change = desc_change
-  end
-
-  -- Merge tag changes into updates_by_id
-  for _, tag_change in ipairs(tag_changes or {}) do
-    local id = tag_change.id
-    if not updates_by_id[id] then
-      updates_by_id[id] = { fields = {} }
-    end
-    -- Convert tags array to semicolon-separated string
-    updates_by_id[id].fields.tags = table.concat(tag_change.tags, "; ")
-    updates_by_id[id].tag_change = tag_change
-  end
-
   return creates, deletes, parent_changes, updates_by_id
 end
 
 function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
   local workitems = require("workhorse.api.workitems")
-  local side_panels = require("workhorse.buffer.side_panels")
   local cfg = config.get()
 
-  local desc_changes = side_panels.get_pending_description_changes()
-  local tag_changes = side_panels.get_pending_tag_changes()
-
-  -- Group and merge ALL changes by work item ID (including description and tags)
+  -- Group and merge ALL changes by work item ID
   local creates, deletes, parent_changes, updates_by_id = group_and_merge_changes(
-    changes, state.column_definitions, desc_changes, tag_changes
+    changes, state.column_definitions
   )
 
   -- Sort CREATED changes by level (lowest first) so parents are created before children
@@ -788,20 +751,12 @@ function M.apply_changes(bufnr, changes, area_path)
         end)
       end
 
-      -- Apply merged field updates (single request per work item, includes description and tags)
+      -- Apply merged field updates (single request per work item)
       for id, update_info in pairs(updates_by_id) do
         -- Pass the correct column field name from board API (if available)
         workitems.update_fields(id, update_info.fields, function(item, err)
           if err then
             table.insert(errors, "Update #" .. id .. " failed: " .. (err or "unknown error"))
-          else
-            -- Mark side panel changes as saved if they were included
-            if update_info.desc_change then
-              side_panels.mark_description_saved(id)
-            end
-            if update_info.tag_change then
-              side_panels.mark_tags_saved(id)
-            end
           end
           on_complete()
         end, state.column_field)
@@ -871,10 +826,10 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
   buf_state.column_overrides = {}
   buf_state.nodes = nodes
 
-  -- Sync side panels with refreshed server data (only updates non-modified edits)
-  local side_panels = require("workhorse.buffer.side_panels")
+  -- Take the refreshed items into their details buffers (those without unsaved changes)
+  local details = require("workhorse.buffer.details")
   for _, item in ipairs(work_items) do
-    side_panels.update_from_item(item)
+    details.sync(item)
   end
 
   -- Reset undo history on refresh

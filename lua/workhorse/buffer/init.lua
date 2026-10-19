@@ -391,7 +391,6 @@ end
 -- Handle buffer write / apply
 function M.on_write(bufnr)
   local state = buffers[bufnr]
-  local side_panels = require("workhorse.buffer.side_panels")
 
   if not state then
     vim.notify("Workhorse: Buffer state not found", vim.log.levels.ERROR)
@@ -422,10 +421,7 @@ function M.on_write(bufnr)
       state.column_definitions
     )
 
-    -- Check for description and tag changes too
-    local has_panel_changes = side_panels.has_pending_changes()
-
-    if #changes == 0 and not has_panel_changes then
+    if #changes == 0 then
       vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
       vim.bo[bufnr].modified = false
       return
@@ -472,8 +468,8 @@ function M.on_write(bufnr)
   end)
 end
 
--- Group changes by work item ID and merge field updates (including description and tags)
-local function group_and_merge_changes(changes, column_definitions, desc_changes, tag_changes, side_panels)
+-- Group changes by work item ID and merge field updates
+local function group_and_merge_changes(changes, column_definitions)
   local creates = {}
   local deletes = {}
   local updates_by_id = {} -- { [id] = { fields = {}, work_item = item, area_path = ..., work_item_type = ... } }
@@ -510,27 +506,6 @@ local function group_and_merge_changes(changes, column_definitions, desc_changes
     end
   end
 
-  -- Merge description changes into updates_by_id
-  for _, desc_change in ipairs(desc_changes or {}) do
-    local id = desc_change.id
-    if not updates_by_id[id] then
-      updates_by_id[id] = { fields = {} }
-    end
-    updates_by_id[id].fields.description = desc_change.description
-    updates_by_id[id].desc_change = desc_change
-  end
-
-  -- Merge tag changes into updates_by_id
-  for _, tag_change in ipairs(tag_changes or {}) do
-    local id = tag_change.id
-    if not updates_by_id[id] then
-      updates_by_id[id] = { fields = {} }
-    end
-    -- Convert tags array to semicolon-separated string
-    updates_by_id[id].fields.tags = table.concat(tag_change.tags, "; ")
-    updates_by_id[id].tag_change = tag_change
-  end
-
   return creates, deletes, updates_by_id
 end
 
@@ -538,17 +513,10 @@ end
 function M.apply_changes(bufnr, changes, area_path)
   local state = buffers[bufnr]
   local workitems = require("workhorse.api.workitems")
-  local side_panels = require("workhorse.buffer.side_panels")
   local cfg = config.get()
 
-  -- Get pending description and tag changes
-  local desc_changes = side_panels.get_pending_description_changes()
-  local tag_changes = side_panels.get_pending_tag_changes()
-
-  -- Group and merge ALL changes by work item ID (including description and tags)
-  local creates, deletes, updates_by_id = group_and_merge_changes(
-    changes, state.column_definitions, desc_changes, tag_changes, side_panels
-  )
+  -- Group and merge ALL changes by work item ID
+  local creates, deletes, updates_by_id = group_and_merge_changes(changes, state.column_definitions)
 
   -- Count total operations
   local update_count = 0
@@ -632,7 +600,7 @@ function M.apply_changes(bufnr, changes, area_path)
     end)
   end
 
-  -- Apply merged field updates (single request per work item, includes description and tags)
+  -- Apply merged field updates (single request per work item)
   for id, update_info in pairs(updates_by_id) do
     -- Resolve the correct WEF field for this work item based on area and type
     local kanban_field = nil
@@ -662,14 +630,6 @@ function M.apply_changes(bufnr, changes, area_path)
     workitems.update_fields(id, update_info.fields, function(item, err)
       if err then
         table.insert(errors, "Update #" .. id .. " failed: " .. (err or "unknown error"))
-      else
-        -- Mark side panel changes as saved if they were included
-        if update_info.desc_change then
-          side_panels.mark_description_saved(id)
-        end
-        if update_info.tag_change then
-          side_panels.mark_tags_saved(id)
-        end
       end
       on_complete()
     end, kanban_field)
@@ -696,10 +656,10 @@ function M.refresh_buffer(bufnr, work_items, focus)
     buf_state.column_field = grouping_info.column_field
     buf_state.column_fields_by_type = grouping_info.column_fields_by_type
 
-    -- Sync side panels with refreshed server data (only updates non-modified edits)
-    local side_panels = require("workhorse.buffer.side_panels")
+    -- Take the refreshed items into their details buffers (those without unsaved changes)
+    local details = require("workhorse.buffer.details")
     for _, item in ipairs(work_items) do
-      side_panels.update_from_item(item)
+      details.sync(item)
     end
 
     -- Re-render based on mode

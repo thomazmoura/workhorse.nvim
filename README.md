@@ -12,7 +12,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **State management** - Change work item states through a floating menu
 - **Virtual text** - Work item states displayed as virtual text at end of lines
 - **Confirmation dialog** - Review changes before applying to Azure DevOps
-- **Side panels** - Edit work item description and tags in dedicated buffers
+- **Work item details** - Edit the board column, tags and description of a work item in a buffer on the right
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
@@ -309,7 +309,7 @@ When in a workhorse buffer (flat queries):
 
 | Key | Action |
 |-----|--------|
-| `<CR>` | Toggle description and tags side panels for work item under cursor |
+| `<CR>` | Toggle the details of the work item under cursor |
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
 | `gw` or `gb` | Open work item in browser |
@@ -318,7 +318,7 @@ When in a workhorse buffer (tree queries):
 
 | Key | Action |
 |-----|--------|
-| `<CR>` | Unfold the item under cursor when it is folded; otherwise toggle the description and tags side panels |
+| `<CR>` | Unfold the item under cursor when it is folded; otherwise toggle the details of the work item |
 | `<Space>` / `<S-Space>` / `<M-Space>` | Fold/unfold the item under cursor |
 | `<leader>ws` | Open column/state selection menu |
 | `<leader><leader>` | Apply changes |
@@ -389,7 +389,7 @@ Example:
 Notes:
 - **Column display**: Board column is shown as virtual text at line end.
 - **Change column**: Press `<leader>ws` on an item to select a new column.
-- **Description/Tags**: Press `<CR>` on an item to open the description and tags side panels.
+- **Details**: Press `<CR>` on an item to open its details (column, tags and description).
 - **Create item**: Add a new line at the desired indentation level. The type is determined by:
   1. First, inferring from existing items at that level in the tree
   2. If no items exist at that level, using `work_item_type_hierarchy` config (e.g., level 0 = Epic, level 1 = Feature)
@@ -421,29 +421,30 @@ require("workhorse").setup({
 })
 ```
 
-## Side Panels (Description & Tags)
+## Work Item Details
 
-Press `<CR>` on any work item to open the description and tags side panels on the right:
+Press `<CR>` on any work item to open its details in a split on the right:
 
 ```
-┌────────────────┬─────────────────┐
-│                │ ═══ Description ═══│
-│   Work Items   │   Description text  │
-│     Buffer     ├─────────────────┤
-│                │ ═══ Tags ═══    │
-│                │   Tag1          │
-│                │   Tag2          │
-└────────────────┴─────────────────┘
+#123 Fix the login page            User Story · Active · Area
+──────────────────────── ◇ ────────────────────────
+
+Column: Doing
+Tags: frontend, urgent
+
+Description
+  Free text of the description
 ```
 
-- **Description panel**: Edit the work item description (converted from HTML)
-- **Tags panel**: Each tag on a separate line; add/remove tags by editing lines
-- **Headers**: The `═══ Description ═══` and `═══ Tags ═══` headers are readonly
-- **Toggle**: Press `<CR>` again on the same item to close the panels
-- **Close**: Press `<CR>` in normal mode inside either panel to close both (insert mode still inserts a newline)
-- **Browser**: Press `gb` inside either panel to open the work item in the browser
-- **Apply**: Press `<leader><leader>` in normal mode inside either panel to close both and apply the pending changes
-- **Save**: Panel edits are kept in memory and are sent to Azure DevOps when you apply changes with `<leader><leader>`, from the panels or from the work item buffer
+- **Column**: The board column, completed from the columns of the board of the item's type. Changing it moves the
+  item like `<leader>ws` does: the state follows the column on the server (shown in the title)
+- **Tags**: Comma-separated, completed from the tags of the project; add or remove them by editing the line
+- **Description**: Edit the work item description (converted from HTML), indented one level
+- **Navigation**: `<Tab>`/`<S-Tab>` move between the values and the description
+- **Save**: `<leader><leader>` (or `:w`) confirms the changes, sends them in one request and refreshes the work item buffer
+- **Reload**: `<leader>R` discards the pending changes and loads the work item again
+- **Toggle**: Press `<CR>` again on the same item, or in normal mode inside the details, to close them; unsaved edits are kept
+- **Browser**: Press `gb` or `gw` inside the details to open the work item in the browser
 
 ### Example Workflow
 

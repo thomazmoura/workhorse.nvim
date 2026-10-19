@@ -442,9 +442,9 @@ function M.apply()
   buf_module.on_write(bufnr)
 end
 
--- Open description and tags side panels for work item under cursor
+-- Open (or close) the details of the work item under the cursor: state, tags and description
 function M.open_description()
-  local side_panels = require("workhorse.buffer.side_panels")
+  local details = require("workhorse.buffer.details")
 
   local buf_module, bufnr = get_buffer_module()
   if not bufnr then
@@ -458,7 +458,7 @@ function M.open_description()
     return
   end
 
-  side_panels.open(item, bufnr)
+  details.open(item, bufnr)
 end
 
 -- Resume the last opened query

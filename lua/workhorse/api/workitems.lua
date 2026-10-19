@@ -130,12 +130,16 @@ function M.get(id, callback)
   end)
 end
 
+-- Fields whose "add" merges into the current value instead of setting it: the tags ("add" only
+-- appends them, so a removed tag would stay), replaced as a whole list instead
+local REPLACED_FIELDS = { ["System.Tags"] = true }
+
 -- Build JSON Patch operations for field changes
 local function build_patch(field_changes)
   local patch = {}
   for field, value in pairs(field_changes) do
     table.insert(patch, {
-      op = "add",
+      op = REPLACED_FIELDS[field] and "replace" or "add",
       path = "/fields/" .. field,
       value = value,
     })
@@ -226,6 +230,26 @@ end
 function M.update_tags(id, tags_array, callback)
   local tags_str = table.concat(tags_array, "; ")
   M.update(id, { ["System.Tags"] = tags_str }, callback)
+end
+
+-- Tags of the project: callback({ name }), empty when they could not be listed
+function M.list_tags(callback)
+  local path = "/" .. config.get().project .. "/_apis/wit/tags?api-version=7.1-preview.1"
+
+  client.get(path, {
+    on_success = function(data)
+      local names = {}
+      for _, tag in ipairs(data and data.value or {}) do
+        if tag.name then
+          table.insert(names, tag.name)
+        end
+      end
+      callback(names)
+    end,
+    on_error = function()
+      callback({})
+    end,
+  })
 end
 
 -- Soft delete (change state to Removed)
