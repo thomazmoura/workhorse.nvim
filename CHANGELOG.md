@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [810a5ec] - 2026-10-19
+
+### Fixed
+- The pull request Changes tab now lists deleted files (Azure DevOps gives them only an original path), so moved files show both their removal and their addition
+
 ## [828f648] - 2026-10-15
 
 ### Added
