@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [79ddfcb] - 2026-10-19
+
+### Added
+- `<CR>` on a work item (flat or tree) opens a details buffer in a split on the right, replacing the description and tags side panels: a `Column:` line (the board column, completed from the columns of the board of the item's type, moved like `<leader>ws`), a `Tags:` line (completed from the project's tags) and the description, saved together with `<leader><leader>` after a confirmation listing the changes
+- The project's tags are listed through the API (`workitems.list_tags`) for the tags completion
+
+### Fixed
+- Removing a tag now takes effect: `System.Tags` is sent as a `replace` instead of an `add`, which only appended tags to the existing ones
+
 ## [810a5ec] - 2026-10-19
 
 ### Fixed
