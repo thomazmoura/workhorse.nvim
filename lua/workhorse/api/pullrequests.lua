@@ -219,8 +219,8 @@ function M.iterations(repo, id, callback)
   })
 end
 
--- Files changed by a pull request up to an iteration (against its merge base):
--- callback({ { path, original_path, change_type } }) sorted by path
+-- Files changed by a pull request up to an iteration (against its merge base), deleted ones by
+-- their original path: callback({ { path, original_path, change_type } }) sorted by path
 function M.iteration_changes(repo, id, iteration_id, callback)
   local changes = {}
   local function fetch(skip)
@@ -231,9 +231,11 @@ function M.iteration_changes(repo, id, iteration_id, callback)
         for _, c in ipairs(type(data.changeEntries) == "table" and data.changeEntries or {}) do
           strip_nulls(c)
           local item = type(c.item) == "table" and strip_nulls(c.item) or {}
-          if item.path and item.isFolder ~= true and item.gitObjectType ~= "tree" then
+          -- Deleted files have no item path: theirs is the original one
+          local path = item.path or c.originalPath or item.originalPath
+          if path and item.isFolder ~= true and item.gitObjectType ~= "tree" then
             table.insert(changes, {
-              path = item.path,
+              path = path,
               original_path = c.originalPath or item.originalPath,
               change_type = c.changeType or "edit",
             })
