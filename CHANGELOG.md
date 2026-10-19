@@ -2,6 +2,17 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [05fafa7] - 2026-10-19
+
+### Added
+- The work item details have a `Discussion Comment` section under the description: the text written there is added to the discussion of the work item on save, in the same request as the other changes
+- The work item details end with a read-only `Discussion History` section listing the saved comments, newest first, with author and date; edits there are flagged and never saved, and a missing or misplaced section header blocks saving
+- The discussion comments are listed through the API (`workitems.list_comments`, all pages)
+
+### Changed
+- `<Tab>`/`<S-Tab>` in the details also stop at the new comment
+- The HTML to text conversion of the details decodes numeric entities such as `&#39;`
+
 ## [79ddfcb] - 2026-10-19
 
 ### Added
