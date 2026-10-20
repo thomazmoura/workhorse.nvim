@@ -870,11 +870,14 @@ local function set_keymaps(bufnr)
   vim.keymap.set("n", "<leader>wx", function()
     M.cancel(bufnr)
   end, opts)
+  -- On a run of the runs list, run it again; elsewhere, a new build of the pipeline
   vim.keymap.set("n", "<leader>wn", function()
-    M.new_run(nil, bufnr)
-  end, opts)
-  vim.keymap.set("n", "<leader>wr", function()
-    M.run_again(bufnr)
+    local item = current_item(bufnr)
+    if item and item.kind == "run" then
+      M.run_again(bufnr)
+    else
+      M.new_run(nil, bufnr)
+    end
   end, opts)
   vim.keymap.set("n", "<leader>wf", function()
     M.retry(bufnr)

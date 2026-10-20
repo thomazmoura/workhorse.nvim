@@ -542,9 +542,8 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `-`, `<BS>` or `<Esc>` | Go back to the previous level |
 | `<leader>R` | Refresh |
 | `<leader>wu` | Toggle live watching |
-| `<leader>wn` | Run a new build of the pipeline (see "Running a new build") |
+| `<leader>wn` | Run a new build of the pipeline (see "Running a new build"); on a run of the runs list, pre-filled with the values of that run (see "Running a build again") |
 | `<leader>wx` | Cancel the running build (the run under the cursor on the runs list), after confirming |
-| `<leader>wr` | Run a new build pre-filled with the values of the run (see "Running a build again") |
 | `<leader>wf` | Rerun the failed jobs of a failed run (see "Running a build again") |
 | `<leader>ws` | Rerun the stage under the cursor, or pick one, e.g. to redeploy an older run (see "Running a build again") |
 | `<leader>wa` | Permit the pipeline to use the resources the run waits for (see "Permitting a waiting build") |
@@ -555,7 +554,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 ### Running a new build
 
 The runs list has a `Run new build` line under the pipeline name. `<CR>` on it, `<leader>wn` in
-any build buffer, or `:Workhorse builds new [id]` opens a form with everything that can be set
+any build buffer (anywhere but on a run of the runs list), or `:Workhorse builds new [id]` opens a form with everything that can be set
 when queuing a run:
 
 ```
@@ -739,8 +738,7 @@ progress and every minute once it has finished (`pipelines.status_running_interv
 ### Running a build again
 
 Once a run completes, its run tree and log headers replace the `Live watching enabled/disabled`
-line with a `Run new` line. `<CR>` on it (or `<leader>wr`; on the runs list, for the run under the
-cursor) opens the "Run new build" form pre-filled with that run's branch, runtime parameters and
+line with a `Run new` line. `<CR>` on it (or, on the runs list, `<leader>wn` on a run) opens the "Run new build" form pre-filled with that run's branch, runtime parameters and
 queue-time variables. The parameters are read from the YAML file on that branch.
 
 A failed run also shows `Rerun failed jobs` (in orange, `WorkhorseBuildRetry`). `<CR>` on it (or
