@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c7cff91] - 2026-10-20
+
+### Changed
+- In the builds screen, `<leader>wn` on a run of the runs list opens the "Run new build" form pre-filled with the values of that run; anywhere else it still opens a new build of the pipeline
+- `<leader>wr` (run again) is removed, merged into `<leader>wn`
+
 ## [05fafa7] - 2026-10-19
 
 ### Added
