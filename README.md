@@ -242,6 +242,7 @@ require("workhorse").setup({
     diff_context = 3,             -- unchanged lines shown around each change
     max_diff_bytes = 1000000,     -- larger files are not diffed
     max_highlight_lines = 5000,   -- larger files are diffed without syntax colors
+    refresh_interval = 15000,     -- auto-refresh (ms) of an open pull request; 0 turns it off
     merge_strategy = "squash",    -- offered first: "squash", "noFastForward", "rebase" or "rebaseMerge"
     delete_source_branch = true,  -- default answer when completing
     transition_work_items = false,
@@ -831,6 +832,12 @@ with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
   emphasized and syntax colors (from treesitter, when a parser for the language is installed).
   Comments show under the line they are on. `<CR>` on a file jumps to its diff; `]f`/`[f` move
   between files.
+
+An open pull request refreshes itself every `prs.refresh_interval` ms (15s by default; `0` turns
+it off) while it is shown, and right after voting, completing or setting/cancelling auto-complete.
+The refresh happens in the background: what is shown stays until the new data lands (and when a
+request fails), and the buffer is only redrawn when something changed. A new push also reloads the
+changed files, keeping the cursor on its diff line. `<leader>R` still reloads everything from scratch.
 
 Diffs compare the last push with its merge base, like the web's Files tab. The file contents are
 fetched in the background (`prs.max_concurrent` at a time) and each diff appears as it lands.

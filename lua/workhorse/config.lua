@@ -156,6 +156,7 @@ local defaults = {
     diff_context = 3, -- unchanged lines shown around each change
     max_diff_bytes = 1000000, -- larger files are not diffed
     max_highlight_lines = 5000, -- larger files are diffed without syntax colors
+    refresh_interval = 15000, -- auto-refresh (ms) of an open pull request while shown; 0 turns it off
     -- Completing (or setting auto-complete on) a pull request
     merge_strategy = "squash", -- "squash", "noFastForward", "rebase" or "rebaseMerge" (offered first)
     delete_source_branch = true,

@@ -276,25 +276,25 @@ local NEEDS = {
 }
 
 local fetchers = {
-  pr = function(ctx, cb)
-    prs_api.get(ctx.repo, ctx.id, cb)
+  pr = function(ctx, cb, opts)
+    prs_api.get(ctx.repo, ctx.id, cb, opts)
   end,
-  threads = function(ctx, cb)
-    prs_api.threads(ctx.repo, ctx.id, cb)
+  threads = function(ctx, cb, opts)
+    prs_api.threads(ctx.repo, ctx.id, cb, opts)
   end,
-  iterations = function(ctx, cb)
-    prs_api.iterations(ctx.repo, ctx.id, cb)
+  iterations = function(ctx, cb, opts)
+    prs_api.iterations(ctx.repo, ctx.id, cb, opts)
   end,
-  commits = function(ctx, cb)
-    prs_api.commits(ctx.repo, ctx.id, cb)
+  commits = function(ctx, cb, opts)
+    prs_api.commits(ctx.repo, ctx.id, cb, opts)
   end,
   -- Files changed by the last push, against the merge base
-  changes = function(ctx, cb)
+  changes = function(ctx, cb, opts)
     local last = ctx.data.iterations[#ctx.data.iterations]
     if not last then
       return cb({})
     end
-    prs_api.iteration_changes(ctx.repo, ctx.id, last.id, cb)
+    prs_api.iteration_changes(ctx.repo, ctx.id, last.id, cb, opts)
   end,
 }
 
@@ -410,6 +410,108 @@ local function ensure(bufnr, tab)
   end
   if tab == "changes" and ctx.data.changes and not ctx.files then
     M._load_files(bufnr)
+  end
+end
+
+local function last_iteration_id(iterations)
+  local last = iterations and iterations[#iterations]
+  return last and last.id
+end
+
+-- Fetch again what is loaded (or failed to load), keeping it shown until the new data lands and
+-- when a request fails; redraws only when something changed. A push since also reloads the
+-- changed files, coming back to the diff line under the cursor once its new diff is there
+local function refresh_pr(bufnr)
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" then
+    return
+  end
+  local ctx = state.ctx
+  -- Asked again (by an action) while a refresh is under way: its data may predate the action
+  if ctx.refreshing then
+    ctx.refresh_again = true
+    return
+  end
+  ctx.refreshed = uv.now()
+  local names = {}
+  for _, name in ipairs({ "pr", "threads", "iterations", "commits" }) do
+    if (ctx.data[name] ~= nil or ctx.errors[name]) and not ctx.loading[name] then
+      table.insert(names, name)
+    end
+  end
+  if #names == 0 then
+    return
+  end
+  ctx.refreshing = true
+  local generation = ctx.generation
+  local fresh, pending = {}, #names
+
+  local function reload_changes()
+    fetchers.changes(ctx, function(changes)
+      if not views[bufnr] or ctx.generation ~= generation then
+        return
+      end
+      ctx.changes_stale = changes == nil or nil
+      if not changes then
+        return
+      end
+      local item = vim.api.nvim_get_current_buf() == bufnr and ctx.tab == "changes" and current_item(bufnr)
+      if item and item.kind == "diff_line" then
+        ctx.jump = { path = item.file.path, new = item.new, old = item.old }
+      end
+      ctx.data.changes, ctx.files = changes, nil
+      ensure(bufnr, ctx.tab)
+      rerender(bufnr)
+    end, { silent = true })
+  end
+
+  local function finish()
+    ctx.refreshing = nil
+    local pushed = fresh.iterations and last_iteration_id(fresh.iterations) ~= last_iteration_id(ctx.data.iterations)
+    local changed = false
+    for name, data in pairs(fresh) do
+      if ctx.errors[name] or not vim.deep_equal(data, ctx.data[name]) then
+        ctx.data[name], ctx.errors[name], changed = data, nil, true
+        if name == "pr" then
+          update_list_entry(ctx.repo, data)
+        end
+      end
+    end
+    if (pushed or ctx.changes_stale) and ctx.data.changes ~= nil then
+      reload_changes()
+    end
+    if changed then
+      ensure(bufnr, ctx.tab)
+      rerender(bufnr)
+    end
+    if ctx.refresh_again then
+      ctx.refresh_again = nil
+      refresh_pr(bufnr)
+    end
+  end
+
+  for _, name in ipairs(names) do
+    fetchers[name](ctx, function(data)
+      if not views[bufnr] or ctx.generation ~= generation then
+        return
+      end
+      fresh[name] = data
+      pending = pending - 1
+      if pending == 0 then
+        finish()
+      end
+    end, { silent = true })
+  end
+end
+
+-- Every second: the builds, and every prs.refresh_interval while shown, the rest of the pull request
+local function tick(bufnr)
+  builds_tick(bufnr)
+  local state = views[bufnr]
+  local interval = config.get().prs.refresh_interval
+  if state and interval and interval > 0 and vim.api.nvim_buf_is_valid(bufnr) and #windows_of(bufnr) > 0
+    and uv.now() - (state.ctx.refreshed or 0) >= interval then
+    refresh_pr(bufnr)
   end
 end
 
@@ -769,8 +871,9 @@ local function render_pr(bufnr, focus)
   state.header_lines = view.rule or 0
   apply_view(bufnr, view, focus)
   M._draw_builds(bufnr)
-  -- A thread picked on the Overview tab: land on its line once the file's diff is there
-  if ctx.jump and ctx.tab == "changes" then
+  -- A thread picked on the Overview tab: land on its line once the file's diff is there (in
+  -- the window of the pull request: the jump waits while another one is current)
+  if ctx.jump and ctx.tab == "changes" and vim.api.nvim_get_current_buf() == bufnr then
     local jump, header, line = ctx.jump, nil, nil
     for lnum, item in pairs(state.items) do
       if item.file and item.file.path == jump.path then
@@ -890,17 +993,6 @@ end
 
 -- Actions ---------------------------------------------------------------------
 
--- Fetch the pull request again (after an action) and redraw
-local function reload_pr(bufnr)
-  local state = views[bufnr]
-  if not state then
-    return
-  end
-  state.ctx.data.pr = nil
-  state.ctx.errors.pr = nil
-  ensure(bufnr, state.ctx.tab)
-end
-
 local function pr_of(bufnr)
   local state = views[bufnr]
   local pr = state and state.kind == "pr" and state.ctx.data.pr
@@ -965,7 +1057,7 @@ function M.vote(bufnr)
         return
       end
       vim.notify("Workhorse: Voted " .. vote.label .. " on !" .. pr.id, vim.log.levels.INFO)
-      reload_pr(bufnr)
+      refresh_pr(bufnr)
     end)
   end)
 end
@@ -997,7 +1089,7 @@ function M.complete(bufnr)
           return
         end
         vim.notify("Workhorse: Completing !" .. pr.id, vim.log.levels.INFO)
-        reload_pr(bufnr)
+        refresh_pr(bufnr)
       end)
     end)
   end)
@@ -1021,7 +1113,7 @@ function M.auto_complete(bufnr)
         return
       end
       vim.notify("Workhorse: " .. what:gsub("^%l", string.upper) .. " on !" .. pr.id, vim.log.levels.INFO)
-      reload_pr(bufnr)
+      refresh_pr(bufnr)
     end
   end
   if pr.auto_complete_set_by then
@@ -1306,6 +1398,7 @@ function M.open_pr(repo, pr)
       errors = {},
       loading = {},
       generation = 0,
+      refreshed = uv.now(),
     })
   if created then
     vim.api.nvim_set_option_value("winbar", WINBAR, { scope = "local", win = vim.api.nvim_get_current_win() })
@@ -1313,7 +1406,7 @@ function M.open_pr(repo, pr)
     local timer = uv.new_timer()
     views[bufnr].builds_timer = timer
     timer:start(BUILDS_TICK, BUILDS_TICK, vim.schedule_wrap(function()
-      builds_tick(bufnr)
+      tick(bufnr)
     end))
   end
   return bufnr
@@ -1345,6 +1438,7 @@ function M.refresh(bufnr)
   -- Responses of the previous generation are dropped when they land
   ctx.generation = ctx.generation + 1
   ctx.data, ctx.errors, ctx.loading, ctx.files, ctx.builds_fetched = {}, {}, {}, nil, nil
+  ctx.refreshing, ctx.refresh_again, ctx.changes_stale, ctx.refreshed = nil, nil, nil, uv.now()
   M.set_tab(bufnr, ctx.tab)
   return true
 end

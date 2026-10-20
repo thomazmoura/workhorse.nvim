@@ -137,8 +137,9 @@ function M.list(repo, skip, top, callback)
 end
 
 -- A single pull request (the list truncates descriptions)
-function M.get(repo, id, callback)
+function M.get(repo, id, callback, opts)
   client.get(pr_path(repo, id, "?api-version=7.1"), {
+    silent = opts and opts.silent,
     on_success = function(data)
       callback(data and map_pr(repo, data))
     end,
@@ -151,8 +152,9 @@ end
 -- Comment threads with their text comments: callback({ { id, status, file_path, right_line,
 -- left_line, comments = { { author, date, content } } } }). System messages (votes, pushes)
 -- and deleted comments are left out, as are threads left empty
-function M.threads(repo, id, callback)
+function M.threads(repo, id, callback, opts)
   client.get(pr_path(repo, id, "/threads?api-version=7.1"), {
+    silent = opts and opts.silent,
     on_success = function(data)
       local threads = {}
       for _, t in ipairs(data and data.value or {}) do
@@ -188,8 +190,9 @@ function M.threads(repo, id, callback)
 end
 
 -- Pushes (iterations) of a pull request with the commits each one brought, oldest first
-function M.iterations(repo, id, callback)
+function M.iterations(repo, id, callback, opts)
   client.get(pr_path(repo, id, "/iterations?includeCommits=true&api-version=7.1"), {
+    silent = opts and opts.silent,
     on_success = function(data)
       local iterations = {}
       for _, it in ipairs(data and data.value or {}) do
@@ -221,11 +224,12 @@ end
 
 -- Files changed by a pull request up to an iteration (against its merge base), deleted ones by
 -- their original path: callback({ { path, original_path, change_type } }) sorted by path
-function M.iteration_changes(repo, id, iteration_id, callback)
+function M.iteration_changes(repo, id, iteration_id, callback, opts)
   local changes = {}
   local function fetch(skip)
     client.get(pr_path(repo, id, "/iterations/" .. iteration_id .. "/changes?$compareTo=0&$top=2000&$skip=" .. skip
       .. "&api-version=7.1"), {
+      silent = opts and opts.silent,
       on_success = function(data)
         data = data or {}
         for _, c in ipairs(type(data.changeEntries) == "table" and data.changeEntries or {}) do
@@ -258,8 +262,9 @@ function M.iteration_changes(repo, id, iteration_id, callback)
 end
 
 -- Commits of a pull request, newest first
-function M.commits(repo, id, callback)
+function M.commits(repo, id, callback, opts)
   client.get(pr_path(repo, id, "/commits?$top=500&api-version=7.1"), {
+    silent = opts and opts.silent,
     on_success = function(data)
       local commits = {}
       for _, c in ipairs(data and data.value or {}) do
