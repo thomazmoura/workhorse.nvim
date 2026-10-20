@@ -2,6 +2,16 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [2aeade7] - 2026-10-20
+
+### Added
+- An open pull request refreshes itself in the background every `prs.refresh_interval` ms (15s by default, `0` turns it off) while it is shown; what is shown stays until the new data lands or when a request fails, and the buffer is only redrawn when something changed
+- A new push to the pull request reloads the changed files, keeping the cursor on its diff line
+
+### Changed
+- Voting, completing and setting/cancelling auto-complete refresh the pull request in the background instead of clearing it
+- The jump to a thread picked on the Overview tab waits while another buffer is current
+
 ## [c7cff91] - 2026-10-20
 
 ### Changed
