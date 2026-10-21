@@ -290,7 +290,7 @@ In this mode:
 | `:Workhorse builds permit` | Permit the pipeline to use the resources the run of the current build buffer waits for (see "Permitting a waiting build") |
 | `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
 | `:Workhorse builds here` | Pipelines of the repository of the working directory (see "Repository cache") |
-| `:Workhorse pipelines list` | The pipelines that ran most recently (Recent tab) and all of them as an editable tree of folders (All tab): move, rename, create and delete them |
+| `:Workhorse pipelines list` | All the pipelines as an editable tree of folders (All tab): move, rename, create and delete them; and those that ran most recently (Recent tab) |
 | `:Workhorse PRs` | Open Telescope picker to select a repository (of any project) and browse its pull requests |
 | `:Workhorse PRs here` | Pull requests of the repository of the working directory |
 | `:Workhorse PRs resume` | Reopen the pull requests of the last opened repository |
@@ -641,8 +641,8 @@ pipeline's CI trigger follows the YAML file's `trigger:`.
 ### Recent pipelines
 
 `:Workhorse pipelines list` (or `<leader>wB`) opens the pipelines screen. It has two tabs, shown in
-the window bar (click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`): **Recent**, and
-**All**, the editable tree (see "Organizing pipelines"), where it opens (`pipelines.default_tab`).
+the window bar (click them, cycle with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`): **All**, the
+editable tree (see "Organizing pipelines"), where it opens (`pipelines.default_tab`), and **Recent**.
 Each tab is its own buffer, so the pending edits of the tree are kept while you look at Recent.
 
 Recent lists the 40 pipelines that ran most recently, newest first and without their folders,
@@ -662,7 +662,8 @@ statuses come with the list and are then refreshed like those of the tree, only 
 on screen; the Recent tab fetches nothing until it is opened. Both tabs update the pipelines of the
 repository cache with what they list (see "Repository cache").
 
-On both tabs, `<leader>w/` opens the pipeline picker (`:Workhorse builds`).
+On both tabs, `/` (or `<leader>w/`) opens the fuzzy picker of the pipelines that are not hidden
+(`:Workhorse builds`), in place of the search of the buffer.
 
 ### Organizing pipelines
 
@@ -709,7 +710,7 @@ it was first opened: every folder folded again and the run statuses fetched anew
 #### Hiding pipelines
 
 Pipelines you never open can be hidden: they leave the All tab and both pipeline pickers
-(`:Workhorse builds`, `<leader>w/`, and the pipelines of the current repository, `<leader>wb`).
+(`:Workhorse builds`, `/` and `<leader>w/` on the pipelines screen, and the pipelines of the current repository, `<leader>wb`).
 Each key works on the pipeline under the cursor, on every pipeline of a closed folder under the
 cursor, or on the visual selection:
 

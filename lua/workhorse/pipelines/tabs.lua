@@ -1,10 +1,10 @@
--- Tabs of the pipelines screen: Recent (pipelines/recent.lua) and All (the editable tree,
--- pipelines/init.lua). Each tab is its own buffer, so the pending edits of the tree survive
+-- Tabs of the pipelines screen: All (the editable tree, pipelines/init.lua) and Recent
+-- (pipelines/recent.lua). Each tab is its own buffer, so the pending edits of the tree survive
 -- switching tabs; switching shows the other buffer in the window. The tabs show in the winbar
 -- (clickable), like those of a pull request.
 local M = {}
 
-local TABS = { "recent", "all" }
+local TABS = { "all", "recent" }
 local TAB_LABELS = { recent = "Recent", all = "All" }
 
 --- Tab shown by `bufnr`, nil when it is not a pipelines buffer
@@ -73,9 +73,12 @@ function M.setup_buffer(bufnr)
       M.show(tab)
     end, TAB_LABELS[tab] .. " pipelines tab")
   end
-  map("<leader>w/", function()
-    require("workhorse.builds").pick()
-  end, "pick a pipeline")
+  -- `/` replaces the search of the buffer: the picker of the pipelines (the hidden ones aside)
+  for _, lhs in ipairs({ "/", "<leader>w/" }) do
+    map(lhs, function()
+      require("workhorse.builds").pick()
+    end, "pick a pipeline")
+  end
 end
 
 -- Pipelines windows show the tabs in their winbar; it is taken off again when the window moves on
