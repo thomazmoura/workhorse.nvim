@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [de38a0b] - 2026-10-21
+
+### Changed
+- The pipelines screen lists its tabs as All then Recent: `g1` jumps to All and `g2` to Recent
+- `/` on the pipelines screen (both tabs) opens the fuzzy picker of the pipelines that are not hidden, in place of the search of the buffer (`<leader>w/` still works)
+
 ## [2aeade7] - 2026-10-20
 
 ### Added
