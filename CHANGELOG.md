@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [ec3fa0d] - 2026-10-25
+
+### Changed
+- Opening something in the browser (`gw`, `gb`, on every screen) also yanks its URL to the unnamed register (`"0`), so `p` pastes it
+
 ## [de38a0b] - 2026-10-21
 
 ### Changed
