@@ -939,16 +939,7 @@ function M.open_in_browser(bufnr)
   local cfg = config.get()
   local url = cfg.server_url .. "/" .. cfg.project .. "/_workitems/edit/" .. id
 
-  local cmd
-  if vim.fn.has("mac") == 1 then
-    cmd = { "open", url }
-  elseif vim.fn.has("unix") == 1 then
-    cmd = { "xdg-open", url }
-  else
-    cmd = { "start", url }
-  end
-
-  vim.fn.jobstart(cmd, { detach = true })
+  require("workhorse.builds").open_url(url)
   vim.notify("Workhorse: Opening #" .. id .. " in browser", vim.log.levels.INFO)
 end
 

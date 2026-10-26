@@ -306,6 +306,9 @@ Wherever `<Space>` folds or activates a line below, `<S-Space>` and `<M-Space>` 
 `mapleader` or `maplocalleader`, Workhorse leaves it unmapped, so `<leader>` keeps its
 mappings and which-key still shows them; use `<S-Space>`/`<M-Space>` (or `<CR>`, `za`) then.
 
+On every screen, opening something in the browser (`gw`, `gb`) also yanks its URL, so `p`
+(or `"0p`) pastes it.
+
 When in a workhorse buffer (flat queries):
 
 | Key | Action |

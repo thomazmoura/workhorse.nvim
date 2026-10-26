@@ -861,7 +861,7 @@ local function setup_keymaps(bufnr)
   map("<CR>", close, "close the details")
   for _, lhs in ipairs({ "gb", "gw" }) do
     map(lhs, function()
-      vim.ui.open(web_url(buffers[bufnr].item))
+      require("workhorse.builds").open_url(web_url(buffers[bufnr].item))
     end, "open the work item in the browser")
   end
   map("<Tab>", function()

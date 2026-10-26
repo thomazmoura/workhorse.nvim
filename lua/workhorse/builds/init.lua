@@ -20,6 +20,8 @@ function M.open_url(url)
     vim.notify("Workhorse: No URL for this line", vim.log.levels.WARN)
     return
   end
+  -- Also yanked, to paste it elsewhere: writing the unnamed register fills "0, like a yank
+  vim.fn.setreg('"', url)
   if vim.ui.open then
     vim.ui.open(url)
   else
