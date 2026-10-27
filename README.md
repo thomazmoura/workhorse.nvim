@@ -505,7 +505,10 @@ stage or job line it opens the run tree with that line expanded into view and th
 - **Run tree**: stages > jobs > steps, all loaded at once and collapsed to the stage level.
   `<CR>` or `<Space>` on a stage or job expands or collapses the level below (`▸` collapsed,
   `▾` expanded). On a step it opens the log. Steps that have not started yet are dimmed.
-  Collapsing a stage remembers which of its jobs were open.
+  Collapsing a stage remembers which of its jobs were open. The usual fold commands work on the
+  tree too: `zo`/`zc`/`za` (and `zO`/`zC`/`zA`) on the line under the cursor (`zc` on a step or a
+  collapsed line collapses the level above it), `zr`/`zm` open or close one more level of the
+  whole tree, `zR`/`zM` all of it.
 - **Log**: the step's log, with `##[error]`, `##[warning]` and `##[section]` lines highlighted.
 
 Run lines are colored per section through highlight groups you can override:
@@ -527,8 +530,9 @@ Live watching follows a running build from its run tree or log view: every
 `builds.live_interval` ms (5s by default) Workhorse opens the log of the latest step that has
 one, so when a step finishes the next refresh shows the step that started after it. Once a step
 fails, it switches to the first step that failed and stays on its log, instead of following the
-cleanup steps that run after it. When the run completes it stays on the last step's log (or the
-failed one) and stops refreshing. Logs opened while live
+cleanup steps that run after it. When the run succeeds it goes back to the run tree, with the
+cursor on the step it was following, since the step worth reading differs from pipeline to
+pipeline; otherwise it stays on the failed step's log (or the last one) and stops refreshing. Logs opened while live
 watching start with the cursor on the last line, so they keep following the tail. The run tree and log
 headers show `Live watching enabled` / `Live watching disabled`; `<CR>` on that line toggles
 it, as do `<leader>wu` (in build buffers) and `:Workhorse live`. The setting is global, so it

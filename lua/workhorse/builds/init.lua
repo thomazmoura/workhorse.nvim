@@ -410,6 +410,26 @@ local function follow_latest(bufnr, records)
   return true
 end
 
+local function succeeded(run)
+  return builds_api.is_completed(run.status) and run.result == "succeeded"
+end
+
+-- A run that succeeded ends live watching on its run tree, not its last log: the step worth
+-- reading differs from pipeline to pipeline. The window showing log view `bufnr` switches to the
+-- run tree, on the step it was following. Returns true when it switched.
+local function show_succeeded(bufnr)
+  local ctx = views[bufnr].ctx
+  local win = windows_of(bufnr)[1]
+  if not win then
+    return false
+  end
+  vim.notify("Workhorse: Run #" .. (ctx.run.build_number or ctx.run.id) .. " succeeded", vim.log.levels.INFO)
+  vim.api.nvim_win_call(win, function()
+    M.open_run(ctx.run, ctx.step.id)
+  end)
+  return true
+end
+
 -- Runs view -----------------------------------------------------------------
 
 -- Line of a run in the rendered runs view
@@ -563,13 +583,14 @@ local function reveal(ctx, records, id)
 end
 
 loaders.stages = function(bufnr, opts)
-  load_run_and_timeline(bufnr, opts, function(_, records)
+  load_run_and_timeline(bufnr, opts, function(run, records)
     local state = views[bufnr]
     state.ctx.records = records
-    -- Opening a running build with live watching on jumps straight to its latest log
+    -- Opening a running build with live watching on jumps straight to its latest log; a run
+    -- that succeeded stays on its tree
     local follow_now = state.ctx.follow_once
     state.ctx.follow_once = nil
-    if live and ((opts and opts.polling) or follow_now) and follow_latest(bufnr, records) then
+    if live and ((opts and opts.polling) or follow_now) and not succeeded(run) and follow_latest(bufnr, records) then
       return
     end
     reveal(state.ctx, records, state.focus_key)
@@ -679,12 +700,21 @@ loaders.log = function(bufnr, opts)
     return
   end
   local ctx = state.ctx
+  local was_running = not builds_api.is_completed(ctx.run.status)
   refresh_run(bufnr, opts, function()
     if not views[bufnr] then
       return
     end
     -- Live ticks always check the timeline, to catch the next step starting
     local follow = live and opts and opts.polling
+    -- The run succeeded while it was followed: on to its run tree (reopening the log still
+    -- fetches its tail)
+    if follow and was_running and succeeded(ctx.run) and windows_of(bufnr)[1] then
+      finish(bufnr)
+      set_polling(bufnr, false)
+      show_succeeded(bufnr)
+      return
+    end
     if ctx.step_done and not follow then
       -- A finished step's log never changes; reopening only re-shows it (and the run status)
       if ctx.loaded > 0 then
@@ -734,6 +764,135 @@ local function current_item(bufnr)
   end
   local lnum = vim.api.nvim_win_get_cursor(0)[1]
   return state.items and state.items[lnum]
+end
+
+-- Fold commands -------------------------------------------------------------
+
+-- The run tree draws its own folds (ctx.expanded: the stage and job lines showing the level
+-- below them), so Vim's fold commands are mapped onto those
+
+-- Line one level up the tree: a step's job, a job's stage
+local function tree_parent(ctx, item)
+  if item.kind == "step" then
+    return item.job
+  elseif item.kind == "job" then
+    return builds_api.stage_of(ctx.records, item.record)
+  end
+end
+
+-- Stage and job lines with a level below, by depth (1: stages, 2: jobs)
+local function foldable(records)
+  local depths = { {}, {} }
+  for _, stage in ipairs(builds_api.stages(records)) do
+    local jobs = builds_api.jobs_of_stage(records, stage)
+    if #jobs > 0 then
+      table.insert(depths[1], { record = stage })
+    end
+    for _, job in ipairs(jobs) do
+      if #builds_api.steps_of_job(records, job) > 0 then
+        table.insert(depths[2], { record = job, stage = stage })
+      end
+    end
+  end
+  return depths
+end
+
+-- zr/zm (`delta` levels more or fewer), zR/zM (`level` 2 or 0): like changing 'foldlevel', every
+-- depth up to the new level ends up open and every one below it closed
+local function fold_level(bufnr, delta, level)
+  local ctx = views[bufnr].ctx
+  if not ctx.records then
+    return
+  end
+  local depths = foldable(ctx.records)
+  if not level then
+    -- The current level: zr opens one past the depths fully open, zm closes the deepest open one
+    local open_level, deepest = 0, 0
+    for d, list in ipairs(depths) do
+      local all = true
+      for _, f in ipairs(list) do
+        local open = ctx.expanded[f.record.id] and (not f.stage or ctx.expanded[f.stage.id])
+        all = all and open
+        if open then
+          deepest = d
+        end
+      end
+      if all and open_level == d - 1 then
+        open_level = d
+      end
+    end
+    level = delta > 0 and open_level + delta or deepest + delta
+  end
+  for d, list in ipairs(depths) do
+    for _, f in ipairs(list) do
+      ctx.expanded[f.record.id] = d <= level or nil
+    end
+  end
+  render_tree(bufnr)
+end
+
+-- zo/zc/za ("open", "close", "toggle") on the line under the cursor; `recursive` for zO/zC/zA.
+-- As with Vim folds, closing a line whose level is already closed (or a step) closes the one
+-- above it, and the cursor lands on the line closed
+local function fold_line(bufnr, action, recursive)
+  local state = views[bufnr]
+  local ctx = state.ctx
+  local item = current_item(bufnr)
+  if not ctx.records or not item or not (item.kind == "stage" or item.kind == "job" or item.kind == "step") then
+    return
+  end
+  local record = item.has_children and item.record or nil
+  local is_open = record and ctx.expanded[record.id]
+  if action == "toggle" then
+    action = (record and not is_open) and "open" or "close"
+  end
+  if action == "open" then
+    if not record then
+      return
+    end
+    ctx.expanded[record.id] = true
+    if recursive and item.kind == "stage" then
+      for _, job in ipairs(builds_api.jobs_of_stage(ctx.records, record)) do
+        ctx.expanded[job.id] = true
+      end
+    end
+  else
+    -- zC closes every level the line is in, up to its stage
+    local target = recursive and builds_api.stage_of(ctx.records, item.record)
+      or (is_open and record or tree_parent(ctx, item))
+    if not target then
+      return
+    end
+    ctx.expanded[target.id] = nil
+    if recursive then
+      if record then
+        ctx.expanded[record.id] = nil
+      end
+      if item.job then
+        ctx.expanded[item.job.id] = nil
+      end
+    end
+    state.focus_key = target.id
+  end
+  render_tree(bufnr)
+end
+
+local function set_fold_keymaps(bufnr, opts)
+  local maps = {
+    zo = function() fold_line(bufnr, "open") end,
+    zO = function() fold_line(bufnr, "open", true) end,
+    zc = function() fold_line(bufnr, "close") end,
+    zC = function() fold_line(bufnr, "close", true) end,
+    za = function() fold_line(bufnr, "toggle") end,
+    zA = function() fold_line(bufnr, "toggle", true) end,
+    zr = function() fold_level(bufnr, vim.v.count1) end,
+    zm = function() fold_level(bufnr, -vim.v.count1) end,
+    zR = function() fold_level(bufnr, nil, 2) end,
+    zM = function() fold_level(bufnr, nil, 0) end,
+  }
+  for lhs, rhs in pairs(maps) do
+    vim.keymap.set("n", lhs, rhs, opts)
+  end
 end
 
 local function select_item(bufnr)
@@ -899,6 +1058,9 @@ local function set_keymaps(bufnr)
   vim.keymap.set("n", "q", function()
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end, opts)
+  if views[bufnr].kind == "stages" then
+    set_fold_keymaps(bufnr, opts)
+  end
 end
 
 local function setup_buffer(bufnr)
