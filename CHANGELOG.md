@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [1b945f8] - 2026-10-27
+
+### Changed
+- `<CR>` in normal mode inside the work item details confirms and applies the pending changes, then closes them (with no changes it just closes them; cancelling the confirmation keeps them open)
+- Writing the work item details buffer (`:w`, or an auto-save plugin) no longer saves it: the changes are sent only by `<leader><leader>` or `<CR>`
+
 ## [06d1d2a] - 2026-10-27
 
 ### Added
