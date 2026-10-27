@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [06d1d2a] - 2026-10-27
+
+### Added
+- The build run tree answers to Vim's fold commands: `zo`/`zc`/`za` (and `zO`/`zC`/`zA`) on the line under the cursor, `zr`/`zm` to open or close one more level of the whole tree, `zR`/`zM` to open or close all of it
+
+### Changed
+- Live watching of a run that succeeds goes back to the run tree, with the cursor on the step it was following, instead of staying on the last log; a failed run still stays on the failed step's log
+
 ## [fd81a5c] - 2026-10-27
 
 ### Fixed
