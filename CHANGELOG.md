@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [fd81a5c] - 2026-10-27
+
+### Fixed
+- Writing a build form buffer (`:w`, or an auto-save plugin firing on `InsertLeave`) no longer submits it: "Run new build", "New pipeline" and "New repository" are sent only by `<CR>` (normal mode) or `<leader><leader>`
+
 ## [ec3fa0d] - 2026-10-25
 
 ### Changed
