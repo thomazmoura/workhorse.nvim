@@ -22,8 +22,8 @@
 -- (it can be yanked and searched) that is never parsed: edits there are not saved, and a render
 -- puts it back. The column is the board column, as
 -- <leader>ws moves it: the state follows it on the server, through the board's state mappings.
--- A missing Column or Tags line keeps that field as it is. Saving (<leader><leader>, :w) confirms
--- the changes, sends them in one request, then refreshes the work item buffer the details were
+-- A missing Column or Tags line keeps that field as it is. Saving (<leader><leader>, or <CR>,
+-- which then closes the details; :w does nothing) confirms the changes, sends them in one request, then refreshes the work item buffer the details were
 -- opened from. There is one buffer per work item, hidden when its window closes: its unsaved
 -- edits stay until it is saved or reloaded.
 local M = {}
@@ -728,8 +728,9 @@ local function refresh_origin(origin)
   end)
 end
 
---- Confirm the changes of the details buffer `bufnr` (default: current), then send them
-function M.save(bufnr)
+--- Confirm the changes of the details buffer `bufnr` (default: current), then send them.
+--- `on_confirmed`, when given, runs once they are confirmed (or when there is nothing to apply)
+function M.save(bufnr, on_confirmed)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local state = buffers[bufnr]
   if not state then
@@ -747,6 +748,9 @@ function M.save(bufnr)
   if not next(changes) then
     vim.bo[bufnr].modified = false
     notify("No changes to apply")
+    if on_confirmed then
+      on_confirmed()
+    end
     return
   end
   local item = state.item
@@ -778,6 +782,9 @@ function M.save(bufnr)
   require("workhorse.ui.list_confirm").show(("Changes to #%d"):format(item.id), entries, function(confirmed)
     if not confirmed then
       return
+    end
+    if on_confirmed then
+      on_confirmed()
     end
     state.saving = true
     local done = require("workhorse.progress").start("Saving #" .. item.id)
@@ -858,7 +865,15 @@ local function setup_keymaps(bufnr)
   map("<leader>R", function()
     M.reload(bufnr)
   end, "reload the work item")
-  map("<CR>", close, "close the details")
+  -- With changes, confirm and apply them first: the save goes on with the buffer hidden, and a
+  -- failed one leaves its edits there
+  map("<CR>", function()
+    if vim.bo[bufnr].modified then
+      M.save(bufnr, close)
+    else
+      close()
+    end
+  end, "apply the changes and close the details")
   for _, lhs in ipairs({ "gb", "gw" }) do
     map(lhs, function()
       require("workhorse.builds").open_url(web_url(buffers[bufnr].item))
@@ -893,12 +908,12 @@ end
 
 local function setup_autocmds(bufnr)
   local group = vim.api.nvim_create_augroup("workhorse_details_" .. bufnr, { clear = true })
+  -- :w (e.g. an auto-save plugin's) does nothing: 'modified' tracks the pending changes, so it
+  -- stays as it is
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     group = group,
     buffer = bufnr,
-    callback = function()
-      M.save(bufnr)
-    end,
+    callback = function() end,
   })
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
@@ -933,7 +948,7 @@ end
 local function create(item)
   local bufnr = vim.api.nvim_create_buf(false, false)
   pcall(vim.api.nvim_buf_set_name, bufnr, "Workhorse|workitem|#" .. item.id)
-  -- acwrite: :w saves (through BufWriteCmd) instead of writing a file
+  -- acwrite: :w goes to BufWriteCmd (which ignores it) instead of writing a file
   vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].bufhidden = "hide"
   vim.bo[bufnr].swapfile = false

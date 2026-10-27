@@ -457,9 +457,12 @@ Discussion History                                   2 comments · read-only
   search work) but never saved: edits there are flagged and undone by the next reload or save. A missing or misplaced
   section header blocks saving until `<leader>R` restores it
 - **Navigation**: `<Tab>`/`<S-Tab>` move between the values, the description and the new comment
-- **Save**: `<leader><leader>` (or `:w`) confirms the changes, sends them in one request and refreshes the work item buffer
+- **Save**: `<leader><leader>` confirms the changes, sends them in one request and refreshes the work item buffer.
+  `:w` does nothing, so an auto-save plugin does not apply them
 - **Reload**: `<leader>R` discards the pending changes and loads the work item again
-- **Toggle**: Press `<CR>` again on the same item, or in normal mode inside the details, to close them; unsaved edits are kept
+- **Close**: `<CR>` in normal mode inside the details confirms and applies the pending changes, then closes them (with
+  no changes it just closes them; cancelling the confirmation keeps them open). Pressing `<CR>` again on the same item
+  in the list closes them too, keeping unsaved edits
 - **Browser**: Press `gb` or `gw` inside the details to open the work item in the browser
 
 ### Example Workflow
