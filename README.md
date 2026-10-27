@@ -602,7 +602,7 @@ offers the tags of the VMs of the environment in the matching `environment_name`
 when it names none), with its default (e.g. `-`) first. Tags are a comma-separated list, each item
 completed on its own; the hint on the right says which environment the tags come from.
 
-`<CR>` (normal mode), `<leader><leader>` or `:w` queues the run after a confirmation (`<CR>` accepts it), then opens its run
+`<CR>` (normal mode) or `<leader><leader>` queues the run after a confirmation (`<CR>` accepts it), then opens its run
 tree. Values are checked first (required, allowed values, booleans and numbers), and only
 values that differ from the pipeline's defaults are sent. `q` or `<Esc>` closes the form, and so
 does leaving the floating form for another window (e.g. `<C-h>`).
@@ -637,7 +637,7 @@ Queue: Default                                       agent queue for jobs withou
 - **Queue**: the agent queue for jobs whose YAML sets no `pool:`, offering the project's queues.
 
 Completion, `<Tab>`/`<S-Tab>`, `q`/`<Esc>` and the `builds.run_form` layout work as in the "Run
-new build" form. `<CR>` (normal mode), `<leader><leader>` or `:w` creates the pipeline after a
+new build" form. `<CR>` (normal mode) or `<leader><leader>` creates the pipeline after a
 confirmation, then opens its (empty) runs list, where `Run new build` queues its first run. The
 pipeline's CI trigger follows the YAML file's `trigger:`.
 
@@ -897,7 +897,7 @@ applies them in this order:
    UI offers) and/or a `README.md` (`yes`; `no` by default) — a first commit creates the branch,
    so its policies can be set right away. With nothing to commit (`.gitignore: none`,
    `README.md: no`) or an empty default branch, the repository starts without branches.
-   `<CR>` (normal mode), `<leader><leader>` or `:w` creates it after a confirmation; `q`/`<Esc>`
+   `<CR>` (normal mode) or `<leader><leader>` creates it after a confirmation; `q`/`<Esc>`
    skips it (the line stays pending).
 3. **Deletions** are confirmed one repository at a time: **Delete** asks you to type the
    repository's name (case aside) and deletes it (with its branches, pull requests and history;

@@ -3,7 +3,7 @@
 -- repository is created in the configured project; with a default branch and something to
 -- commit (the chosen .gitignore and/or a README.md, off by default), a first commit creates the
 -- branch, so its policies can be set right away; with nothing to commit it starts without
--- branches. <CR>, <leader><leader> (or :w) creates it after a confirmation.
+-- branches. <CR>, <leader><leader> creates it after a confirmation.
 local M = {}
 
 local forms = require("workhorse.builds.form")

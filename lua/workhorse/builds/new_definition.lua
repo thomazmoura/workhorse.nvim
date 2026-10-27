@@ -2,7 +2,7 @@
 -- Repos Git repository, one "name: value" line per field. Built on the form engine of the
 -- "Run new build" form (builds/form.lua): <Tab>/<S-Tab> move between the values, typing in a
 -- field shows its choices (folders, repositories, branches, YAML files, agent queues), and
--- <CR>, <leader><leader> (or :w) creates the pipeline after a confirmation.
+-- <CR>, <leader><leader> creates the pipeline after a confirmation.
 local M = {}
 
 local builds_api = require("workhorse.api.builds")

@@ -1,7 +1,7 @@
 -- "Run new build" form: a buffer with the branch, the YAML runtime parameters and
 -- the variables settable at queue time of a pipeline, one "name: value" line each.
 -- <Tab>/<S-Tab> move between the values, typing in the branch or a field with choices
--- shows them, and <CR>, <leader><leader> (or :w) queues the run after a confirmation.
+-- shows them, and <CR>, <leader><leader> queues the run after a confirmation.
 -- Only values that differ from the pipeline's defaults are sent. The form engine (completion,
 -- navigation, window) is builds/form.lua.
 local M = {}

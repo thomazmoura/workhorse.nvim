@@ -1,7 +1,7 @@
 -- Form engine of the build forms ("Run new build", "New pipeline"): a buffer of "name: value"
 -- lines in a float (or in place of the current buffer). <Tab>/<S-Tab> move between the values,
 -- typing in a field with choices shows them like a dropdown (blink.cmp or the native menu), and
--- <CR>, <leader><leader> (or :w) submits. The fields, their choices, highlights and what
+-- <CR> (normal mode) or <leader><leader> submits. The fields, their choices, highlights and what
 -- submitting does come from the form's spec (see M.create).
 local M = {}
 
@@ -197,7 +197,7 @@ end
 ---                true marks a comma-separated list, completed one item at a time
 ---   decorate(bufnr)  highlights and hints, run on every change
 ---   on_change(bufnr)  optional, run on every change before decorate
----   submit(bufnr)  run by <CR>, <leader><leader> and :w
+---   submit(bufnr)  run by <CR> and <leader><leader> (not by :w)
 ---   keymaps(bufnr, with_desc)  optional extra keymaps
 ---   on_close(form)  optional, run once the form is closed, however it was closed
 --- `form` is the form's state (see M.get), `name` the buffer name and `lines` its content
@@ -205,7 +205,8 @@ function M.create(spec, form, name, lines)
   counter = counter + 1
   local bufnr = vim.api.nvim_create_buf(false, true)
   pcall(vim.api.nvim_buf_set_name, bufnr, name .. "|" .. counter)
-  -- acwrite: :w submits (through BufWriteCmd) instead of writing a file
+  -- acwrite: :w (e.g. an auto-save plugin's, on InsertLeave) does nothing instead of writing a
+  -- file; only <CR> and <leader><leader> submit
   vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
@@ -222,7 +223,7 @@ function M.create(spec, form, name, lines)
     group = group,
     buffer = bufnr,
     callback = function()
-      spec.submit(bufnr)
+      vim.bo[bufnr].modified = false
     end,
   })
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
