@@ -5,7 +5,8 @@
 -- one confirmation. <C-c> on a form or the confirmation stops the rest of the save; what was
 -- applied stays, and the buffer is not reloaded (new lines just get their #ID). Pipelines can be
 -- hidden (from the pickers, and from this tab until <leader>w<C-h> shows them); the hidden ones
--- are kept in the repository cache (workhorse.repos).
+-- are kept in the repository cache (workhorse.repos). Opening it shows the pipelines of the
+-- repository cache right away, then those of the server once they arrive (see load).
 local M = {}
 
 local builds_api = require("workhorse.api.builds")
@@ -19,7 +20,7 @@ local config = require("workhorse.config")
 local mark_ns = vim.api.nvim_create_namespace("workhorse_pipelines_marks")
 
 -- Per-buffer state: { originals = { [id] = { name, path } }, hidden = { [id] = true }, loading,
--- saving }
+-- syncing (the cached pipelines shown, the server's awaited), saving, generation (of the load) }
 local buffers = {}
 -- The hidden pipelines are shown too (muted), for the session
 local show_hidden = false
@@ -95,12 +96,32 @@ local function render(bufnr)
   fold.collapse(bufnr, fold_snapshot)
 end
 
+-- Whether the server's `definitions` are the pipelines of `originals` (same ids, names and paths)
+local function same_definitions(originals, definitions)
+  if #definitions ~= vim.tbl_count(originals) then
+    return false
+  end
+  for _, d in ipairs(definitions) do
+    local original = originals[d.id]
+    if not original or original.name ~= d.name or original.path ~= d.path then
+      return false
+    end
+  end
+  return true
+end
+
 -- Fetch the definitions (and the hidden ones, from the repository cache) and render them,
--- replacing the buffer content; the repository cache is brought up to date with them. A hard load starts over like the first opening: the folds all
--- closed, the run statuses fetched again and the cursor on the first line
-local function load(bufnr, hard)
+-- replacing the buffer content; the repository cache is brought up to date with them. With
+-- `from_cache`, the cached pipelines are rendered as soon as the repository cache is read, and
+-- replaced by the server's when they differ (unless the buffer was edited meanwhile: the edits
+-- stay, and a notification tells); saving waits for the server meanwhile (state.syncing). A hard
+-- load starts over like the first opening: the folds all closed, the run statuses fetched again
+-- and the cursor on the first line
+local function load(bufnr, hard, from_cache)
   local state = buffers[bufnr]
-  state.loading = true
+  state.loading, state.syncing = true, false
+  state.generation = (state.generation or 0) + 1
+  local generation = state.generation
   if hard then
     state.loaded = false
     status.reset()
@@ -109,31 +130,67 @@ local function load(bufnr, hard)
   end
   local repos = require("workhorse.repos")
   local definitions, list_err, hidden
-  local pending = 2
-  local function joined()
-    pending = pending - 1
-    if pending > 0 or not buffers[bufnr] or not vim.api.nvim_buf_is_valid(bufnr) then
-      return
-    end
-    state.loading = false
-    if list_err or not definitions then
-      notify("Failed to list the pipelines: " .. tostring(list_err or "unknown error"), vim.log.levels.ERROR)
-      return
-    end
-    -- Every pipeline of the project: the repository cache learns the new ones
-    repos.learn_definitions(definitions, true)
+  -- The cached pipelines are on screen
+  local cached = false
+  -- Ends the progress indicator of the server's answer awaited behind them
+  local sync_done
+
+  -- A later load (or the buffer's wipe) makes this one moot
+  local function current()
+    return buffers[bufnr] == state and state.generation == generation and vim.api.nvim_buf_is_valid(bufnr)
+  end
+  local function show(list)
     state.originals = {}
-    for _, d in ipairs(definitions) do
+    for _, d in ipairs(list) do
       state.originals[d.id] = { name = d.name, path = d.path }
     end
-    state.hidden = hidden
     render(bufnr)
+  end
+  local function place_cursor()
     if hard then
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
         vim.api.nvim_win_set_cursor(win, { 1, 0 })
       end
     end
   end
+
+  local pending = 2
+  local function joined()
+    pending = pending - 1
+    if pending > 0 then
+      return
+    end
+    if sync_done then
+      sync_done(list_err ~= nil or not definitions)
+    end
+    if not current() then
+      return
+    end
+    state.loading, state.syncing = false, false
+    if list_err or not definitions then
+      notify("Failed to list the pipelines: " .. tostring(list_err or "unknown error")
+        .. (cached and " (showing the cached ones)" or ""), vim.log.levels.ERROR)
+      return
+    end
+    -- Every pipeline of the project: the repository cache learns the new ones
+    repos.learn_definitions(definitions, true)
+    if not cached then
+      state.hidden = hidden
+      show(definitions)
+      place_cursor()
+      return
+    end
+    if same_definitions(state.originals, definitions) then
+      return
+    end
+    if vim.bo[bufnr].modified then
+      notify("The pipelines changed on the server since they were cached: <leader>R reloads them"
+        .. " (discarding the pending changes)", vim.log.levels.WARN)
+      return
+    end
+    show(definitions)
+  end
+
   builds_api.list_definitions_full(function(result, err)
     definitions, list_err = result, err
     joined()
@@ -143,6 +200,15 @@ local function load(bufnr, hard)
       notify("Could not read the hidden pipelines: " .. tostring(err or "unknown error"), vim.log.levels.WARN)
     end
     hidden = repos.hidden_set(cache)
+    -- The server has not answered yet: the cached pipelines show meanwhile
+    if from_cache and cache and not definitions and not list_err and current() then
+      cached = true
+      state.loading, state.syncing = false, true
+      state.hidden = hidden
+      show(cache.definitions)
+      place_cursor()
+      sync_done = require("workhorse.progress").start("Fetching the server for pipeline updates")
+    end
     joined()
   end)
 end
@@ -377,13 +443,14 @@ function M.open_all()
   require("workhorse.buffer_tree.guides").setup_buffer(bufnr)
   status.attach(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
-  load(bufnr)
+  load(bufnr, false, true)
   return bufnr
 end
 
 --- Reload the pipelines list from the server (asks first when it has unsaved changes); opts.hard
---- reloads it from scratch (see load). The Recent tab reloads too. Returns false when `bufnr`
---- (default: current) is not a tab of the pipelines screen
+--- reloads it from scratch, like the first opening: from the repository cache first (see load).
+--- The Recent tab reloads too. Returns false when `bufnr` (default: current) is not a tab of the
+--- pipelines screen
 function M.refresh(bufnr, opts)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local state = buffers[bufnr]
@@ -397,7 +464,8 @@ function M.refresh(bufnr, opts)
   if vim.bo[bufnr].modified and vim.fn.confirm("Discard the pending changes and reload?", "&Reload\n&Cancel", 2) ~= 1 then
     return true
   end
-  load(bufnr, opts and opts.hard)
+  local hard = opts and opts.hard
+  load(bufnr, hard, hard)
   return true
 end
 
@@ -465,6 +533,10 @@ function M.save(bufnr)
   end
   if state.loading then
     notify("The pipelines are still loading", vim.log.levels.WARN)
+    return
+  end
+  if state.syncing then
+    notify("The pipelines are still syncing with the server", vim.log.levels.WARN)
     return
   end
   if state.saving then

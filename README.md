@@ -717,6 +717,13 @@ opens it in the browser, and
 `:Workhorse pipelines list` (or `<leader>wB`) again on a tab reloads it from scratch, like when
 it was first opened: every folder folded again and the run statuses fetched anew.
 
+Opening it (and reloading it with `<leader>wB` on the tab) shows the pipelines of the repository
+cache right away, and asks Azure DevOps for them in the background (shown as the "Fetching the
+server for pipeline updates" progress indicator): when they differ, the list is
+redrawn with the server's (keeping the folds) and the cache updated. If you edited the list
+meanwhile, your edits stay and a notification says the server differs (`<leader>R` reloads).
+Saving waits until the server has answered. `<leader>R` always waits for the server.
+
 #### Hiding pipelines
 
 Pipelines you never open can be hidden: they leave the All tab and both pipeline pickers
