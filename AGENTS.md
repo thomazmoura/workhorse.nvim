@@ -41,6 +41,14 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - API: `api/repositories.lua`, `api/security.lua`, `api/policies.lua`, `api/identities.lua`
 - `identities.lua` - Encrypted identity cache (users and groups, via the members of Project Collection Valid Users)
 
+**Libraries screen** (`lua/workhorse/libraries_screen/`, `<leader>wl`, `:Workhorse libraries`)
+- `init.lua` - Editable list of the project's variable groups (rename, delete one confirmation each; a new line opens a draft)
+- `library.lua` - Screen of one library, styled like the repository screen: Variables, Pipelines and Security sections, winbar, combined save; a draft's first save creates it
+- `variables.lua` - Variables as "name: value" lines (secrets shown empty: empty keeps them)
+- `pipelines.lua` - Pipelines allowed to use the library (pipeline permissions, "Open access")
+- `security.lua` - Roles (Reader, User, Administrator) per user and group (securityroles role assignments)
+- API: `api/libraries.lua`
+
 ### Data Flow
 
 ```
@@ -81,6 +89,7 @@ repository and identity caches are locksmith caches of the `workhorse` namespace
 - `:Workhorse repos list` - Repositories screen (also `<leader>wG`)
 - `:Workhorse repos here` - Screen of the repository of the working directory (also `<leader>wg`)
 - `:Workhorse identities refresh` - Update the identity cache
+- `:Workhorse libraries` - Libraries (variable groups) screen (also `<leader>wl`)
 
 ## Development Notes
 

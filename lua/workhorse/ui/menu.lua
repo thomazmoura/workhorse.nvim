@@ -1,6 +1,6 @@
 -- Menu of the Workhorse screens (<leader>w/, :Workhorse menu): a fuzzy picker of the work items,
--- repositories, builds and pull requests, of the project of the working directory or all of them.
--- Telescope when available, otherwise vim.ui.select (fuzzy with snacks.nvim, fzf-lua or dressing)
+-- repositories, libraries, builds and pull requests, of the project of the working directory or all
+-- of them. Telescope when available, otherwise vim.ui.select (fuzzy with snacks.nvim, fzf-lua or dressing)
 local M = {}
 
 local function workhorse()
@@ -14,6 +14,7 @@ local ENTRIES = {
   { "Repos of this project", function() workhorse().repo_screen() end },
   { "All Repos", function() workhorse().list_repos() end },
   { "All Repos Picker", function() workhorse().pick_repo() end },
+  { "Libraries", function() workhorse().list_libraries() end },
   { "Builds of this project", function() workhorse().repo_builds() end },
   { "Last Build", function() workhorse().resume_build() end },
   { "All Builds", function() workhorse().list_pipelines() end },

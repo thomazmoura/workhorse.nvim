@@ -306,6 +306,15 @@ function M.repo_screen()
   end)
 end
 
+-- Open the libraries screen (the variable groups of the project as an editable list; <CR> on
+-- one opens its Variables, Pipelines and Security sections)
+function M.list_libraries()
+  if not check_config() then
+    return
+  end
+  require("workhorse.libraries_screen").open()
+end
+
 -- Query Azure DevOps to update the identity cache (users and groups)
 function M.refresh_identities()
   if not check_config() then
@@ -335,9 +344,12 @@ end
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
   local repo_tabs = package.loaded["workhorse.repos_screen.repo"]
+  local libraries = package.loaded["workhorse.libraries_screen"]
+  local library = package.loaded["workhorse.libraries_screen.library"]
   if require("workhorse.builds").refresh() or require("workhorse.pipelines").refresh()
     or require("workhorse.prs").refresh() or require("workhorse.repos_screen").refresh()
-    or (repo_tabs and repo_tabs.refresh()) then
+    or (repo_tabs and repo_tabs.refresh()) or (libraries and libraries.refresh())
+    or (library and library.refresh()) then
     return
   end
 

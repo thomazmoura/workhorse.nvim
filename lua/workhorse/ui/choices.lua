@@ -1,6 +1,7 @@
 -- Completion of the values of a buffer's lines from a fixed list of choices, shown like a
 -- dropdown while typing (blink.cmp, see builds/blink_source.lua, or the native menu). Used by the
--- build forms ("name: value" lines, builds/form.lua) and by the editable repository screen.
+-- build forms ("name: value" lines, builds/form.lua) and by the editable repository and library
+-- screens.
 --
 -- A buffer attaches a source: { choices = fn(bufnr, lnum) -> list|nil, true for a
 -- comma-separated list completed one item at a time; start = fn(line, lnum) -> 0-based column

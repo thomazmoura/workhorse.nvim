@@ -18,6 +18,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
 - **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
 - **Repositories** - Create, rename and delete the project's repositories from an editable list, and edit their permissions (Security) and branch policies (required reviewers, builds, linked work items...) as text, with every value completed
+- **Libraries** - The project's variable groups as an editable list, each one's variables (secrets included), the pipelines allowed to use it and its security (Reader, User or Administrator roles) edited as text
 - **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk by locksmith.nvim)
 - **Progress like language servers** - A spinner while loading or saving (queries, refreshes, caches, new runs, pipelines and repositories): in [noice.nvim](https://github.com/folke/noice.nvim)'s LSP progress view when you use it, otherwise as a Neovim 0.12+ progress message
 - **Secrets under one password** - The PAT and the caches in the [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim) store shared with paperboy.nvim, unlocked once per Neovim (see "The PAT and locksmith")
@@ -298,6 +299,7 @@ In this mode:
 | `:Workhorse repos list` | The repositories of the project as an editable list (create, rename, delete them), each with its General, Security and Policies screen (see "Repositories") |
 | `:Workhorse repos here` | The General, Security and Policies screen of the repository of the working directory (the repositories list when it is not a known one) |
 | `:Workhorse identities refresh` | Update the identity cache (users and groups) from Azure DevOps |
+| `:Workhorse libraries` | The libraries (variable groups) of the project as an editable list (create, rename, delete them), each with its Variables, Pipelines and Security screen (also `<leader>wl`, see "Libraries") |
 | `:Workhorse menu` | Fuzzy menu of the screens (also `<leader>w/`, see "Menu") |
 
 ### Menu
@@ -312,6 +314,7 @@ In this mode:
 | Repos of this project | The screen of the repository of the working directory (`:Workhorse repos here`) |
 | All Repos | The repositories list (`:Workhorse repos list`) |
 | All Repos Picker | A repository picker (any project): the picked one's screen |
+| Libraries | The libraries list (`:Workhorse libraries`) |
 | Builds of this project | The pipelines of the repository of the working directory (`:Workhorse builds here`) |
 | Last Build | The runs of the last opened pipeline (`:Workhorse builds resume`) |
 | All Builds | The pipelines screen (`:Workhorse pipelines list`) |
@@ -1067,6 +1070,69 @@ Users". Like paperboy.nvim's company directory it is kept encrypted on disk
 queried the first time it is needed, and only queried again on demand: `<leader>wR` on a
 repository screen (which also updates the repository cache) or `:Workhorse identities refresh`.
 
+## Libraries
+
+`:Workhorse libraries` (or `<leader>wl`) lists the libraries (variable groups) of the configured
+`project` as an editable list, like the repositories screen, with each one's number of variables
+and description on the right:
+
+```
+#12 | Shared-Settings                1 variable  Settings of every environment
+#7 | Web-Production                  14 variables
+```
+
+`#id` is the library's id. Save with `:w` (or `<leader><leader>`): renames are applied right
+away, deletions are confirmed one library at a time (**Delete** asks you to type its name, **Keep**
+puts its line back, **Stop** stops the remaining ones), and a new line opens a draft library screen
+(the line leaves the list): type its variables there, and its first save creates it. `<CR>` on a
+library opens its screen, `gw` (or `gb`) opens it in the browser and `<leader>R` reloads the list.
+
+### Variables, Pipelines and Security
+
+The screen of a library is styled like the repository screen: the library's name as its title
+(its description and who last changed it on the right; `<CR>` on it, or `-` anywhere, goes back to
+the list), then three sections under bold titles, separated by horizontal rules. `}`/`{` move
+between them (`g1`/`g2`/`g3` jump to one, the window bar names them), `<Tab>`/`<S-Tab>` move
+between the values, and `:w` (or `<leader><leader>`) lists the changes of every section in one
+confirmation float, then applies them and reloads the sections that changed.
+
+```
+Shared-Settings                   Settings of every environment · Thomaz Moura, 27/10/26
+─────────────────────── ◇ ───────────────────────
+
+Variables
+├─ ApiUrl: https://example.com
+└─ Password (secret):
+
+─────────────────────── ◇ ───────────────────────
+
+Pipelines
+├─ Open access: off
+└─ CI\Web-Deploy
+
+─────────────────────── ◇ ───────────────────────
+
+Security
+├─ [GTI]\Project Administrators: Administrator (inherited)
+└─ Thomaz Moura: User
+```
+
+**Variables** has one `name: value` line per variable, edited freely: a new line adds one,
+deleting a line removes it (a library keeps at least one). Azure DevOps never sends a secret's
+value, so its line shows it empty, which keeps it; type a value to replace it. ` (secret)` after a
+name makes a variable secret; taking it off makes it a plain one, with the value typed. Line breaks
+of a value show as `\n`. A library linked to Azure Key Vault is read-only here.
+
+**Pipelines** lists the pipelines allowed to use the library, by folder and name (completed from
+the project's pipelines, those of the repository cache): a new line authorizes one, deleting a line revokes it. `Open access: on`
+lets every pipeline of the project use it.
+
+**Security** has the role of each user and group on the library — `Reader`, `User` or
+`Administrator` —, groups first. `(inherited)` marks a role that comes from the project's Library
+security: writing another role over it assigns that one here. A new `name: role` line (the name
+completed from the identity cache, see "Identity cache", or picked with `<leader>wa`) assigns a
+role, deleting a line removes the role assigned here (an inherited one cannot be removed).
+
 ## Repository cache
 
 The repository and pipeline pickers, and the keymaps that open what belongs to the repository
@@ -1159,6 +1225,9 @@ If no environment variable is set, the lualine component will not fetch any data
      rename and delete repositories and to change their default branch
    - **Identity**: Read (users and groups of the Security and Policies sections)
    - **Security**: Manage (to change the permissions on the Security tab)
+   - **Variable Groups**: Read (libraries); **Read, create, & manage** to create, change and
+     delete them, and to change their security
+   - **Pipeline Resources**: Use and manage (to change which pipelines may use a library)
 5. Copy the token and store it with `locksmith set workhorse/pat` (or `:Locksmith set workhorse/pat`) (or set it as `AZURE_DEVOPS_PAT`)
 
 ## License
