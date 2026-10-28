@@ -2,6 +2,13 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [6b9266e] - 2026-10-28
+
+### Added
+- `:Workhorse libraries` (or `<leader>wl`, and "Libraries" in the `<leader>w/` menu) lists the project's libraries (variable groups) as an editable list: rename, delete (confirmed by typing the name) and create them
+- The screen of a library has Variables (`name: value` lines, secrets kept when left empty), Pipelines (which pipelines may use it, and "Open access") and Security (Reader, User or Administrator roles per user and group) sections, saved with one combined confirmation
+- The pipelines and the users and groups of the library screen are completed from the repository and identity caches
+
 ## [c18fa1c] - 2026-10-27
 
 ### Added
