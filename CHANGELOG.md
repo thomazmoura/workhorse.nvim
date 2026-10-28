@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c18fa1c] - 2026-10-27
+
+### Added
+- The `<leader>w/` menu also has "All Repos Picker" (pick a repository of any project and open its General, Security and Policies screen), "All Builds Picker" (pick a pipeline and open its runs), "Run New Build" (pick a pipeline and open its "Run new build" form), "Recent Builds" (the Recent tab of the pipelines screen), "New Pipeline", "Last Build" and "Last PRs" (reopen the last opened pipeline and repository)
+
 ## [d010784] - 2026-10-27
 
 ### Added
