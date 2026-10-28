@@ -61,6 +61,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").resume()
   elseif cmd == "test" then
     require("workhorse.api.client").test()
+  elseif cmd == "menu" then
+    require("workhorse").menu()
   else
     -- No command or unknown command, show help
     vim.notify([[
@@ -87,6 +89,7 @@ Workhorse commands:
   :Workhorse refresh     - Refresh current buffer
   :Workhorse state       - Change state of item under cursor
   :Workhorse test        - Test connection to Azure DevOps
+  :Workhorse menu        - Fuzzy menu of the Workhorse screens (also <leader>w/)
 ]], vim.log.levels.INFO)
   end
 end, {
@@ -96,7 +99,7 @@ end, {
     if #parts <= 2 then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "PRs", "apply", "builds", "identities", "live", "pipelines", "query", "refresh", "repos", "resume",
+      end, { "PRs", "apply", "builds", "identities", "live", "menu", "pipelines", "query", "refresh", "repos", "resume",
         "resume-build", "state", "test" })
     end
     if #parts == 3 and parts[2] == "builds" then
@@ -219,6 +222,10 @@ vim.api.nvim_create_autocmd("ColorScheme", {
 })
 
 -- Global keymaps
+vim.keymap.set("n", "<leader>w/", function()
+  require("workhorse").menu()
+end, { silent = true, desc = "Workhorse: Menu (work items, repositories, builds, pull requests)" })
+
 vim.keymap.set("n", "<leader>wQ", function()
   require("workhorse").resume()
 end, { silent = true, desc = "Workhorse: Resume last query" })

@@ -298,6 +298,23 @@ In this mode:
 | `:Workhorse repos list` | The repositories of the project as an editable list (create, rename, delete them), each with its General, Security and Policies screen (see "Repositories") |
 | `:Workhorse repos here` | The General, Security and Policies screen of the repository of the working directory (the repositories list when it is not a known one) |
 | `:Workhorse identities refresh` | Update the identity cache (users and groups) from Azure DevOps |
+| `:Workhorse menu` | Fuzzy menu of the screens (also `<leader>w/`, see "Menu") |
+
+### Menu
+
+`<leader>w/` (or `:Workhorse menu`) opens a fuzzy picker (Telescope when installed, otherwise
+`vim.ui.select`) of the Workhorse screens:
+
+| Entry | Opens |
+|-------|-------|
+| Work Items | The last query (`:Workhorse resume`) |
+| Work Items Query | The query picker (`:Workhorse query`) |
+| Repos of this project | The screen of the repository of the working directory (`:Workhorse repos here`) |
+| Builds of this project | The pipelines of the repository of the working directory (`:Workhorse builds here`) |
+| PRs of this project | The pull requests of the repository of the working directory (`:Workhorse PRs here`) |
+| All Repos | The repositories list (`:Workhorse repos list`) |
+| All Builds | The pipelines screen (`:Workhorse pipelines list`) |
+| All PRs | The repository picker of the pull requests (`:Workhorse PRs`) |
 
 ### Buffer Keymaps
 
@@ -672,9 +689,6 @@ statuses come with the list and are then refreshed like those of the tree, only 
 on screen; the Recent tab fetches nothing until it is opened. Both tabs update the pipelines of the
 repository cache with what they list (see "Repository cache").
 
-On both tabs, `/` (or `<leader>w/`) opens the fuzzy picker of the pipelines that are not hidden
-(`:Workhorse builds`), in place of the search of the buffer.
-
 ### Organizing pipelines
 
 The All tab shows every pipeline (build definition) of the project as an editable
@@ -727,7 +741,7 @@ Saving waits until the server has answered. `<leader>R` always waits for the ser
 #### Hiding pipelines
 
 Pipelines you never open can be hidden: they leave the All tab and both pipeline pickers
-(`:Workhorse builds`, `/` and `<leader>w/` on the pipelines screen, and the pipelines of the current repository, `<leader>wb`).
+(`:Workhorse builds`, and the pipelines of the current repository, `<leader>wb`).
 Each key works on the pipeline under the cursor, on every pipeline of a closed folder under the
 cursor, or on the visual selection:
 

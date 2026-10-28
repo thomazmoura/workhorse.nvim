@@ -135,6 +135,11 @@ function M.open_query(query_id, query_name)
   end
 end
 
+-- Fuzzy menu of the Workhorse screens (work items, repositories, builds, pull requests)
+function M.menu()
+  require("workhorse.ui.menu").open()
+end
+
 -- Open Telescope picker for saved queries
 function M.pick_query()
   if not check_config() then

@@ -57,7 +57,7 @@ local function cycle(bufnr, step)
   end
 end
 
---- Keymaps shared by both tabs: switching tabs and the pipeline picker
+--- Keymaps shared by both tabs: switching tabs
 function M.setup_buffer(bufnr)
   local function map(lhs, fn, desc)
     vim.keymap.set("n", lhs, fn, { buffer = bufnr, silent = true, desc = "Workhorse: " .. desc })
@@ -72,12 +72,6 @@ function M.setup_buffer(bufnr)
     map("g" .. i, function()
       M.show(tab)
     end, TAB_LABELS[tab] .. " pipelines tab")
-  end
-  -- `/` replaces the search of the buffer: the picker of the pipelines (the hidden ones aside)
-  for _, lhs in ipairs({ "/", "<leader>w/" }) do
-    map(lhs, function()
-      require("workhorse.builds").pick()
-    end, "pick a pipeline")
   end
 end
 

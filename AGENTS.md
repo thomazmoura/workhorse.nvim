@@ -29,6 +29,7 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `choices.lua` - Dropdown-like completion of line values (build forms, repository screen; blink.cmp or native)
 - `list_confirm.lua` - Confirmation float listing the changes of a save
 - `type_name.lua` - Type-to-confirm of a deletion (the name must be typed, case aside)
+- `menu.lua` - Fuzzy menu of the screens (`<leader>w/`, `:Workhorse menu`; Telescope or vim.ui.select)
 
 **Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wG`; `<leader>wg` opens the screen of the repository of the working directory)
 - `init.lua` + `list.lua` - Editable list of the project's repositories (rename, create, delete one confirmation each)
@@ -76,6 +77,7 @@ repository and identity caches are locksmith caches of the `workhorse` namespace
 - `:Workhorse state` - Change state of item under cursor
 - `:Workhorse refresh` - Refresh from server
 - `:Workhorse resume` - Reopen last query
+- `:Workhorse menu` - Fuzzy menu of the screens (also `<leader>w/`)
 - `:Workhorse repos list` - Repositories screen (also `<leader>wG`)
 - `:Workhorse repos here` - Screen of the repository of the working directory (also `<leader>wg`)
 - `:Workhorse identities refresh` - Update the identity cache
