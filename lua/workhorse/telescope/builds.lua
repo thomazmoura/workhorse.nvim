@@ -2,7 +2,8 @@ local M = {}
 
 -- Pick a pipeline (build definition) using Telescope. The pipelines come from the repository
 -- cache (workhorse.repos), or from opts.definitions when given (e.g. those of one repository),
--- without the hidden ones; opts.prompt_title replaces the title
+-- without the hidden ones; opts.prompt_title replaces the title, opts.on_select(definition) what
+-- picking one does (default: open its runs)
 function M.pick(opts)
   opts = opts or {}
 
@@ -28,7 +29,7 @@ function M.pick(opts)
     end
 
     local picker_opts = vim.tbl_extend("force", {}, opts)
-    picker_opts.definitions, picker_opts.prompt_title = nil, nil
+    picker_opts.definitions, picker_opts.prompt_title, picker_opts.on_select = nil, nil, nil
     pickers.new(picker_opts, {
       prompt_title = opts.prompt_title or "Azure DevOps Pipelines",
       finder = finders.new_table({
@@ -48,7 +49,9 @@ function M.pick(opts)
         actions.select_default:replace(function()
           actions.close(prompt_bufnr)
           local selection = action_state.get_selected_entry()
-          if selection then
+          if selection and opts.on_select then
+            opts.on_select(selection.value)
+          elseif selection then
             require("workhorse.builds").open_runs(selection.value.id, selection.value.name)
           end
         end)

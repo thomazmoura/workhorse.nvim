@@ -1,9 +1,12 @@
 local M = {}
 
 -- Pick a Git repository (of any project, from the repository cache) using Telescope, then list
--- its pull requests
+-- its pull requests. opts.on_select(repo) replaces what picking one does, opts.prompt_title the title
 function M.pick(opts)
-  opts = opts or {}
+  -- A copy without the options of this picker, passed on to Telescope
+  opts = vim.tbl_extend("force", {}, opts or {})
+  local on_select, prompt_title = opts.on_select, opts.prompt_title
+  opts.on_select, opts.prompt_title = nil, nil
 
   local ok, _ = pcall(require, "telescope")
   if not ok then
@@ -34,7 +37,7 @@ function M.pick(opts)
     end
 
     pickers.new(opts, {
-      prompt_title = "Azure DevOps Repositories",
+      prompt_title = prompt_title or "Azure DevOps Repositories",
       finder = finders.new_table({
         results = repos,
         entry_maker = function(repo)
@@ -51,7 +54,9 @@ function M.pick(opts)
         actions.select_default:replace(function()
           actions.close(prompt_bufnr)
           local selection = action_state.get_selected_entry()
-          if selection then
+          if selection and on_select then
+            on_select(selection.value)
+          elseif selection then
             require("workhorse.prs").open_list(selection.value)
           end
         end)

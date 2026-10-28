@@ -190,6 +190,39 @@ function M.list_pipelines()
   require("workhorse.pipelines").open()
 end
 
+-- The Recent tab of the pipelines screen (the pipelines that ran most recently)
+function M.recent_pipelines()
+  if not check_config() then
+    return
+  end
+  require("workhorse.pipelines.tabs").show("recent")
+end
+
+-- Fuzzy-pick a pipeline, then open its "Run new build" form
+function M.pick_new_build()
+  require("workhorse.builds").pick({
+    prompt_title = "Run new build of",
+    on_select = function(definition)
+      require("workhorse.builds.new_run").open(definition.id, definition.name)
+    end,
+  })
+end
+
+-- Fuzzy-pick a repository (of any project), then open its screen (default branch, security and
+-- policies)
+function M.pick_repo()
+  if not check_config() then
+    return
+  end
+  require("workhorse.telescope.prs").pick({
+    prompt_title = "Repository screen",
+    on_select = function(repo)
+      -- A copy: the screen updates its repository in place (its default branch)
+      require("workhorse.repos_screen.repo").open(vim.deepcopy(repo))
+    end,
+  })
+end
+
 -- Fuzzy-pick a repository, then list its pull requests
 function M.pick_prs()
   require("workhorse.prs").pick()

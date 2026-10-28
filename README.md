@@ -310,10 +310,17 @@ In this mode:
 | Work Items | The last query (`:Workhorse resume`) |
 | Work Items Query | The query picker (`:Workhorse query`) |
 | Repos of this project | The screen of the repository of the working directory (`:Workhorse repos here`) |
-| Builds of this project | The pipelines of the repository of the working directory (`:Workhorse builds here`) |
-| PRs of this project | The pull requests of the repository of the working directory (`:Workhorse PRs here`) |
 | All Repos | The repositories list (`:Workhorse repos list`) |
+| All Repos Picker | A repository picker (any project): the picked one's screen |
+| Builds of this project | The pipelines of the repository of the working directory (`:Workhorse builds here`) |
+| Last Build | The runs of the last opened pipeline (`:Workhorse builds resume`) |
 | All Builds | The pipelines screen (`:Workhorse pipelines list`) |
+| Recent Builds | The Recent tab of the pipelines screen |
+| All Builds Picker | The pipeline picker: the picked one's runs (`:Workhorse builds`) |
+| Run New Build | A pipeline picker: the "Run new build" form of the picked one |
+| New Pipeline | The "New pipeline" form (`:Workhorse pipelines new`) |
+| PRs of this project | The pull requests of the repository of the working directory (`:Workhorse PRs here`) |
+| Last PRs | The pull requests of the last opened repository (`:Workhorse PRs resume`) |
 | All PRs | The repository picker of the pull requests (`:Workhorse PRs`) |
 
 ### Buffer Keymaps
