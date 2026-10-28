@@ -2,6 +2,14 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [d010784] - 2026-10-27
+
+### Added
+- `<leader>w/` (or `:Workhorse menu`) opens a fuzzy menu of the screens: work items (last query or query picker), repositories, builds and pull requests, each of the project of the working directory or all of them (Telescope, otherwise `vim.ui.select`)
+
+### Changed
+- The pipelines list no longer maps `/` and `<leader>w/` to the pipeline picker: `/` is Vim's search again and `<leader>w/` opens the menu (the picker stays on `:Workhorse builds`)
+
 ## [8e85eee] - 2026-10-27
 
 ### Changed
