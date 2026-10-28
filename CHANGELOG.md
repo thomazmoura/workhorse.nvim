@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [8e85eee] - 2026-10-27
+
+### Changed
+- The All tab of the pipelines list (`<leader>wB`, also when pressed again on the tab) shows the pipelines of the repository cache right away and asks Azure DevOps for them in the background, with a "Fetching the server for pipeline updates" progress indicator; the list is redrawn only when the server's pipelines differ (folds kept), or left as is with a warning when it has pending edits
+- Saving the pipelines list waits until the server has answered; `<leader>R` still waits for the server before showing the list
+
 ## [1b945f8] - 2026-10-27
 
 ### Changed
