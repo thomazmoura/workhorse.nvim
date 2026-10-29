@@ -1058,6 +1058,14 @@ local function set_keymaps(bufnr)
   vim.keymap.set("n", "q", function()
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end, opts)
+  -- Fuzzy search: another pipeline from a runs list, a step of the run from its tree or a log
+  vim.keymap.set("n", "<M-/>", function()
+    if views[bufnr].kind == "runs" then
+      M.pick()
+    else
+      M.pick_step(bufnr)
+    end
+  end, opts)
   if views[bufnr].kind == "stages" then
     set_fold_keymaps(bufnr, opts)
   end
@@ -1451,6 +1459,60 @@ function M.pick_stage_to_rerun(bufnr)
     if stage then
       rerun_stage(bufnr, run, stage)
     end
+  end)
+end
+
+-- Fuzzy-pick a step of the run of a run tree or log ("Stage › Job › Step", every stage and job),
+-- then open its log; a step without a log yet is shown in the run tree instead
+function M.pick_step(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  local run = state and state.ctx.run
+  if not run then
+    vim.notify("Workhorse: Open a run to search its steps", vim.log.levels.WARN)
+    return
+  end
+  local function pick(records)
+    local entries = {}
+    for _, stage in ipairs(builds_api.stages(records)) do
+      for _, job in ipairs(builds_api.jobs_of_stage(records, stage)) do
+        for _, step in ipairs(builds_api.steps_of_job(records, job)) do
+          table.insert(entries, { stage = stage, job = job, step = step })
+        end
+      end
+    end
+    if #entries == 0 then
+      vim.notify("Workhorse: This run has no steps yet", vim.log.levels.INFO)
+      return
+    end
+    require("workhorse.ui.picker").select(entries, {
+      prompt = "Steps of run #" .. (run.build_number or run.id),
+      format_item = function(entry)
+        local path = { entry.stage.name, entry.job.name, entry.step.name }
+        -- A phase without jobs stands in for its job: no need to name it twice
+        if entry.job == entry.stage then
+          table.remove(path, 2)
+        end
+        return builds_api.status_icon(entry.step.state, entry.step.result) .. " " .. table.concat(path, " › ")
+      end,
+    }, function(entry)
+      if entry.step.log then
+        M.open_log(run, entry.job, entry.step)
+      else
+        M.open_run(run, entry.step.id)
+      end
+    end)
+  end
+  -- The run tree has its timeline; a log fetches it (cached once the run finished)
+  if state.ctx.records then
+    return pick(state.ctx.records)
+  end
+  fetch_timeline(run, function(records, err)
+    if not records then
+      vim.notify("Workhorse: Failed to load the steps of the run: " .. tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    pick(records)
   end)
 end
 

@@ -991,6 +991,33 @@ local function jump_file(bufnr, step)
   end
 end
 
+-- Fuzzy-pick a changed file of the pull request, then land on its diff (on the Changes tab)
+local function pick_file(bufnr)
+  local ctx = views[bufnr].ctx
+  local changes = ctx.data.changes
+  if not changes or #changes == 0 then
+    vim.notify("Workhorse: " .. (changes and "No changed files" or "The changes are still loading"),
+      vim.log.levels.INFO)
+    return
+  end
+  require("workhorse.ui.picker").select(changes, {
+    prompt = "Files of !" .. ctx.id,
+    format_item = function(change)
+      return change.path:gsub("^/", "") .. "  (" .. tostring(change.change_type) .. ")"
+    end,
+  }, function(change)
+    local lnum = ctx.tab == "changes" and find_line(bufnr, "file_header:" .. change.path)
+    if lnum then
+      vim.api.nvim_win_set_cursor(0, { lnum, 0 })
+      vim.cmd("normal! zt")
+      return
+    end
+    -- Another tab (or the file is still loading): the render lands on it once it is there
+    ctx.jump = { path = change.path }
+    M.set_tab(bufnr, "changes")
+  end)
+end
+
 -- Actions ---------------------------------------------------------------------
 
 local function pr_of(bufnr)
@@ -1231,8 +1258,14 @@ local function set_keymaps(bufnr, kind)
     map("<leader>wm", function()
       load_list(bufnr)
     end)
+    -- Fuzzy search of the repositories, to list the pull requests of another one
+    map("<M-/>", M.pick)
     return
   end
+  -- Fuzzy search of the files the pull request changes
+  map("<M-/>", function()
+    pick_file(bufnr)
+  end)
   local function back()
     local ctx = views[bufnr].ctx
     M.open_list(ctx.repo, ctx.id)

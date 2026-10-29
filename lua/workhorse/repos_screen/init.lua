@@ -108,6 +108,9 @@ local function setup_keymaps(bufnr)
   end)
   map("gw", open_repo, "open the repository in the browser")
   map("gb", open_repo, "open the repository in the browser")
+  map("<M-/>", function()
+    require("workhorse").pick_repo()
+  end, "fuzzy search of the repositories")
 end
 
 local function setup_autocmds(bufnr)

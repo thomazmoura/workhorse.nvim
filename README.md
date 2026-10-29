@@ -326,6 +326,20 @@ In this mode:
 | Last PRs | The pull requests of the last opened repository (`:Workhorse PRs resume`) |
 | All PRs | The repository picker of the pull requests (`:Workhorse PRs`) |
 
+### Context search
+
+`<M-/>` (Alt+/; `/` still searches the buffer) opens the fuzzy search of the screen it is
+pressed on, with the same picker as the menu:
+
+| Screen | Searches |
+|--------|----------|
+| Work items (flat and tree queries) | The saved queries (`:Workhorse query`) |
+| Pipelines (All and Recent tabs), runs of a pipeline | The pipelines: the picked one's runs (`:Workhorse builds`) |
+| Run tree (stages, jobs, steps), step log | Every step of the run (`Stage › Job › Step`): the picked one's log, or its line in the run tree while it has no log yet |
+| Repositories list, repository screen | The repositories (any project): the picked one's screen |
+| Pull request list | The repositories: the picked one's pull requests (`:Workhorse PRs`) |
+| Pull request | The files it changes: the picked one's diff on the Changes tab |
+
 ### Buffer Keymaps
 
 Wherever `<Space>` folds or activates a line below, `<S-Space>` and `<M-Space>` do the same
@@ -344,6 +358,7 @@ When in a workhorse buffer (flat queries):
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
 | `gw` or `gb` | Open work item in browser |
+| `<M-/>` | Fuzzy search of the saved queries |
 
 When in a workhorse buffer (tree queries):
 
@@ -355,6 +370,7 @@ When in a workhorse buffer (tree queries):
 | `<leader><leader>` | Apply changes |
 | `<leader>R` | Refresh buffer |
 | `gw` or `gb` | Open work item in browser |
+| `<M-/>` | Fuzzy search of the saved queries |
 
 ### Cursor Tracking
 
@@ -587,6 +603,7 @@ Set `builds.live_on_running = false` to keep it off until you toggle it.
 | `<leader>wa` | Permit the pipeline to use the resources the run waits for (see "Permitting a waiting build") |
 | `gw` | Open the run, job or step in the browser; on the `Pipeline` line, open the pipeline definition |
 | `gb` | Open the view itself in the browser: the run of a run tree, the step of a log; on the runs list, the run under the cursor (the pipeline elsewhere) |
+| `<M-/>` | Fuzzy search: of the pipelines on the runs list, of the steps of the run on a run tree or log |
 | `q` | Close the buffer |
 
 ### Running a new build
@@ -893,6 +910,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<Tab>` / `<S-Tab>` | Next / previous tab |
 | `g1` `g2` | Overview / Changes tab |
 | `]f` / `[f` | Next / previous file diff |
+| `<M-/>` | Fuzzy search of the changed files (pull request), of the repositories (list) |
 | `<leader>wv` | Vote (approve, approve with suggestions, reset, wait for author, reject) |
 | `<leader>wc` | Complete the pull request |
 | `<leader>wa` | Set auto-complete, or cancel it when already set |
@@ -944,7 +962,8 @@ applies them in this order:
 
 `<C-c>` on a form (or its prompt) stops the rest of the save; what was applied stays applied, and
 the repository cache is updated in the background. `<CR>` on a repository opens its screen (see
-below), `gw` (or `gb`) opens it in the browser and `<leader>R` (or `:Workhorse refresh`) reloads the list.
+below), `gw` (or `gb`) opens it in the browser, `<M-/>` fuzzy-searches the repositories (of any
+project) to open another one's screen, and `<leader>R` (or `:Workhorse refresh`) reloads the list.
 
 ### General, Security and Policies
 

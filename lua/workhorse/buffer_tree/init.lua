@@ -469,6 +469,11 @@ function M.setup_keymaps(bufnr)
   vim.keymap.set("n", "gb", function()
     M.open_in_browser(bufnr)
   end, opts)
+
+  -- Fuzzy search of the saved queries
+  vim.keymap.set("n", "<M-/>", function()
+    require("workhorse").pick_query()
+  end, opts)
 end
 
 function M.get_state(bufnr)
