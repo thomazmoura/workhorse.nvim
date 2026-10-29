@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [fcdcc4f] - 2026-10-29
+
+### Added
+- `<M-/>` opens the fuzzy search of the screen it is pressed on: the saved queries on the work items, the pipelines on the pipelines screens and runs lists, every step (`Stage › Job › Step`) on a run tree or log, the repositories on the repositories list, repository screen and pull request list, and the changed files inside a pull request
+- A shared fuzzy picker (Telescope, otherwise `vim.ui.select`) used by the menu and the new searches
+
 ## [6b9266e] - 2026-10-28
 
 ### Added
