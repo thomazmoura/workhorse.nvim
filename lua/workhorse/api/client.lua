@@ -5,6 +5,8 @@ local config = require("workhorse.config")
 local store = require("workhorse.store")
 
 local PAT_NAME = "pat"
+-- The PAT, once read from the locksmith store
+local pat = nil
 -- Callbacks waiting for the PAT from the locksmith store (concurrent requests share one prompt)
 local pat_waiting = nil
 
@@ -23,31 +25,27 @@ local function base64_encode(str)
   error("Failed to base64 encode - neither vim.base64 nor base64 command available")
 end
 
---- The PAT: setup()'s pat or $AZURE_DEVOPS_PAT, else workhorse/pat from the locksmith store (its
---- password is asked on the first request), kept in the config once read
+--- The PAT: workhorse/pat from the locksmith store, its only source (its password is asked on
+--- the first request), kept in memory once read
 ---@param callback function Callback(pat, error)
 local function get_pat(callback)
-  local cfg = config.get()
-  if cfg.pat then
-    return callback(cfg.pat, nil)
+  if pat then
+    return callback(pat, nil)
   end
   if pat_waiting then
     return table.insert(pat_waiting, callback)
   end
   pat_waiting = { callback }
-  store.get_secret(PAT_NAME, function(pat, err)
-    if not pat and not err then
+  store.get_secret(PAT_NAME, function(value, err)
+    if not value and not err then
       local name = store.NAMESPACE .. "/" .. PAT_NAME
-      err = "no PAT: store it with `:Locksmith set " .. name .. "` (or `locksmith set " .. name
-        .. "`), or set AZURE_DEVOPS_PAT"
-    elseif err and not pat then
-      err = err .. " (or set AZURE_DEVOPS_PAT)"
+      err = "no PAT: store it with `:Locksmith set " .. name .. "` (or `locksmith set " .. name .. "`)"
     end
-    cfg.pat = pat
+    pat = value
     local callbacks = pat_waiting
     pat_waiting = nil
     for _, cb in ipairs(callbacks) do
-      cb(pat, err)
+      cb(value, err)
     end
   end)
 end
@@ -128,11 +126,11 @@ local function handle_transport_error(err, opts)
 end
 
 function M.request(opts)
-  get_pat(function(pat, err)
-    if not pat then
+  get_pat(function(value, err)
+    if not value then
       return handle_transport_error({ message = err }, opts)
     end
-    M.request_with(opts, get_auth_header(pat))
+    M.request_with(opts, get_auth_header(value))
   end)
 end
 
@@ -203,7 +201,7 @@ function M.test()
   vim.notify("Workhorse Debug Info:\n" ..
     "  Server URL: " .. (cfg.server_url or "NOT SET") .. "\n" ..
     "  Project: " .. (cfg.project or "NOT SET") .. "\n" ..
-    "  PAT: " .. (cfg.pat and (cfg.pat:sub(1, 4) .. "..." .. cfg.pat:sub(-4)) or "not read yet (locksmith)") .. "\n" ..
+    "  PAT: " .. (pat and (pat:sub(1, 4) .. "..." .. pat:sub(-4)) or "not read yet (locksmith)") .. "\n" ..
     "  Full test URL: " .. full_url,
     vim.log.levels.INFO
   )

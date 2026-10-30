@@ -30,9 +30,8 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (for query and pipeline pickers)
 - Azure DevOps Server or Azure DevOps Services with a Personal Access Token (PAT)
 - [locksmith.nvim](https://github.com/thomazmoura/locksmith.nvim), with its requirements
-  (LuaJIT, libcrypto and libargon2 or OpenSSL >= 3.2), to keep the PAT and the caches across
-  sessions. Optional: without it, the PAT comes from `setup()` or `AZURE_DEVOPS_PAT` and the
-  caches live in memory only
+  (LuaJIT, libcrypto and libargon2 or OpenSSL >= 3.2): the only source of the PAT, and where
+  the caches are kept across sessions
 
 ## Installation
 
@@ -88,7 +87,7 @@ lua require("workhorse").setup({ project = "YourProject" })
 
 ### Environment Variables
 
-Set these environment variables for authentication:
+Set the server URL in the environment and the PAT in locksmith:
 
 ```bash
 export AZURE_DEVOPS_URL="https://dev.azure.com/your-organization"
@@ -97,9 +96,11 @@ export AZURE_DEVOPS_URL="https://your-server/tfs/DefaultCollection"
 
 # The PAT: in the locksmith store (asks its password, then the PAT; see "The PAT and locksmith")
 locksmith set workhorse/pat     # or :Locksmith set workhorse/pat in Neovim
-# or in the environment (readable by any program running as you)
-export AZURE_DEVOPS_PAT="your-personal-access-token"
 ```
+
+The PAT is only ever read from the locksmith store: there is no `AZURE_DEVOPS_PAT` variable
+nor `pat` option (a `pat` given to `setup()` is ignored, with a warning), so it never sits in
+plain text in a config file or in the environment of the programs you run.
 
 ### The PAT and locksmith
 
@@ -108,16 +109,15 @@ store, an encrypted store shared with [paperboy.nvim](https://github.com/thomazm
 and unlocked once per Neovim with a password that is never stored (see locksmith's README for
 its design):
 
-- **The PAT** is the secret `workhorse/pat`, read on the first request when it is not in
-  `setup()` or `AZURE_DEVOPS_PAT`. That read unlocks the store, asking its password, unless
+- **The PAT** is the secret `workhorse/pat`, read on the first request. That read unlocks the store, asking its password, unless
   another plugin (paperboy) already did. Store it with `:Locksmith set workhorse/pat` or, on the
   command line, `locksmith set workhorse/pat` (`pass show azure/pat | locksmith set workhorse/pat`).
 - **The repository and identity caches** are locksmith caches of the `workhorse` namespace
   (`~/.cache/locksmith/workhorse/`), sealed with the store's key.
 - **Password declined** (prompt left empty): locksmith does not ask again in that Neovim, and
   the caches live in memory only. `<leader>wR` (or `:Locksmith unlock`) asks again.
-- **Without locksmith** (not installed, or missing its crypto libraries): the PAT must come
-  from `setup()` or `AZURE_DEVOPS_PAT`, and the caches live in memory only, for the session.
+- **Without locksmith** (not installed, or missing its crypto libraries): there is no PAT, so
+  no request can be made (locksmith is required in practice).
 
 `:Locksmith status`, `:Locksmith passwd`, `:Locksmith lock` and the other commands are
 locksmith's: see its README.
@@ -138,7 +138,7 @@ require("workhorse").setup({
 
   -- Optional: Override environment variables
   server_url = nil,  -- Falls back to AZURE_DEVOPS_URL
-  pat = nil,         -- Falls back to AZURE_DEVOPS_PAT, then to workhorse/pat in the locksmith store
+  -- No pat option: the PAT is only read from workhorse/pat in the locksmith store
 
   -- Team name (required for board_column grouping mode)
   team = nil,  -- e.g., "MyProject Team"
@@ -1262,7 +1262,7 @@ If no environment variable is set, the lualine component will not fetch any data
    - **Variable Groups**: Read (libraries); **Read, create, & manage** to create, change and
      delete them, and to change their security
    - **Pipeline Resources**: Use and manage (to change which pipelines may use a library)
-5. Copy the token and store it with `locksmith set workhorse/pat` (or `:Locksmith set workhorse/pat`) (or set it as `AZURE_DEVOPS_PAT`)
+5. Copy the token and store it with `locksmith set workhorse/pat` (or `:Locksmith set workhorse/pat`)
 
 ## License
 

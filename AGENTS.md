@@ -73,7 +73,7 @@ Change types detected: CREATED, UPDATED, DELETED, STATE_CHANGED (by moving lines
 
 Environment variables:
 - `AZURE_DEVOPS_URL` - Organization URL (e.g., https://dev.azure.com/org)
-- `AZURE_DEVOPS_PAT` - Personal Access Token (optional: otherwise `workhorse/pat` from the locksmith store)
+- The PAT has no environment variable nor `setup()` option: it is only read from `workhorse/pat` in the locksmith store
 
 ## Secrets and encrypted caches
 

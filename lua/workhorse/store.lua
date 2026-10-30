@@ -2,8 +2,8 @@
 -- paperboy.nvim and unlocked once per Neovim with its password. The PAT is the secret
 -- workhorse/pat; the repository and identity caches are locksmith's disposable caches, sealed
 -- with the store's key. Without locksmith (not installed, or missing its crypto libraries)
--- nothing is read or written: the PAT must come from setup() or $AZURE_DEVOPS_PAT, and callers
--- keep their caches in memory only.
+-- nothing is read or written: there is no PAT (it has no other source), and callers keep their
+-- caches in memory only.
 local M = {}
 
 M.NAMESPACE = "workhorse"

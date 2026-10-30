@@ -3,7 +3,7 @@ local M = {}
 local defaults = {
   -- Server configuration (falls back to env vars)
   server_url = nil,
-  pat = nil, -- falls back to $AZURE_DEVOPS_PAT, then to workhorse/pat in the locksmith store
+  -- The PAT is not an option: it is only ever read from workhorse/pat in the locksmith store
 
   -- Required: project name
   project = nil,
@@ -176,7 +176,15 @@ function M.setup(opts)
 
   -- Resolve env vars if not explicitly set
   config.server_url = config.server_url or vim.env.AZURE_DEVOPS_URL
-  config.pat = config.pat or vim.env.AZURE_DEVOPS_PAT
+  if config.pat then
+    config.pat = nil
+    vim.schedule(function()
+      vim.notify(
+        "Workhorse: setup()'s pat is ignored: the PAT is only read from workhorse/pat in the locksmith store",
+        vim.log.levels.WARN
+      )
+    end)
+  end
 
   M.validate()
 end

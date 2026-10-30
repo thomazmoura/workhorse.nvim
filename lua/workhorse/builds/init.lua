@@ -1025,7 +1025,7 @@ end
 local function check_config()
   if not config.is_valid() then
     vim.notify(
-      "Workhorse: Plugin not configured. Please call require('workhorse').setup() with server_url, pat, and project.",
+      "Workhorse: Plugin not configured. Please call require('workhorse').setup() with server_url and project.",
       vim.log.levels.WARN
     )
     return false
