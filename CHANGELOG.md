@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [c752e9d] - 2026-10-30
+
+### Changed
+- The PAT is only ever read from `workhorse/pat` in the locksmith store, which is now required: `$AZURE_DEVOPS_PAT` is no longer read, and a `pat` passed to `setup()` is ignored with a warning
+- The PAT is kept in the API client instead of the shared config
+
 ## [15e22e3] - 2026-10-30
 
 ### Added
