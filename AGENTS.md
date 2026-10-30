@@ -31,6 +31,8 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `type_name.lua` - Type-to-confirm of a deletion (the name must be typed, case aside)
 - `menu.lua` - Fuzzy menu of the screens (`<leader>w/`, `:Workhorse menu`; Telescope or vim.ui.select)
 - `picker.lua` - Shared fuzzy picker (Telescope or vim.ui.select), used by the menu and the `<M-/>` context search of each screen
+- `header.lua` - Header of the editable lists (title, `<CR>` actions, `───── ◇ ─────` rule; empty lines with virtual text) and the shared rule
+- `pinned.lua` - Frozen headers: a copy of a screen's header (lines and extmarks) pinned in a float while it is scrolled away
 
 **Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wG`; `<leader>wg` opens the screen of the repository of the working directory)
 - `init.lua` + `list.lua` - Editable list of the project's repositories (rename, create, delete one confirmation each)

@@ -6,13 +6,15 @@ local render = require("workhorse.builds.render")
 local diff = require("workhorse.prs.diff")
 local cache = require("workhorse.cache")
 local config = require("workhorse.config")
+local pinned = require("workhorse.ui.pinned")
 
 local uv = vim.uv or vim.loop
 -- Status of the builds on the Overview tab, drawn apart so the elapsed time ticks without re-rendering
 local builds_ns = vim.api.nvim_create_namespace("workhorse_prs_builds")
 local BUILDS_TICK = 1000
 
--- Per-buffer view state: { key, kind = "list"|"pr", ctx, items, width }
+-- Per-buffer view state: { key, kind = "list"|"pr", ctx, items, width, header_lines (the
+-- header ends at its rule; it stays frozen at the top while scrolling, see ui/pinned.lua) }
 local views = {}
 -- View key -> bufnr, so reopening a list or pull request reuses its buffer
 local buffers_by_key = {}
@@ -96,6 +98,8 @@ local function apply_view(bufnr, view, focus)
   end
   render.apply(bufnr, view)
   state.items = view.items
+  state.header_lines = view.rule or 0
+  pinned.refresh(bufnr)
   for win, pos in pairs(cursors) do
     local target = pos.key and find_line(bufnr, pos.key) or pos.lnum
     vim.api.nvim_win_set_cursor(win, { math.min(target, vim.api.nvim_buf_line_count(bufnr)), 0 })
@@ -666,10 +670,11 @@ local function add_pr_header(view, ctx, width)
   render.add_separator(view, width)
 end
 
--- Separator between the sections of a tab; the header still ends at its own rule
+-- Separator between the sections of a tab, a blank line after it; the header still ends at its
+-- own rule
 local function add_section_separator(view, width)
   local rule = view.rule
-  render.add_separator(view, width)
+  render.add_separator(view, width, { gap = true })
   view.rule = rule
 end
 
@@ -681,8 +686,8 @@ end
 
 local function render_status(view, ctx)
   local pr = ctx.data.pr
+  render.add_line(view, { { "Actions", "WorkhorseRunSection" } })
   if pr.status == "active" then
-    render.add_line(view, { { "Actions", "WorkhorseRunSection" } })
     render.add_line(view, { { "  Vote…", "WorkhorseBuildRunning" } }, { kind = "nav", target = "vote" },
       { { "<leader>wv", "WorkhorseRunHint" } })
     if not pr.is_draft then
@@ -692,8 +697,10 @@ local function render_status(view, ctx)
     local auto = pr.auto_complete_set_by and "  Cancel auto-complete" or "  Set auto-complete…"
     render.add_line(view, { { auto, "WorkhorseBuildRetry" } }, { kind = "nav", target = "auto_complete" },
       { { "<leader>wa", "WorkhorseRunHint" } })
-    render.add_line(view, { { "" } })
   end
+  render.add_line(view, { { "  Copy URL", "WorkhorseBuildMeta" } }, { kind = "nav", target = "copy_url" },
+    { { "<leader>wy", "WorkhorseRunHint" } })
+  render.add_line(view, { { "" } })
 
   -- Latest build of each pipeline run on the pull request; their status is drawn by _draw_builds
   render.add_line(view, { { "Builds", "WorkhorseRunSection" } })
@@ -868,7 +875,6 @@ local function render_pr(bufnr, focus)
   elseif not loading_or_error(view, ctx, NEEDS.changes) then
     render_files(view, ctx, width)
   end
-  state.header_lines = view.rule or 0
   apply_view(bufnr, view, focus)
   M._draw_builds(bufnr)
   -- A thread picked on the Overview tab: land on its line once the file's diff is there (in
@@ -958,7 +964,7 @@ function M.set_tab(bufnr, tab)
   ctx.tab = tab
   ensure(bufnr, tab)
   if not render_pr(bufnr) then
-    local lnum = ctx.cursor[tab] or (state.header_lines + 2)
+    local lnum = ctx.cursor[tab] or (state.header_lines + 1)
     vim.api.nvim_win_set_cursor(0, { math.min(lnum, vim.api.nvim_buf_line_count(bufnr)), 0 })
   end
 end
@@ -1154,6 +1160,22 @@ function M.auto_complete(bufnr)
   end)
 end
 
+-- Yanks the web URL of the pull request into "0 and the clipboard ("+)
+function M.copy_url(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local pr = pr_of(bufnr)
+  if not pr then
+    return
+  end
+  local url = prs_api.pr_url(views[bufnr].ctx.repo, pr.id)
+  vim.fn.setreg("0", url)
+  if not pcall(vim.fn.setreg, "+", url) then
+    vim.notify("Workhorse: Copied " .. url .. ' to "0 (no clipboard available)', vim.log.levels.WARN)
+    return
+  end
+  vim.notify("Workhorse: Copied " .. url, vim.log.levels.INFO)
+end
+
 -- Buffers ---------------------------------------------------------------------
 
 local function browser_url(bufnr)
@@ -1206,6 +1228,8 @@ local function select_item(bufnr)
       M.complete(bufnr)
     elseif item.target == "auto_complete" then
       M.auto_complete(bufnr)
+    elseif item.target == "copy_url" then
+      M.copy_url(bufnr)
     end
   elseif item.kind == "file" then
     local lnum = find_line(bufnr, "file_header:" .. item.file.path)
@@ -1248,6 +1272,9 @@ local function set_keymaps(bufnr, kind)
   map("gb", function()
     open_url(page_url(bufnr))
   end)
+  require("workhorse.builds").map_yank(bufnr, function()
+    open_url(page_url(bufnr))
+  end, "the pull request")
   map("<leader>R", function()
     M.refresh(bufnr)
   end)
@@ -1298,6 +1325,9 @@ local function set_keymaps(bufnr, kind)
   map("<leader>wa", function()
     M.auto_complete(bufnr)
   end)
+  map("<leader>wy", function()
+    M.copy_url(bufnr)
+  end)
 end
 
 local function open_buffer(key, name, kind, ctx)
@@ -1318,6 +1348,9 @@ local function open_buffer(key, name, kind, ctx)
   vim.bo[bufnr].modifiable = false
   views[bufnr] = { key = key, kind = kind, ctx = ctx }
   buffers_by_key[key] = bufnr
+  pinned.attach(bufnr, function()
+    return views[bufnr] and views[bufnr].header_lines or 0
+  end)
   set_keymaps(bufnr, kind)
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = bufnr,

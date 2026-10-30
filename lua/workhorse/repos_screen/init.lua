@@ -9,6 +9,7 @@ local M = {}
 
 local repos_api = require("workhorse.api.repositories")
 local list = require("workhorse.repos_screen.list")
+local header = require("workhorse.ui.header")
 
 -- Created lines being saved, followed across edits
 local mark_ns = vim.api.nvim_create_namespace("workhorse_repos_marks")
@@ -31,9 +32,23 @@ local function decorate(bufnr)
   end
 end
 
+-- Header of the list: searching the repositories and reloading them
+local HEADER = header.new("Repositories", nil, {
+  { "\u{f002} Search repositories", function() -- nf-fa-search
+    require("workhorse").pick_repo()
+  end },
+  { "\u{f021} Reload", function(bufnr) -- nf-fa-refresh
+    M.refresh(bufnr)
+  end, "WorkhorseBuildMeta" },
+})
+
 -- Pending changes of the buffer and the errors that block saving them
 local function detect(bufnr)
   local items, errors = list.parse(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  local header_error = header.check(bufnr)
+  if header_error then
+    table.insert(errors, 1, header_error)
+  end
   local changes, detect_errors = list.detect(buffers[bufnr].originals, items)
   vim.list_extend(errors, detect_errors)
   return changes, errors
@@ -44,7 +59,7 @@ local function load(bufnr, hard)
   local state = buffers[bufnr]
   state.loading = true
   if hard then
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading repositories..." })
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, { "Loading repositories..." }))
     vim.bo[bufnr].modified = false
   end
   repos_api.list(function(repos, err)
@@ -61,12 +76,14 @@ local function load(bufnr, hard)
       state.originals[list.short_id(repo.id, state.originals)] = repo
     end
     local cursor = vim.api.nvim_get_current_buf() == bufnr and vim.api.nvim_win_get_cursor(0)
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, list.render(state.originals))
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, list.render(state.originals)))
     vim.bo[bufnr].modified = false
     state.loaded = true
     decorate(bufnr)
     if cursor and not hard then
       pcall(vim.api.nvim_win_set_cursor, 0, cursor)
+    elseif hard then
+      header.focus_content(bufnr)
     end
   end)
 end
@@ -100,14 +117,22 @@ local function setup_keymaps(bufnr)
   map("<leader>R", function()
     M.refresh(bufnr)
   end, "reload the repositories")
-  map("<CR>", with_repo(bufnr, function(repo)
+  local open = with_repo(bufnr, function(repo)
     require("workhorse.repos_screen.repo").open(repo)
-  end), "open the security and policies of the repository")
+  end)
+  map("<CR>", function()
+    local action = header.action(bufnr, vim.api.nvim_win_get_cursor(0)[1])
+    if action then
+      return action(bufnr)
+    end
+    open()
+  end, "open the security and policies of the repository (or the header action)")
   local open_repo = with_repo(bufnr, function(repo)
     require("workhorse.builds").open_url(require("workhorse.api.pullrequests").repo_url(repo))
   end)
   map("gw", open_repo, "open the repository in the browser")
   map("gb", open_repo, "open the repository in the browser")
+  require("workhorse.builds").map_yank(bufnr, open_repo, "the repository")
   map("<M-/>", function()
     require("workhorse").pick_repo()
   end, "fuzzy search of the repositories")
@@ -164,6 +189,7 @@ function M.open()
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
+  header.attach(bufnr, HEADER)
   load(bufnr, true)
   return bufnr
 end

@@ -347,8 +347,26 @@ Wherever `<Space>` folds or activates a line below, `<S-Space>` and `<M-Space>` 
 `mapleader` or `maplocalleader`, Workhorse leaves it unmapped, so `<leader>` keeps its
 mappings and which-key still shows them; use `<S-Space>`/`<M-Space>` (or `<CR>`, `za`) then.
 
+Every screen starts with a header: its name, its actions (one per line, right-aligned; `<CR>`
+runs them), then a `───── ◇ ─────` separator, with the content right below it. The header
+stays frozen at the top of the window while you scroll, the way the build log's does:
+
+```
+Repositories
+                                                          Search repositories
+                                                                       Reload
+──────────────────────────────── ◇ ────────────────────────────────
+#1a2b | my-repo
+```
+
+On the editable lists (work item queries, repositories, libraries, pipelines) the header lines
+are empty and their text is virtual, so it never ends up in yanks or searches. Typing on a header
+line or deleting one blocks saving until it is undone (or `<leader>R` reloads). On a work item
+query, `<CR>` on the query's name picks another query.
+
 On every screen, opening something in the browser (`gw`, `gb`) also yanks its URL, so `p`
-(or `"0p`) pastes it.
+(or `"0p`) pastes it. Wherever `gb` opens something, `gy` yanks its URL (into `"0`) without
+opening it, and `<leader>gy` copies it to the clipboard (`"+`).
 
 When in a workhorse buffer (flat queries):
 
@@ -475,7 +493,6 @@ Press `<CR>` on any work item to open its details in a split on the right:
 ```
 #123 Fix the login page            User Story · Active · Area
 ──────────────────────── ◇ ────────────────────────
-
 Column: Doing
 Tags: frontend, urgent
 
@@ -530,7 +547,6 @@ the run tree:
    main (03/10/26 00:00)  Jane Doe  Merge pull request #42 from feature/login         9m 1s
                                                                      Live watching disabled
 ──────────────────────────────────────────── ◇ ─────────────────────────────────────────────
-
     ▾  Build                                                                         5m 54s
       ▸  Build and test                                                              5m 51s
 ```
@@ -875,7 +891,7 @@ last repository.
 with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
 
 - **Overview** - three sections, split by a separator:
-  - **Status** - actions (vote, complete, set or cancel auto-complete), the builds, the reviewers
+  - **Status** - actions (vote, complete, set or cancel auto-complete, copy the URL), the builds, the reviewers
     and their votes, the description and the comment threads. `<CR>` on a comment on a file opens
     the Changes tab on its line.
 
@@ -914,6 +930,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<leader>wv` | Vote (approve, approve with suggestions, reset, wait for author, reject) |
 | `<leader>wc` | Complete the pull request |
 | `<leader>wa` | Set auto-complete, or cancel it when already set |
+| `<leader>wy` | Copy the URL of the pull request to the `0` and `+` registers |
 | `<leader>wm` | Load 20 more pull requests (list) |
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
@@ -978,7 +995,6 @@ the indentation):
 ```
 # my-repo                                   Proj · 37.6 MB
 ─────────────────────── ◇ ───────────────────────
-
 General
 └─ Default branch: main
 
@@ -1118,7 +1134,6 @@ confirmation float, then applies them and reloads the sections that changed.
 ```
 Shared-Settings                   Settings of every environment · Thomaz Moura, 27/10/26
 ─────────────────────── ◇ ───────────────────────
-
 Variables
 ├─ ApiUrl: https://example.com
 └─ Password (secret):

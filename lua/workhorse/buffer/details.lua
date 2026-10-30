@@ -3,7 +3,6 @@
 --
 --   #123 Fix the login page   User Story · Active · Area   (meta as virtual text)
 --   ───── ◇ ─────                                         (virtual line: never in the text)
---
 --   Column: Doing
 --   Tags: frontend, urgent
 --
@@ -30,6 +29,7 @@ local M = {}
 
 local config = require("workhorse.config")
 local guides = require("workhorse.buffer_tree.guides")
+local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local workitems = require("workhorse.api.workitems")
 local boards = require("workhorse.api.boards")
@@ -341,12 +341,9 @@ local function draw_rules(bufnr)
   end
   local win = vim.fn.win_findbuf(bufnr)[1]
   local width = win and (vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff) or vim.o.columns
-  local side = math.max(math.floor((width - 3) / 2), 1)
-  vim.api.nvim_buf_set_extmark(bufnr, rules_ns, 0, 0, { virt_lines = { {
-    { string.rep("─", side), "WorkhorseBuildSeparator" },
-    { " ◇ ", "WorkhorseBuildSeparator" },
-    { string.rep("─", math.max(width - 3 - side, 1)), "WorkhorseBuildSeparator" },
-  } } })
+  vim.api.nvim_buf_set_extmark(bufnr, rules_ns, 0, 0, { virt_lines = { require("workhorse.ui.header").rule(width) } })
+  -- The title and the rule under it stay frozen at the top while scrolling
+  pinned.schedule_refresh(bufnr)
 end
 
 --- Highlights and hints of the whole buffer; the buffer is modified while it has changes
@@ -499,7 +496,6 @@ local function render(bufnr)
   local item = state.item
   local lines = {
     title(item),
-    "",
     COLUMN .. ": " .. (item.board_column or ""),
     TAGS .. ": " .. table.concat(split_tags(item.tags), ", "),
     "",
@@ -879,6 +875,9 @@ local function setup_keymaps(bufnr)
       require("workhorse.builds").open_url(web_url(buffers[bufnr].item))
     end, "open the work item in the browser")
   end
+  require("workhorse.builds").map_yank(bufnr, function()
+    require("workhorse.builds").open_url(web_url(buffers[bufnr].item))
+  end, "the work item")
   map("<Tab>", function()
     M.jump(1)
   end, "next value")
@@ -988,6 +987,9 @@ local function create(item)
   })
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
+  pinned.attach(bufnr, function()
+    return is_title(1, vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1]) and 1 or 0
+  end)
   return bufnr
 end
 

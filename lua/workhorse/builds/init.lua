@@ -4,6 +4,7 @@ local builds_api = require("workhorse.api.builds")
 local render = require("workhorse.builds.render")
 local cache = require("workhorse.cache")
 local config = require("workhorse.config")
+local pinned = require("workhorse.ui.pinned")
 
 -- Per-buffer view state: { key, kind, ctx, items, timer, loading }
 local views = {}
@@ -15,21 +16,59 @@ local loaders = {}
 -- Live watching (global): run tree and log views follow the latest step's log
 local live = false
 
+-- Register the URL goes to instead of the browser, while a gy (or <leader>gy) runs its gb action
+local yank_register = nil
+
+-- Opens the URL in the browser (true), or only yanks it while a yank_url runs (false)
 function M.open_url(url)
   if not url then
     vim.notify("Workhorse: No URL for this line", vim.log.levels.WARN)
-    return
+    return false
+  end
+  if yank_register == "+" then
+    if not pcall(vim.fn.setreg, "+", url) then
+      vim.notify("Workhorse: No clipboard available", vim.log.levels.ERROR)
+    else
+      vim.notify("Workhorse: Copied " .. url .. " to the clipboard", vim.log.levels.INFO)
+    end
+    return false
   end
   -- Also yanked, to paste it elsewhere: writing the unnamed register fills "0, like a yank
   vim.fn.setreg('"', url)
+  if yank_register then
+    vim.notify("Workhorse: Yanked " .. url, vim.log.levels.INFO)
+    return false
+  end
   if vim.ui.open then
     vim.ui.open(url)
   else
     local cmd = vim.fn.has("mac") == 1 and "open" or "xdg-open"
     vim.fn.jobstart({ cmd, url }, { detach = true })
   end
+  return true
 end
 local open_url = M.open_url
+
+-- Runs a gb action (which opens its URL synchronously) yanking the URL into the register
+-- ("0 or "+) instead of opening it
+function M.yank_url(register, action)
+  yank_register = register
+  local ok, err = pcall(action)
+  yank_register = nil
+  if not ok then
+    error(err, 0)
+  end
+end
+
+-- gy yanks the URL gb opens into "0, <leader>gy copies it to the clipboard ("+)
+function M.map_yank(bufnr, action, what)
+  vim.keymap.set("n", "gy", function()
+    M.yank_url("0", action)
+  end, { buffer = bufnr, silent = true, desc = "Workhorse: yank the URL of " .. what })
+  vim.keymap.set("n", "<leader>gy", function()
+    M.yank_url("+", action)
+  end, { buffer = bufnr, silent = true, desc = "Workhorse: copy the URL of " .. what .. " to the clipboard" })
+end
 
 -- Web page of a pipeline definition (its runs list on Azure DevOps)
 function M.definition_url(definition_id)
@@ -81,142 +120,13 @@ end
 
 -- Pinned header ---------------------------------------------------------------
 
--- Every view starts with its header (pipeline > run > stage > job > step). Once it
--- scrolls out of view, a copy of it (state.header_buf) is pinned over the top of
--- the window in a non-focusable float, the way nvim-treesitter-context does.
--- View window -> the float pinning its header
-local pinned = {}
-
-local function close_pinned(win)
-  local float = pinned[win]
-  pinned[win] = nil
-  if float and vim.api.nvim_win_is_valid(float) then
-    vim.api.nvim_win_close(float, true)
-  end
-end
-
--- Statuscolumn of a pinned header, filled by M._pinned_number
-local PINNED_NUMBER = "%{%v:lua.require'workhorse.builds'._pinned_number()%}"
-
--- Give the pinned header the gutter width of the log window under it, so its lines
--- stay in the same columns as the real header lines
-local function set_pinned_gutter(float, textoff)
-  local gutter = textoff > 0
-  vim.wo[float].number = gutter
-  vim.wo[float].relativenumber = false
-  vim.wo[float].numberwidth = math.min(math.max(textoff, 1), 20)
-  vim.wo[float].statuscolumn = gutter and PINNED_NUMBER or ""
-end
-
--- Show the pinned header over `win` while its own header is scrolled away
-local function pin_header(win)
-  local state = views[vim.api.nvim_win_get_buf(win)]
-  local height = state and state.header_buf and vim.api.nvim_buf_line_count(state.header_buf)
-  local info = vim.fn.getwininfo(win)[1]
-  -- At the top the real (actionable) header lines show; tiny windows keep the log visible
-  if not height or info.topline <= 1 or info.height <= height + 1 then
-    return close_pinned(win)
-  end
-  local float_config = {
-    relative = "win",
-    win = win,
-    row = 0,
-    col = 0,
-    width = info.width,
-    height = height,
-    focusable = false,
-    zindex = 20,
-  }
-  local float = pinned[win]
-  if float and vim.api.nvim_win_is_valid(float) then
-    if vim.api.nvim_win_get_buf(float) ~= state.header_buf then
-      vim.api.nvim_win_set_buf(float, state.header_buf)
-    end
-    vim.api.nvim_win_set_config(float, float_config)
-    set_pinned_gutter(float, info.textoff)
-    return
-  end
-  float_config.style = "minimal"
-  float_config.noautocmd = true
-  float = vim.api.nvim_open_win(state.header_buf, false, float_config)
-  vim.wo[float].wrap = false
-  vim.wo[float].winhighlight = "NormalFloat:Normal"
-  -- Opaque even with a global 'winblend': the log behind must not show through
-  vim.wo[float].winblend = 0
-  set_pinned_gutter(float, info.textoff)
-  pinned[win] = float
-end
-
--- Refresh the pinned copy of a view's header from the view just rendered
+-- Every view starts with its header (pipeline > run > stage > job > step), frozen at the top
+-- of the window while the view scrolls (ui/pinned.lua). It ends at its rule (`views[bufnr].rule`).
 local function update_pinned(bufnr, view)
-  render.apply(views[bufnr].header_buf, render.pinned(view))
-  for _, win in ipairs(windows_of(bufnr)) do
-    pin_header(win)
-  end
+  views[bufnr].rule = view.rule
+  pinned.refresh(bufnr)
 end
 
--- Relative numbers change with the cursor of the view window, which does not redraw the float
-local function redraw_pinned_numbers(win)
-  local float = pinned[win]
-  if float and vim.api.nvim_win_is_valid(float) and vim.wo[win].relativenumber and vim.api.nvim__redraw then
-    vim.api.nvim__redraw({ win = float, statuscolumn = true })
-  end
-end
-
--- Pin headers over the view windows scrolled past theirs, and drop the floats of
--- windows that were closed or no longer show a view
-local function sync_pinned()
-  for win in pairs(pinned) do
-    local state = vim.api.nvim_win_is_valid(win) and views[vim.api.nvim_win_get_buf(win)]
-    if not (state and state.header_buf) then
-      close_pinned(win)
-    end
-  end
-  for bufnr, state in pairs(views) do
-    if state.header_buf then
-      for _, win in ipairs(windows_of(bufnr)) do
-        pin_header(win)
-      end
-    end
-  end
-end
-
--- Keep the cursor of `win` off the rows its pinned header covers: `scroll` brings
--- the view down to the cursor (moving up with k), otherwise the cursor moves down
--- into view (scrolling with the wheel or <C-e>)
-local function uncover_cursor(win, scroll)
-  local float = pinned[win]
-  if not (float and vim.api.nvim_win_is_valid(float)) then
-    return
-  end
-  local height = vim.api.nvim_win_get_height(float)
-  vim.api.nvim_win_call(win, function()
-    -- Step one screen row at a time, so wrapped lines and folds count right
-    for _ = 1, height do
-      if vim.fn.winline() > height or vim.fn.line("w0") <= 1 then
-        return
-      end
-      vim.cmd(scroll and "normal! \25" or "normal! gj")
-    end
-  end)
-end
-
-local sync_pending = false
-local function schedule_sync()
-  if not sync_pending then
-    sync_pending = true
-    vim.schedule(function()
-      sync_pending = false
-      sync_pinned()
-    end)
-  end
-end
-
-local pin_group = vim.api.nvim_create_augroup("workhorse_builds_log_header", { clear = true })
-vim.api.nvim_create_autocmd({ "BufWinEnter", "BufWinLeave", "WinClosed" }, {
-  group = pin_group,
-  callback = schedule_sync,
-})
 -- Build windows have no sign or fold column, leaving the width to the content
 vim.api.nvim_create_autocmd("BufWinEnter", {
   group = vim.api.nvim_create_augroup("workhorse_builds_gutter", { clear = true }),
@@ -225,26 +135,6 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
       local win = vim.api.nvim_get_current_win()
       vim.api.nvim_set_option_value("signcolumn", "no", { scope = "local", win = win })
       vim.api.nvim_set_option_value("foldcolumn", "0", { scope = "local", win = win })
-    end
-  end,
-})
--- Scrolling updates right away, so the pinned header never lags a redraw behind
-vim.api.nvim_create_autocmd({ "WinScrolled", "WinResized" }, {
-  group = pin_group,
-  callback = function()
-    sync_pinned()
-    for win in pairs(pinned) do
-      uncover_cursor(win, false)
-    end
-  end,
-})
-vim.api.nvim_create_autocmd("CursorMoved", {
-  group = pin_group,
-  callback = function()
-    local win = vim.api.nvim_get_current_win()
-    if pinned[win] then
-      uncover_cursor(win, true)
-      redraw_pinned_numbers(win)
     end
   end,
 })
@@ -1055,6 +945,9 @@ local function set_keymaps(bufnr)
   vim.keymap.set("n", "gb", function()
     open_url(page_url(bufnr))
   end, opts)
+  M.map_yank(bufnr, function()
+    open_url(page_url(bufnr))
+  end, "the run or pipeline")
   vim.keymap.set("n", "q", function()
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end, opts)
@@ -1082,25 +975,9 @@ local function setup_buffer(bufnr)
         stop_timer(state)
         buffers_by_key[state.key] = nil
         views[bufnr] = nil
-        local header_buf = state.header_buf
-        if header_buf then
-          vim.schedule(function()
-            if vim.api.nvim_buf_is_valid(header_buf) then
-              vim.api.nvim_buf_delete(header_buf, { force = true })
-            end
-          end)
-        end
       end
     end,
   })
-end
-
--- Scratch buffer holding the copy of a view's header pinned while scrolling
-local function create_header_buf()
-  local header_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[header_buf].filetype = "workhorse-build"
-  vim.bo[header_buf].modifiable = false
-  return header_buf
 end
 
 -- Open (or switch to) the buffer for a view and (re)load it
@@ -1133,7 +1010,9 @@ local function open_view(key, name, kind, ctx, focus)
   buffers_by_key[key] = bufnr
   setup_buffer(bufnr)
 
-  views[bufnr].header_buf = create_header_buf()
+  pinned.attach(bufnr, function()
+    return views[bufnr] and views[bufnr].rule or 0
+  end)
   vim.api.nvim_set_current_buf(bufnr)
   if kind == "log" then
     views[bufnr].head_count = 0
@@ -1660,24 +1539,6 @@ function M.permit(bufnr)
       end)
     end
   end)
-end
-
--- Number column of a pinned header: the numbers the log window shows on those lines
-function M._pinned_number()
-  -- The statuscolumn is evaluated with the window being drawn as the current one
-  local float = vim.api.nvim_get_current_win()
-  for win, f in pairs(pinned) do
-    if f == float and vim.api.nvim_win_is_valid(win) then
-      local lnum = vim.v.lnum
-      local number = lnum
-      if vim.wo[win].relativenumber then
-        local cursor = vim.api.nvim_win_get_cursor(win)[1]
-        number = (cursor == lnum and vim.wo[win].number) and lnum or math.abs(cursor - lnum)
-      end
-      return "%#LineNrAbove#" .. string.format("%" .. (vim.wo[float].numberwidth - 1) .. "d ", number)
-    end
-  end
-  return ""
 end
 
 function M.is_build_buffer(bufnr)

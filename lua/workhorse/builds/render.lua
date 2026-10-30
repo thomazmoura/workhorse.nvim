@@ -146,19 +146,17 @@ end
 -- View each header path level links back to: stage and job -> the run tree, step -> log
 local path_targets = { "stages", "stages", "log" }
 
--- Markview-style horizontal rule: "───── ◇ ─────" across the window, drawn as an
--- overlay on an empty line so it never ends up in yanks or searches, then a blank
--- line before the content. `view.rule` remembers where the header ends.
-function M.add_separator(view, width)
-  local side = math.max(math.floor((width - 3) / 2), 1)
+-- Markview-style horizontal rule: "───── ◇ ─────" across the window (ui/header.lua), drawn as
+-- an overlay on an empty line so it never ends up in yanks or searches. Under a header the
+-- content starts right below it; `opts.gap` adds a blank line after it (rules between sections).
+-- `view.rule` remembers where the header ends.
+function M.add_separator(view, width, opts)
   local lnum = add_line(view, { { "" } })
-  view.overlay[lnum] = {
-    { string.rep("─", side), "WorkhorseBuildSeparator" },
-    { " ◇ ", "WorkhorseBuildSeparator" },
-    { string.rep("─", width - 3 - side), "WorkhorseBuildSeparator" },
-  }
+  view.overlay[lnum] = require("workhorse.ui.header").rule(width)
   view.rule = lnum
-  add_line(view, { { "" } })
+  if opts and opts.gap then
+    add_line(view, { { "" } })
+  end
 end
 local add_separator = M.add_separator
 
@@ -286,24 +284,6 @@ function M.render_log_header(run, stage, job, step, width, live, permit)
   add_header(view, definition_of(run), run, { stage, job, step }, width, live, rerun, permit)
   add_separator(view, width)
   return view
-end
-
--- The header of a view down to its rule (without the blank line after it): the copy
--- pinned over the window while the view scrolls
-function M.pinned(view)
-  local head = new_view()
-  for lnum = 1, view.rule or 0 do
-    head.lines[lnum] = view.lines[lnum]
-    head.items[lnum] = view.items[lnum]
-    head.virt[lnum] = view.virt[lnum]
-    head.overlay[lnum] = view.overlay[lnum]
-  end
-  for _, h in ipairs(view.hls) do
-    if h[1] < #head.lines then
-      table.insert(head.hls, h)
-    end
-  end
-  return head
 end
 
 local log_markers = {

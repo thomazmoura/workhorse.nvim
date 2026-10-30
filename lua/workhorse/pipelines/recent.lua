@@ -10,6 +10,7 @@ local builds_api = require("workhorse.api.builds")
 local config = require("workhorse.config")
 local status = require("workhorse.pipelines.status")
 local tabs = require("workhorse.pipelines.tabs")
+local header = require("workhorse.ui.header")
 
 local ns = vim.api.nvim_create_namespace("workhorse_pipelines_recent")
 
@@ -30,19 +31,32 @@ function M.is_recent_buffer(bufnr)
   return buffers[bufnr or vim.api.nvim_get_current_buf()] ~= nil
 end
 
+-- Header of the tab: searching the pipelines and reloading them
+local HEADER = header.new("Recent pipelines", nil, {
+  { "\u{f002} Search pipelines", function() -- nf-fa-search
+    require("workhorse.builds").pick()
+  end },
+  { "\u{f021} Reload", function(bufnr) -- nf-fa-refresh
+    M.refresh(bufnr)
+  end, "WorkhorseBuildMeta" },
+})
+
+-- Replace the lines below the header with `lines`
 local function set_lines(bufnr, lines)
   vim.bo[bufnr].modifiable = true
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, lines))
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].modified = false
 end
 
 local function render(bufnr)
   local state = buffers[bufnr]
+  -- `items` is keyed by buffer line: the lines come below the header
+  local offset = HEADER.size
   local lines, items = {}, {}
   for _, p in ipairs(state.pipelines) do
     table.insert(lines, ("#%d | %s"):format(p.id, p.name))
-    items[#lines] = { kind = "pipeline", id = p.id, name = p.name }
+    items[offset + #lines] = { kind = "pipeline", id = p.id, name = p.name }
   end
   if #lines == 0 then
     table.insert(lines, state.exhausted and "No pipeline has run yet" or "No pipeline ran recently")
@@ -50,13 +64,14 @@ local function render(bufnr)
   if not state.exhausted then
     table.insert(lines, "")
     table.insert(lines, "  ↓ Load " .. config.get().pipelines.recent_top .. " more")
-    items[#lines] = { kind = "more" }
+    items[offset + #lines] = { kind = "more" }
   end
   state.items = items
   set_lines(bufnr, lines)
 
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
-  for lnum, line in ipairs(lines) do
+  for i, line in ipairs(lines) do
+    local lnum = offset + i
     local item = items[lnum]
     if item and item.kind == "pipeline" then
       vim.api.nvim_buf_set_extmark(bufnr, ns, lnum - 1, 0, { end_col = line:find("|", 1, true), hl_group = "Comment" })
@@ -91,7 +106,7 @@ local function load(bufnr, count, focus_new)
     end
     if focus_new and state.pipelines[first_new] then
       for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
-        vim.api.nvim_win_set_cursor(win, { first_new, 0 })
+        vim.api.nvim_win_set_cursor(win, { HEADER.size + first_new, 0 })
       end
     end
   end
@@ -166,13 +181,17 @@ local function setup_keymaps(bufnr)
     load(bufnr, config.get().pipelines.recent_top, true)
   end
   map("<CR>", function()
+    local action = header.action(bufnr, vim.api.nvim_win_get_cursor(0)[1])
+    if action then
+      return action(bufnr)
+    end
     local item = current_item(bufnr)
     if item and item.kind == "pipeline" then
       require("workhorse.builds").open_runs(item.id, item.name)
     elseif item and item.kind == "more" then
       load_more()
     end
-  end, "open the runs of the pipeline")
+  end, "open the runs of the pipeline (or the header action)")
   local function open_in_browser()
     local item = current_item(bufnr)
     if item and item.kind == "pipeline" then
@@ -183,6 +202,7 @@ local function setup_keymaps(bufnr)
   end
   map("gw", open_in_browser, "open the pipeline in the browser")
   map("gb", open_in_browser, "open the pipeline in the browser")
+  require("workhorse.builds").map_yank(bufnr, open_in_browser, "the pipeline")
   map("<leader>wm", load_more, "load more recent pipelines")
   map("<leader>R", function()
     M.refresh(bufnr)
@@ -218,6 +238,8 @@ function M.open()
   })
   status.attach(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
+  header.attach(bufnr, HEADER)
+  header.focus_content(bufnr)
   load(bufnr, config.get().pipelines.recent_top)
   return bufnr
 end
@@ -235,9 +257,7 @@ function M.refresh(bufnr, opts)
   reset(bufnr)
   if opts and opts.hard then
     set_lines(bufnr, { "Loading recent pipelines..." })
-    for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
-      vim.api.nvim_win_set_cursor(win, { 1, 0 })
-    end
+    header.focus_content(bufnr)
   end
   load(bufnr, count)
   return true

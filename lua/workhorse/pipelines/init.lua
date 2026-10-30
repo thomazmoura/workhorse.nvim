@@ -15,6 +15,7 @@ local fold = require("workhorse.fold")
 local status = require("workhorse.pipelines.status")
 local tabs = require("workhorse.pipelines.tabs")
 local config = require("workhorse.config")
+local header = require("workhorse.ui.header")
 
 -- Created lines being saved, followed across edits
 local mark_ns = vim.api.nvim_create_namespace("workhorse_pipelines_marks")
@@ -47,9 +48,23 @@ local function decorate(bufnr)
   end
 end
 
+-- Header of the tab: searching the pipelines and reloading them
+local HEADER = header.new("All pipelines", nil, {
+  { "\u{f002} Search pipelines", function() -- nf-fa-search
+    require("workhorse.builds").pick()
+  end },
+  { "\u{f021} Reload", function(bufnr) -- nf-fa-refresh
+    M.refresh(bufnr)
+  end, "WorkhorseBuildMeta" },
+})
+
 -- Pending changes of the buffer and the errors that block saving them
 local function detect(bufnr)
   local items, errors = tree.parse(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  local header_error = header.check(bufnr)
+  if header_error then
+    table.insert(errors, 1, header_error)
+  end
   local changes, detect_errors = tree.detect(buffers[bufnr].originals, items, absent(buffers[bufnr]))
   vim.list_extend(errors, detect_errors)
   return changes, errors
@@ -88,12 +103,17 @@ local function render(bufnr)
       table.insert(definitions, { id = id, name = original.name, path = original.path })
     end
   end
+  local first = not state.loaded
   local fold_snapshot = state.loaded and fold.snapshot(bufnr) or nil
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, tree.render(definitions))
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, tree.render(definitions)))
   vim.bo[bufnr].modified = false
   state.loaded = true
   decorate(bufnr)
   fold.collapse(bufnr, fold_snapshot)
+  -- Loaded from scratch: the cursor starts on the first line below the header
+  if first then
+    header.focus_content(bufnr)
+  end
 end
 
 -- Whether the server's `definitions` are the pipelines of `originals` (same ids, names and paths)
@@ -125,7 +145,7 @@ local function load(bufnr, hard, from_cache)
   if hard then
     state.loaded = false
     status.reset()
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading pipelines..." })
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, { "Loading pipelines..." }))
     vim.bo[bufnr].modified = false
   end
   local repos = require("workhorse.repos")
@@ -148,9 +168,7 @@ local function load(bufnr, hard, from_cache)
   end
   local function place_cursor()
     if hard then
-      for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
-        vim.api.nvim_win_set_cursor(win, { 1, 0 })
-      end
+      header.focus_content(bufnr)
     end
   end
 
@@ -347,6 +365,10 @@ local function setup_keymaps(bufnr)
     end, "fold or unfold the folder")
   end
   map("<CR>", function()
+    local action = header.action(bufnr, vim.api.nvim_win_get_cursor(0)[1])
+    if action then
+      return action(bufnr)
+    end
     if fold.toggle(bufnr) then
       return
     end
@@ -356,7 +378,7 @@ local function setup_keymaps(bufnr)
       return
     end
     require("workhorse.builds").open_runs(pipeline.id, pipeline.name)
-  end, "open the runs of the pipeline")
+  end, "open the runs of the pipeline (or the header action)")
   -- Hiding works on the cursor line or the visual selection
   local function map_nx(lhs, fn, desc)
     vim.keymap.set({ "n", "x" }, lhs, fn, { buffer = bufnr, silent = true, desc = "Workhorse: " .. desc })
@@ -380,6 +402,7 @@ local function setup_keymaps(bufnr)
   end
   map("gw", open_in_browser, "open the pipeline in the browser")
   map("gb", open_in_browser, "open the pipeline in the browser")
+  require("workhorse.builds").map_yank(bufnr, open_in_browser, "the pipeline")
   tabs.setup_buffer(bufnr)
 end
 
@@ -434,7 +457,7 @@ function M.open_all()
   vim.bo[bufnr].bufhidden = "hide"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].filetype = "workhorse-pipelines"
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading pipelines..." })
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, { "Loading pipelines..." }))
   vim.bo[bufnr].modified = false
   buffers[bufnr] = { originals = {}, hidden = {} }
   setup_keymaps(bufnr)
@@ -443,6 +466,8 @@ function M.open_all()
   require("workhorse.buffer_tree.guides").setup_buffer(bufnr)
   status.attach(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
+  header.attach(bufnr, HEADER)
+  header.focus_content(bufnr)
   load(bufnr, false, true)
   return bufnr
 end

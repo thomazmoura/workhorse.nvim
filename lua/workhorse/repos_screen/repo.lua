@@ -4,8 +4,7 @@
 -- title line with its lines indented one level:
 --
 --   my-repo
---   ───── ◇ ─────           (virtual lines: never in the text)
---
+--   ───── ◇ ─────           (virtual lines: never in the text; frozen while scrolling)
 --   General                 (repos_screen/general.lua)
 --     Default branch: main
 --
@@ -25,6 +24,7 @@ local M = {}
 
 local fold = require("workhorse.fold")
 local guides = require("workhorse.buffer_tree.guides")
+local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local parse_indent = require("workhorse.buffer_tree.parser").parse_indent
 
@@ -216,13 +216,7 @@ end
 -- under the title, and above every section title but the first one (after its blank line)
 local function draw_rules(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, rules_ns, 0, -1)
-  local width = window_width(bufnr)
-  local side = math.max(math.floor((width - 3) / 2), 1)
-  local rule = {
-    { string.rep("─", side), "WorkhorseBuildSeparator" },
-    { " ◇ ", "WorkhorseBuildSeparator" },
-    { string.rep("─", math.max(width - 3 - side, 1)), "WorkhorseBuildSeparator" },
-  }
+  local rule = require("workhorse.ui.header").rule(window_width(bufnr))
   if is_title(bufnr, 1) then
     vim.api.nvim_buf_set_extmark(bufnr, rules_ns, 0, 0, { virt_lines = { rule } })
   end
@@ -237,6 +231,8 @@ local function draw_rules(bufnr)
       end
     end
   end
+  -- The title and the rule under it stay frozen at the top while scrolling
+  pinned.schedule_refresh(bufnr)
 end
 
 -- Size of a repository ("37.6 MB")
@@ -634,9 +630,11 @@ local function setup_keymaps(bufnr, repo)
   map("gw", function()
     require("workhorse.builds").open_url(web_url(repo, M.section_at(bufnr, vim.api.nvim_win_get_cursor(0)[1])))
   end, "open the repository settings in the browser")
-  map("gb", function()
+  local function open_web()
     require("workhorse.builds").open_url(require("workhorse.api.pullrequests").repo_url(repo))
-  end, "open the repository in the browser")
+  end
+  map("gb", open_web, "open the repository in the browser")
+  require("workhorse.builds").map_yank(bufnr, open_web, "the repository")
   map("<leader>wo", function()
     M.options_menu(bufnr)
   end, "repository options (clone URLs and push scripts)")
@@ -787,8 +785,11 @@ local function create(repo)
   })
   setup_keymaps(bufnr, repo)
   setup_autocmds(bufnr)
+  pinned.attach(bufnr, function()
+    return is_title(bufnr, 1) and 1 or 0
+  end)
 
-  local lines = { title(repo), "" }
+  local lines = { title(repo) }
   for i, section in ipairs(SECTIONS) do
     table.insert(lines, header(section))
     table.insert(lines, guides.prefix(1) .. "Loading " .. LABELS[section]:lower() .. "...")

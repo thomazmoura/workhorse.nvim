@@ -3,8 +3,7 @@
 -- and three sections, each under its title line with its lines indented one level:
 --
 --   my-library                       description · Thomaz Moura, 27/10/26
---   ───── ◇ ─────           (virtual lines: never in the text)
---
+--   ───── ◇ ─────           (virtual lines: never in the text; frozen while scrolling)
 --   Variables               (libraries_screen/variables.lua)
 --     ApiUrl: https://example.com
 --     Password (secret):
@@ -25,6 +24,7 @@
 local M = {}
 
 local guides = require("workhorse.buffer_tree.guides")
+local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local libraries_api = require("workhorse.api.libraries")
 
@@ -202,13 +202,7 @@ end
 -- title but the first one (after its blank line)
 local function draw_rules(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, rules_ns, 0, -1)
-  local width = window_width(bufnr)
-  local side = math.max(math.floor((width - 3) / 2), 1)
-  local rule = {
-    { string.rep("─", side), "WorkhorseBuildSeparator" },
-    { " ◇ ", "WorkhorseBuildSeparator" },
-    { string.rep("─", math.max(width - 3 - side, 1)), "WorkhorseBuildSeparator" },
-  }
+  local rule = require("workhorse.ui.header").rule(window_width(bufnr))
   if is_title(bufnr, 1) then
     vim.api.nvim_buf_set_extmark(bufnr, rules_ns, 0, 0, { virt_lines = { rule } })
   end
@@ -223,6 +217,8 @@ local function draw_rules(bufnr)
       end
     end
   end
+  -- The title and the rule under it stay frozen at the top while scrolling
+  pinned.schedule_refresh(bufnr)
 end
 
 -- Right side of the title: the description, Key Vault, and who last changed it, when
@@ -540,6 +536,7 @@ local function setup_keymaps(bufnr, group)
   end
   map("gw", open_web, "open the library in the browser")
   map("gb", open_web, "open the library in the browser")
+  require("workhorse.builds").map_yank(bufnr, open_web, "the library")
   map("<leader>wR", function()
     require("workhorse.identities").update(function(data)
       if data and vim.api.nvim_buf_is_valid(bufnr) then
@@ -659,8 +656,11 @@ local function create(group)
   })
   setup_keymaps(bufnr, group)
   setup_autocmds(bufnr)
+  pinned.attach(bufnr, function()
+    return is_title(bufnr, 1) and 1 or 0
+  end)
 
-  local lines = { group.name, "" }
+  local lines = { group.name }
   for i, section in ipairs(SECTIONS) do
     table.insert(lines, LABELS[section])
     table.insert(lines, guides.prefix(1) .. "Loading " .. LABELS[section]:lower() .. "...")

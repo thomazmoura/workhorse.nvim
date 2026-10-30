@@ -8,6 +8,7 @@
 local M = {}
 
 local libraries_api = require("workhorse.api.libraries")
+local header = require("workhorse.ui.header")
 
 local ns = vim.api.nvim_create_namespace("workhorse_libraries_list")
 
@@ -53,11 +54,22 @@ local function parse(lines)
   return items, errors
 end
 
+-- Header of the list: reloading the libraries
+local HEADER = header.new("Libraries", nil, {
+  { "\u{f021} Reload", function(bufnr) -- nf-fa-refresh
+    M.refresh(bufnr)
+  end, "WorkhorseBuildMeta" },
+})
+
 -- Changes from `originals` to the buffer: { renames = { { id, group, name } }, creates = { { name,
 -- lnum } }, deletes = { { id, group } } }, plus errors
 local function detect(bufnr)
   local originals = buffers[bufnr].originals
   local items, errors = parse(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  local header_error = header.check(bufnr)
+  if header_error then
+    table.insert(errors, 1, header_error)
+  end
   local changes = { renames = {}, creates = {}, deletes = {} }
   local seen, names = {}, {}
   for _, item in ipairs(items) do
@@ -140,7 +152,7 @@ local function load(bufnr, hard)
   local state = buffers[bufnr]
   state.loading = true
   if hard then
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "Loading libraries..." })
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, { "Loading libraries..." }))
     vim.bo[bufnr].modified = false
   end
   libraries_api.list(function(groups, err)
@@ -157,12 +169,14 @@ local function load(bufnr, hard)
       state.originals[group.id] = group
     end
     local cursor = vim.api.nvim_get_current_buf() == bufnr and vim.api.nvim_win_get_cursor(0)
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, render(state.originals))
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, header.with(HEADER, render(state.originals)))
     vim.bo[bufnr].modified = false
     state.loaded = true
     decorate(bufnr)
     if cursor and not hard then
       pcall(vim.api.nvim_win_set_cursor, 0, cursor)
+    elseif hard then
+      header.focus_content(bufnr)
     end
   end)
 end
@@ -186,6 +200,10 @@ local function setup_keymaps(bufnr)
     M.refresh(bufnr)
   end, "reload the libraries")
   map("<CR>", function()
+    local action = header.action(bufnr, vim.api.nvim_win_get_cursor(0)[1])
+    if action then
+      return action(bufnr)
+    end
     local group = current_group(bufnr)
     if not group then
       notify("No library on this line (save a new one first)", vim.log.levels.WARN)
@@ -193,13 +211,14 @@ local function setup_keymaps(bufnr)
     end
     -- A copy: the screen updates its library in place
     require("workhorse.libraries_screen.library").open(vim.deepcopy(group))
-  end, "open the variables, pipelines and security of the library")
+  end, "open the variables, pipelines and security of the library (or the header action)")
   local function open_web()
     local group = current_group(bufnr)
     require("workhorse.builds").open_url(libraries_api.web_url(group and group.id))
   end
   map("gw", open_web, "open the library in the browser")
   map("gb", open_web, "open the library in the browser")
+  require("workhorse.builds").map_yank(bufnr, open_web, "the library")
 end
 
 local function setup_autocmds(bufnr)
@@ -253,6 +272,7 @@ function M.open()
   setup_keymaps(bufnr)
   setup_autocmds(bufnr)
   vim.api.nvim_win_set_buf(0, bufnr)
+  header.attach(bufnr, HEADER)
   load(bufnr, true)
   return bufnr
 end

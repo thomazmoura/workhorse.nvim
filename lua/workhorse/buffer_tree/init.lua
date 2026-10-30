@@ -6,6 +6,7 @@ local changes_mod = require("workhorse.buffer_tree.changes")
 local config = require("workhorse.config")
 local boards = require("workhorse.api.boards")
 local fold = require("workhorse.fold")
+local ui_header = require("workhorse.ui.header")
 
 local buffers = {}
 
@@ -331,6 +332,8 @@ function M.create(opts)
     nodes = nodes,
     column_order = nil,
     column_definitions = nil,
+    -- The query's name and its actions, above the work items (see buffer/init.lua)
+    header = require("workhorse.buffer").query_header(query_name),
   }
 
   -- Before the boards are fetched: their callback may run right away (cached), collapsing
@@ -345,6 +348,8 @@ function M.create(opts)
     if not data_list or #data_list == 0 then
       -- Fallback to regular rendering without column grouping
       local lines, line_map = render.render(nodes)
+      local header = buffers[bufnr].header
+      lines, line_map = ui_header.with(header, lines), ui_header.shift(header, line_map)
       buffers[bufnr].line_map = line_map
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
       render.apply_column_virtual_text(bufnr, line_map, buffers[bufnr].column_overrides, cfg.column_colors, buffers[bufnr].original_items)
@@ -364,6 +369,8 @@ function M.create(opts)
       buffers[bufnr].column_field = merged.column_field -- WEF field name when consistent across boards
 
       local lines, line_map = render.render_grouped_by_column(nodes, final_order, parent_by_id)
+      local header = buffers[bufnr].header
+      lines, line_map = ui_header.with(header, lines), ui_header.shift(header, line_map)
       buffers[bufnr].line_map = line_map
 
       vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
@@ -380,6 +387,8 @@ function M.create(opts)
     end
     vim.bo[bufnr].modified = false
     fold.collapse(bufnr)
+    ui_header.attach(bufnr, buffers[bufnr].header)
+    ui_header.focus_content(bufnr)
 
     -- Follow the work item the user was on before this buffer loaded
     require("workhorse.cursor").focus_deferred(bufnr, { id = opts.focus_id })
@@ -440,9 +449,12 @@ function M.setup_keymaps(bufnr)
     require("workhorse").apply()
   end, opts)
 
-  -- On a folded item: unfold it; otherwise <CR> opens the description
+  -- On a folded item: unfold it; on the header: run its action; otherwise <CR> opens the description
   vim.keymap.set("n", "<CR>", function()
-    if vim.fn.foldclosed(".") ~= -1 then
+    local action = ui_header.action(bufnr, vim.api.nvim_win_get_cursor(0)[1])
+    if action then
+      action(bufnr)
+    elseif vim.fn.foldclosed(".") ~= -1 then
       vim.cmd("normal! zo")
     else
       require("workhorse").open_description()
@@ -469,6 +481,9 @@ function M.setup_keymaps(bufnr)
   vim.keymap.set("n", "gb", function()
     M.open_in_browser(bufnr)
   end, opts)
+  require("workhorse.builds").map_yank(bufnr, function()
+    M.open_in_browser(bufnr)
+  end, "the work item")
 
   -- Fuzzy search of the saved queries
   vim.keymap.set("n", "<M-/>", function()
@@ -535,6 +550,11 @@ function M.on_write(bufnr)
 
   if not state then
     vim.notify("Workhorse: Buffer state not found", vim.log.levels.ERROR)
+    return
+  end
+  local header_error = ui_header.check(bufnr)
+  if header_error then
+    vim.notify("Workhorse: " .. header_error, vim.log.levels.WARN)
     return
   end
 
@@ -850,6 +870,7 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
   -- Use column-grouped rendering if we have column info
   if buf_state.column_order then
     local lines, line_map = render.render_grouped_by_column(nodes, buf_state.column_order, parent_by_id)
+    lines, line_map = ui_header.with(buf_state.header, lines), ui_header.shift(buf_state.header, line_map)
     buf_state.line_map = line_map
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors, buf_state.original_items)
@@ -860,6 +881,7 @@ function M.refresh_buffer(bufnr, work_items, relations, focus)
     render.apply_type_decorations(bufnr, line_map)
   else
     local lines, line_map = render.render(nodes)
+    lines, line_map = ui_header.with(buf_state.header, lines), ui_header.shift(buf_state.header, line_map)
     buf_state.line_map = line_map
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     render.apply_column_virtual_text(bufnr, line_map, buf_state.column_overrides, cfg.column_colors, buf_state.original_items)
@@ -944,8 +966,9 @@ function M.open_in_browser(bufnr)
   local cfg = config.get()
   local url = cfg.server_url .. "/" .. cfg.project .. "/_workitems/edit/" .. id
 
-  require("workhorse.builds").open_url(url)
-  vim.notify("Workhorse: Opening #" .. id .. " in browser", vim.log.levels.INFO)
+  if require("workhorse.builds").open_url(url) then
+    vim.notify("Workhorse: Opening #" .. id .. " in browser", vim.log.levels.INFO)
+  end
 end
 
 function M.get_item_at_cursor(bufnr)

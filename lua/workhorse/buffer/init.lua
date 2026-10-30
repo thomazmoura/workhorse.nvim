@@ -5,6 +5,7 @@ local parser = require("workhorse.buffer.parser")
 local changes_mod = require("workhorse.buffer.changes")
 local config = require("workhorse.config")
 local boards = require("workhorse.api.boards")
+local ui_header = require("workhorse.ui.header")
 
 -- Track workhorse buffers
 local buffers = {}
@@ -173,6 +174,18 @@ local function fetch_foreign_items(original_items, current_items, callback)
   end)
 end
 
+-- Header of a query buffer: the query's name (<CR> on it picks another query), and reloading it
+local function query_header(query_name)
+  return ui_header.new(query_name, function()
+    require("workhorse").pick_query()
+  end, {
+    { "\u{f021} Reload", function() -- nf-fa-refresh
+      require("workhorse").refresh()
+    end, "WorkhorseBuildMeta" },
+  })
+end
+M.query_header = query_header
+
 -- Create a new workhorse buffer for displaying work items
 function M.create(opts)
   local query_id = opts.query_id
@@ -212,6 +225,7 @@ function M.create(opts)
       column_definitions = grouping_info.columns,
       column_field = grouping_info.column_field, -- WEF field name for the board (legacy)
       column_fields_by_type = grouping_info.column_fields_by_type, -- WEF mapping by area+type
+      header = query_header(query_name),
     }
 
     -- Render based on mode
@@ -222,7 +236,12 @@ function M.create(opts)
       lines, line_map = render.render_grouped_lines(work_items, grouping_info.values)
     end
 
+    -- The work items come below the header
+    local header = buffers[bufnr].header
+    lines, line_map = ui_header.with(header, lines), ui_header.shift(header, line_map)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+    ui_header.attach(bufnr, header)
+    ui_header.focus_content(bufnr)
 
     -- Apply line highlights
     render.apply_line_highlights(bufnr, line_map)
@@ -340,8 +359,12 @@ function M.setup_keymaps(bufnr)
     require("workhorse").apply()
   end, opts)
 
-  -- Enter to open description
+  -- Enter to open description (or run the header action under the cursor)
   vim.keymap.set("n", "<CR>", function()
+    local action = ui_header.action(bufnr, vim.api.nvim_win_get_cursor(0)[1])
+    if action then
+      return action(bufnr)
+    end
     require("workhorse").open_description()
   end, opts)
 
@@ -357,6 +380,9 @@ function M.setup_keymaps(bufnr)
   vim.keymap.set("n", "gb", function()
     M.open_in_browser(bufnr)
   end, opts)
+  require("workhorse.builds").map_yank(bufnr, function()
+    M.open_in_browser(bufnr)
+  end, "the work item")
 
   -- Fuzzy search of the saved queries
   vim.keymap.set("n", "<M-/>", function()
@@ -399,6 +425,12 @@ function M.on_write(bufnr)
 
   if not state then
     vim.notify("Workhorse: Buffer state not found", vim.log.levels.ERROR)
+    return
+  end
+
+  local header_error = ui_header.check(bufnr)
+  if header_error then
+    vim.notify("Workhorse: " .. header_error, vim.log.levels.WARN)
     return
   end
 
@@ -675,6 +707,8 @@ function M.refresh_buffer(bufnr, work_items, focus)
       lines, line_map = render.render_grouped_lines(work_items, grouping_info.values)
     end
 
+    -- The work items come below the header
+    lines, line_map = ui_header.with(buf_state.header, lines), ui_header.shift(buf_state.header, line_map)
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     buf_state.line_map = line_map
 
@@ -711,8 +745,9 @@ function M.open_in_browser(bufnr)
   local cfg = config.get()
   local url = cfg.server_url .. "/" .. cfg.project .. "/_workitems/edit/" .. id
 
-  require("workhorse.builds").open_url(url)
-  vim.notify("Workhorse: Opening #" .. id .. " in browser", vim.log.levels.INFO)
+  if require("workhorse.builds").open_url(url) then
+    vim.notify("Workhorse: Opening #" .. id .. " in browser", vim.log.levels.INFO)
+  end
 end
 
 -- Get work item at cursor position
