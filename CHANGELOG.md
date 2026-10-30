@@ -2,6 +2,16 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [15e22e3] - 2026-10-30
+
+### Added
+- Every screen's header (the name, its actions and the `◇` separator) stays frozen at the top of the window while scrolling, as the build log's did: pull requests, repository, library and work item details screens included
+- Headers on the work item queries (flat and tree), the repositories and libraries lists and the Recent and All pipelines tabs: the name, `<CR>` actions (search, reload) and the separator, as virtual text on empty lines; editing a header line blocks saving
+- `gy` yanks the URL `gb` opens into `"0`, `<leader>gy` copies it to the clipboard, and the pull request screen has a "Copy URL" action (`<leader>wy`)
+
+### Changed
+- The content starts right under the header's separator on every screen (the blank line is gone)
+
 ## [fcdcc4f] - 2026-10-29
 
 ### Added
