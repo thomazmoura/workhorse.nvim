@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [d070c4b] - 2026-11-03
+
+### Added
+- "Checkout this branch" action in a pull request's Overview (`<leader>wk`), shown only when Neovim's working directory is a clone of the pull request's repository: fetches the source branch and switches to it, creating a local branch tracking it when there is none (also in single-branch clones), or reporting how far behind an existing one is
+
 ## [05caff7] - 2026-11-03
 
 ### Changed
