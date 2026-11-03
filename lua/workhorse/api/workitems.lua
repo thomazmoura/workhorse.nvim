@@ -552,6 +552,106 @@ function M.link_artifact(id, url, name, callback)
   })
 end
 
+-- Attachments --------------------------------------------------------------------
+
+local ATTACHED_FILE = "AttachedFile"
+
+local function url_encode(text)
+  return (text:gsub("[^%w%-_.~]", function(c)
+    return ("%%%02X"):format(c:byte())
+  end))
+end
+
+-- Files attached to a work item, oldest first: callback({ { url, name, size (bytes|nil),
+-- date (ISO|nil) } }) or callback(nil, err)
+function M.list_attachments(id, callback)
+  get_with_relations(id, function(data, err)
+    if not data then
+      return callback(nil, err)
+    end
+    local result = {}
+    for _, rel in ipairs(type(data.relations) == "table" and data.relations or {}) do
+      if type(rel) == "table" and rel.rel == ATTACHED_FILE and type(rel.url) == "string" then
+        local attributes = type(rel.attributes) == "table" and rel.attributes or {}
+        table.insert(result, {
+          url = rel.url,
+          name = type(attributes.name) == "string" and attributes.name or rel.url:match("[^/]+$"),
+          size = tonumber(attributes.resourceSize),
+          date = attributes.resourceCreatedDate,
+        })
+      end
+    end
+    callback(result)
+  end)
+end
+
+-- Upload the file at `path` as an attachment named `name` (not yet on any work item):
+-- callback(url) or callback(nil, err)
+function M.upload_attachment(path, name, callback)
+  local api_path = "/" .. url_encode(config.get().project) .. "/_apis/wit/attachments?fileName="
+    .. url_encode(name) .. "&api-version=7.1"
+  client.upload(api_path, path, {
+    on_success = function(data)
+      if type(data) == "table" and type(data.url) == "string" then
+        callback(data.url)
+      else
+        callback(nil, "the server returned no attachment URL")
+      end
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Attach the uploaded files `add` ({ { url, name } }) to a work item and remove its attachments
+-- `remove` (their urls) in one request: callback(true) or callback(nil, err)
+function M.update_attachments(id, add, remove, callback)
+  get_with_relations(id, function(data, err)
+    if not data then
+      return callback(nil, err)
+    end
+    local removed = {}
+    for _, url in ipairs(remove or {}) do
+      removed[url:lower()] = true
+    end
+    local patch = {}
+    local relations = type(data.relations) == "table" and data.relations or {}
+    -- From the last one, so the indexes of those still to remove do not shift
+    for idx = #relations, 1, -1 do
+      local rel = relations[idx]
+      if type(rel) == "table" and rel.rel == ATTACHED_FILE and type(rel.url) == "string"
+        and removed[rel.url:lower()] then
+        table.insert(patch, { op = "remove", path = "/relations/" .. (idx - 1) })
+      end
+    end
+    for _, file in ipairs(add or {}) do
+      table.insert(patch, {
+        op = "add",
+        path = "/relations/-",
+        value = { rel = ATTACHED_FILE, url = file.url, attributes = { name = file.name } },
+      })
+    end
+    if #patch == 0 then
+      return callback(true)
+    end
+    client.patch("/_apis/wit/workitems/" .. id .. "?api-version=7.1", patch, {
+      on_success = function()
+        callback(true)
+      end,
+      on_error = function(err2)
+        callback(nil, err2)
+      end,
+    })
+  end)
+end
+
+--- URL that downloads an attachment (from the browser, signed in) under its name
+function M.attachment_download_url(attachment)
+  local sep = attachment.url:find("?", 1, true) and "&" or "?"
+  return attachment.url .. sep .. "fileName=" .. url_encode(attachment.name) .. "&download=true"
+end
+
 -- Remove the links of a work item to an artifact (every relation to `url`); callback(true) or
 -- (nil, err)
 function M.unlink_artifact(id, url, callback)

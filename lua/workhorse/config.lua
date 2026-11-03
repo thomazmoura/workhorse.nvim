@@ -166,6 +166,14 @@ local defaults = {
     work_items_query = nil,
   },
 
+  -- Attachments section of the work item details
+  attachments = {
+    -- Folders a new line of the section completes from (not their subfolders), newest first,
+    -- e.g. { "~/Documents/Attachments" }. nil: paperboy.nvim's compose.attachment_dirs (when
+    -- it is installed), else $PAPERBOY_ATTACHMENT_DIRS (separated by ":", like $PATH)
+    dirs = nil,
+  },
+
   -- Lualine integration settings
   lualine = {
     refresh_interval = 60000, -- 1 minute in ms

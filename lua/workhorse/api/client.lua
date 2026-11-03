@@ -175,7 +175,8 @@ end
 
 --- Send a request with this Authorization header (opts.base_url replaces the server URL, e.g.
 --- for another host of the organization). The header and the body go to curl in a config on
---- its stdin, never on its command line, which other processes can read (ps, /proc)
+--- its stdin, never on its command line, which other processes can read (ps, /proc).
+--- opts.upload_file sends that file as the body instead, as it is (binary content included)
 function M.request_with(opts, auth)
   local url = (opts.base_url or get_base_url()) .. opts.path
   local method = opts.method or "GET"
@@ -189,7 +190,10 @@ function M.request_with(opts, auth)
     url,
   }
   local stdin = { "header = " .. config_quote("Authorization: " .. auth) }
-  if body then
+  if opts.upload_file then
+    -- Read by curl itself: a config string cannot hold binary content (NUL bytes)
+    table.insert(stdin, "data-binary = " .. config_quote("@" .. opts.upload_file))
+  elseif body then
     table.insert(stdin, "data-raw = " .. config_quote(body))
   end
 
@@ -228,6 +232,16 @@ function M.patch(path, body, opts)
   opts.body = body
   -- JSON Patch requires specific content type
   opts.content_type = "application/json-patch+json"
+  M.request(opts)
+end
+
+--- POST the file at `file_path` as the body (application/octet-stream)
+function M.upload(path, file_path, opts)
+  opts = opts or {}
+  opts.path = path
+  opts.method = "POST"
+  opts.upload_file = file_path
+  opts.content_type = "application/octet-stream"
   M.request(opts)
 end
 

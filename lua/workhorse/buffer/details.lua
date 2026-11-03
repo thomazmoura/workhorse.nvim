@@ -9,6 +9,10 @@
 --   Description
 --     Free text of the description, indented one level
 --
+--   Attachments
+--     report.pdf                                          (a link: gx downloads it)
+--     ~/Documents/Attachments/screenshot.png              (a new line: attached on save)
+--
 --   Discussion Comment
 --     Free text of a new comment, added to the discussion on save
 --
@@ -19,7 +23,9 @@
 -- Column and Tags are completed from their choices (ui/choices.lua; the tags one at a time),
 -- <Tab>/<S-Tab> move between them, the description and the comment. The history is plain text
 -- (it can be yanked and searched) that is never parsed: edits there are not saved, and a render
--- puts it back. The column is the board column, as
+-- puts it back. The attachments are one per line, by name: deleting a line removes the file from
+-- the work item, and a new line attaches a file (a path, or the name of a file of an attachment
+-- folder, completed from those folders: see attachments.lua). The column is the board column, as
 -- <leader>ws moves it: the state follows it on the server, through the board's state mappings.
 -- A missing Column or Tags line keeps that field as it is. Saving (<leader><leader>, or <CR>,
 -- which then closes the details; :w does nothing) confirms the changes, sends them in one request, then refreshes the work item buffer the details were
@@ -32,6 +38,7 @@ local guides = require("workhorse.buffer_tree.guides")
 local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local workitems = require("workhorse.api.workitems")
+local attachments = require("workhorse.attachments")
 local boards = require("workhorse.api.boards")
 
 local ns = vim.api.nvim_create_namespace("workhorse_details")
@@ -43,6 +50,7 @@ local FIELD_OF_KEY = { [COLUMN:lower()] = "column", [TAGS:lower()] = "tags" }
 -- The section headers, in the order they come in the buffer
 local SECTIONS = {
   { key = "description", title = "Description" },
+  { key = "attachments", title = "Attachments" },
   { key = "comment", title = "Discussion Comment" },
   { key = "history", title = "Discussion History" },
 }
@@ -55,7 +63,9 @@ end
 local screens = {}
 -- [bufnr] = { item, origin = work item buffer it was opened from, saving, comments (nil until
 -- loaded), comments_error, comments_request (the latest), history (the rendered history lines:
--- { text, author = byte length of the author on an author line }) }
+-- { text, author = byte length of the author on an author line }), attachments (the files
+-- attached, see workitems.list_attachments; nil until loaded), attachments_error,
+-- attachments_request (the latest) }
 local buffers = {}
 -- The split on the right showing the details
 local details_win = nil
@@ -165,7 +175,8 @@ local function is_title(lnum, line)
   return lnum == 1 and (line or ""):match("^#") ~= nil
 end
 
--- Key of the section a header line starts ("description", "comment", "history"), nil for others
+-- Key of the section a header line starts ("description", "attachments", "comment", "history"),
+-- nil for others
 local function header_key(line)
   return SECTION_OF_TITLE[(line or ""):match("^(%S.-)%s*$") or ""]
 end
@@ -227,8 +238,22 @@ end
 
 -- Parsing and changes -----------------------------------------------------------
 
--- { column, tags, description, comment, lnums = { column, tags, description, comment, history
--- (the headers) } } of the buffer, plus the lines that are no field. The history is not parsed
+-- Lines of the attachments section under the header at `header`: { { lnum, text (trimmed) } },
+-- blank lines left out
+local function attachment_lines(lines, header)
+  local result = {}
+  for lnum = header + 1, next_header(lines, header) - 1 do
+    local text = vim.trim(lines[lnum])
+    if text ~= "" then
+      table.insert(result, { lnum = lnum, text = text })
+    end
+  end
+  return result
+end
+
+-- { column, tags, description, comment, attachments (see attachment_lines), lnums = { column,
+-- tags, description, attachments, comment, history (the headers) } } of the buffer, plus the
+-- lines that are no field. The history is not parsed
 local function parse(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local headers = header_lnums(lines)
@@ -251,15 +276,59 @@ local function parse(bufnr)
       result[key] = section_text(lines, headers[key])
     end
   end
+  if headers.attachments then
+    result.attachments = attachment_lines(lines, headers.attachments)
+  end
   for _, section in ipairs(SECTIONS) do
     result.lnums[section.key] = headers[section.key]
   end
   return result, errors
 end
 
--- The changes of the buffer ({ column, tags, added, removed, description, comment }, each only
--- when changed), the errors that block saving them, the parsed buffer, and the problem of each
--- field. A missing or misplaced header blocks saving: the text around it would land in another
+-- The attachments the lines of the section stand for, against the files attached `existing` (nil
+-- while loading: then every line is a new file): sets on each line `attachment` (an existing one,
+-- matched by name, in order for repeated names) or `path` and `size` (a new one) or `problem`.
+-- Returns { add = lines of new files, remove = attachments without a line } or nil when nothing
+-- changes
+local function match_attachments(lines, existing)
+  local pool = {}
+  for _, attachment in ipairs(existing or {}) do
+    pool[attachment.name] = pool[attachment.name] or {}
+    table.insert(pool[attachment.name], attachment)
+  end
+  local add, paths = {}, {}
+  for _, line in ipairs(lines) do
+    local same = pool[line.text]
+    if same and #same > 0 then
+      line.attachment = table.remove(same, 1)
+    else
+      local path, stat = attachments.resolve(line.text)
+      if not path then
+        line.problem = "file not found"
+      elseif paths[path] then
+        line.problem = "attached twice (line " .. paths[path] .. ")"
+      else
+        paths[path] = line.lnum
+        line.path, line.size = path, stat.size
+        table.insert(add, line)
+      end
+    end
+  end
+  local remove = {}
+  for _, attachment in ipairs(existing or {}) do
+    if vim.tbl_contains(pool[attachment.name], attachment) then
+      table.insert(remove, attachment)
+    end
+  end
+  if #add + #remove == 0 then
+    return nil
+  end
+  return { add = add, remove = remove }
+end
+
+-- The changes of the buffer ({ column, tags, added, removed, description, comment, attachments },
+-- each only when changed), the errors that block saving them, the parsed buffer, and the problem
+-- of each field. A missing or misplaced header blocks saving: the text around it would land in another
 -- section (the history in the new comment, for one)
 local function detect(bufnr)
   local item = buffers[bufnr].item
@@ -310,6 +379,14 @@ local function detect(bufnr)
   if parsed.comment and parsed.comment ~= "" then
     changes.comment = parsed.comment
   end
+  if parsed.attachments then
+    changes.attachments = match_attachments(parsed.attachments, buffers[bufnr].attachments)
+    for _, line in ipairs(parsed.attachments) do
+      if line.problem then
+        table.insert(errors, ("Line %d: %s: %s"):format(line.lnum, line.text, line.problem))
+      end
+    end
+  end
   return changes, errors, parsed, problems
 end
 
@@ -356,8 +433,11 @@ function M.decorate(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   guides.draw(bufnr, { boundary = is_header })
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  -- opts.col: the column the mark starts at (not an extmark option: it is the API's argument)
   local function mark(lnum, opts)
-    pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, lnum - 1, 0, opts)
+    local col = opts.col or 0
+    opts.col = nil
+    pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, lnum - 1, col, opts)
   end
   if is_title(1, lines[1]) then
     local meta = vim.tbl_filter(function(part)
@@ -407,6 +487,53 @@ function M.decorate(bufnr)
   if parsed.lnums.comment and changes.comment then
     mark(parsed.lnums.comment, { virt_text = { { "  [new comment]", "DiagnosticWarn" } } })
   end
+  if parsed.lnums.attachments then
+    local header = parsed.lnums.attachments
+    local chunks
+    if state.attachments_error then
+      chunks = { { "  failed to load: " .. tostring(state.attachments_error), "WorkhorseRunRequired" } }
+    elseif not state.attachments then
+      chunks = { { "  loading…", "WorkhorseBuildMeta" } }
+    elseif #parsed.attachments == 0 and not changes.attachments then
+      chunks = { { "  none · a new line attaches a file", "WorkhorseBuildMeta" } }
+    else
+      local n = #state.attachments
+      chunks = { { ("  %d file%s · gx downloads"):format(n, n == 1 and "" or "s"), "WorkhorseBuildMeta" } }
+    end
+    if changes.attachments then
+      local parts = {}
+      if #changes.attachments.add > 0 then
+        table.insert(parts, "+" .. #changes.attachments.add)
+      end
+      for _, attachment in ipairs(changes.attachments.remove) do
+        table.insert(parts, "-" .. attachment.name)
+      end
+      table.insert(chunks, { "  [" .. table.concat(parts, " ") .. "]", "DiagnosticWarn" })
+    end
+    mark(header, { virt_text = chunks })
+    for _, line in ipairs(parsed.attachments) do
+      local text = lines[line.lnum]
+      local start = #text:match("^%s*")
+      if line.attachment then
+        -- The URL makes the line a link: gx (vim.ui._get_urls) and terminal hyperlinks open it
+        mark(line.lnum, { col = 0, end_col = #text, hl_group = "WorkhorseBuildTitle",
+          url = workitems.attachment_download_url(line.attachment) })
+        local meta = vim.tbl_filter(function(part)
+          return part ~= ""
+        end, {
+          attachments.format_size(line.attachment.size),
+          require("workhorse.api.builds").format_date(line.attachment.date),
+        })
+        mark(line.lnum, { virt_text = { { "  " .. table.concat(meta, " · "), "WorkhorseBuildMeta" } } })
+      elseif line.problem then
+        mark(line.lnum, { virt_text = { { "  " .. line.problem, "WorkhorseRunRequired" } } })
+      else
+        mark(line.lnum, { col = start, end_col = #text, hl_group = "DiagnosticWarn" })
+        mark(line.lnum, { virt_text = { { ("  [new · %s]"):format(attachments.format_size(line.size)),
+          "DiagnosticWarn" } } })
+      end
+    end
+  end
   local history = parsed.lnums.history
   if history then
     -- The history as rendered: highlighted while untouched, flagged once edited
@@ -449,6 +576,17 @@ local function indented(text, level)
   return vim.tbl_map(function(line)
     return line:match("^%s*$") and "" or prefix .. line
   end, vim.split(text, "\n", { plain = true }))
+end
+
+-- Lines of the attachments section (without the header): one per file, or an indented blank
+-- line when there are none (typing there starts at the level of the list)
+local function attachments_section(state)
+  if not state.attachments or #state.attachments == 0 then
+    return { guides.prefix(1) }
+  end
+  return vim.tbl_map(function(attachment)
+    return guides.prefix(1) .. attachment.name
+  end, state.attachments)
 end
 
 -- Lines of the discussion history ({ text, author }, see `buffers`), newest comment first
@@ -504,7 +642,9 @@ local function render(bufnr)
   local text = html_to_text(item.description)
   -- An empty section gets an indented line, so typing starts at the level of its text
   vim.list_extend(lines, text == "" and { guides.prefix(1) } or indented(text, 1))
-  vim.list_extend(lines, { "", SECTIONS[2].title, guides.prefix(1), "", SECTIONS[3].title })
+  vim.list_extend(lines, { "", SECTIONS[2].title })
+  vim.list_extend(lines, attachments_section(state))
+  vim.list_extend(lines, { "", SECTIONS[3].title, guides.prefix(1), "", SECTIONS[4].title })
   state.history = history_lines(state)
   for _, entry in ipairs(state.history) do
     table.insert(lines, entry.text)
@@ -530,6 +670,57 @@ local function render_history(bufnr)
     end, state.history), clean)
   end
   M.decorate(bufnr)
+end
+
+-- Put the loaded attachments in their section (when its header is still there). Without changes
+-- of its own the buffer takes them as they are, without an undo step; on the first load, the
+-- lines typed meanwhile (new files) stay below them; `force` replaces the section all the same
+-- (after a save: its new lines were attached). Otherwise the edits stay, diffed against them
+local function render_attachments(bufnr, previous, force)
+  local state = buffers[bufnr]
+  if not state or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local header = header_lnums(lines).attachments
+  if header then
+    -- The whole section, then the blank line that separates the next one
+    local stop = next_header(lines, header)
+    local tail = stop <= #lines and { "" } or {}
+    local saved_state = state.attachments
+    state.attachments = previous
+    local clean = not pending(bufnr)
+    state.attachments = saved_state
+    if clean or force then
+      set_lines(bufnr, header, stop - 1, vim.list_extend(attachments_section(state), tail), clean)
+    elseif previous == nil and not state.attachments_error then
+      local typed = vim.tbl_map(function(line)
+        return lines[line.lnum]
+      end, attachment_lines(lines, header))
+      local section = #state.attachments > 0 and attachments_section(state) or {}
+      set_lines(bufnr, header, stop - 1, vim.list_extend(vim.list_extend(section, typed), tail), false)
+    end
+  end
+  M.decorate(bufnr)
+end
+
+-- Load the files attached to the work item, then show them (only the latest request counts)
+local function load_attachments(bufnr, force)
+  local state = buffers[bufnr]
+  state.attachments_request = (state.attachments_request or 0) + 1
+  local request = state.attachments_request
+  workitems.list_attachments(state.item.id, function(list, err)
+    if buffers[bufnr] ~= state or state.attachments_request ~= request then
+      return
+    end
+    local previous = state.attachments
+    state.attachments, state.attachments_error = list, list == nil and (err or "unknown error") or nil
+    if list == nil then
+      -- Keep diffing against the files known before, if any
+      state.attachments = previous
+    end
+    render_attachments(bufnr, previous, force)
+  end)
 end
 
 -- Load the discussion comments of the work item, then show them (only the latest request counts)
@@ -597,6 +788,34 @@ local function load_boards()
 end
 
 -- Tags offered on the Tags line `line`: the project's and the item's, but those already on it
+-- Whether `lnum` is a line of the attachments section
+local function in_attachments(lines, lnum)
+  local header = header_lnums(lines).attachments
+  return header ~= nil and lnum > header and lnum < next_header(lines, header)
+end
+
+-- Files offered on the line `lnum` of the attachments section: those of the attachment folders
+-- (as ~ paths, newest first), but those already on another line
+local function attachment_choices(lines, lnum)
+  local taken = {}
+  local header = header_lnums(lines).attachments
+  for _, line in ipairs(attachment_lines(lines, header)) do
+    if line.lnum ~= lnum then
+      local path = attachments.resolve(line.text)
+      if path then
+        taken[path] = true
+      end
+    end
+  end
+  local result = {}
+  for _, file in ipairs(attachments.list()) do
+    if not taken[file.path] then
+      table.insert(result, vim.fn.fnamemodify(file.path, ":~"))
+    end
+  end
+  return result
+end
+
 local function tag_choices(item, line)
   local on_line = split_tags(line:match(":(.*)$"))
   local all = split_tags(table.concat(vim.list_extend(vim.deepcopy(project_tags or {}),
@@ -609,8 +828,8 @@ end
 
 -- Navigation ----------------------------------------------------------------------
 
--- Places <Tab> moves to: { lnum, kind = "value" | "text" }, the fields then the description
--- and the comment (the line under their header)
+-- Places <Tab> moves to: { lnum, kind = "value" | "text" }, the fields then the description,
+-- the attachments and the comment (the line under their header)
 local function stops(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local headers = header_lnums(lines)
@@ -620,7 +839,7 @@ local function stops(bufnr)
       table.insert(result, { lnum = lnum, kind = "value" })
     end
   end
-  for _, key in ipairs({ "description", "comment" }) do
+  for _, key in ipairs({ "description", "attachments", "comment" }) do
     if headers[key] then
       table.insert(result, { lnum = headers[key] + 1, kind = "text" })
     end
@@ -775,6 +994,16 @@ function M.save(bufnr, on_confirmed)
     -- Through System.History: the comment goes in the same request as the other changes
     fields.history = text_to_html(changes.comment)
   end
+  local files = changes.attachments
+  if files then
+    for _, line in ipairs(files.add) do
+      table.insert(entries, { text = ("Attach: %s (%s)"):format(vim.fn.fnamemodify(line.path, ":~"),
+        attachments.format_size(line.size)), hl = "DiagnosticOk" })
+    end
+    for _, attachment in ipairs(files.remove) do
+      table.insert(entries, { text = "Remove attachment: " .. attachment.name, hl = "DiagnosticError" })
+    end
+  end
   require("workhorse.ui.list_confirm").show(("Changes to #%d"):format(item.id), entries, function(confirmed)
     if not confirmed then
       return
@@ -784,35 +1013,87 @@ function M.save(bufnr, on_confirmed)
     end
     state.saving = true
     local done = require("workhorse.progress").start("Saving #" .. item.id)
-    workitems.update_fields(item.id, fields, function(_, err)
-      if err then
-        state.saving = false
-        done(true)
-        notify(("Failed to update #%d: %s"):format(item.id, tostring(err)), vim.log.levels.ERROR)
-        return
+    -- Whether the attachments were changed already (a later failure still shows them)
+    local attached = false
+    local function fail(err)
+      state.saving = false
+      done(true)
+      notify(("Failed to update #%d: %s"):format(item.id, tostring(err)), vim.log.levels.ERROR)
+      if attached and vim.api.nvim_buf_is_valid(bufnr) then
+        -- Its new lines are attached now: saving again would attach them twice
+        load_attachments(bufnr, true)
       end
-      workitems.get(item.id, function(fresh)
-        state.saving = false
-        done()
-        if fresh then
-          state.item = fresh
-        else
-          -- Could not reload it: take the saved values as they were sent
-          state.item.board_column = fields.board_column or item.board_column
-          state.item.tags = fields.tags or item.tags
-          state.item.description = fields.description or item.description
+    end
+    -- The files first: one upload each, then one request attaching them and removing the others
+    local function apply_attachments(next_step)
+      if not files then
+        return next_step()
+      end
+      local added = {}
+      local function upload(i)
+        local line = files.add[i]
+        if not line then
+          local urls = vim.tbl_map(function(attachment)
+            return attachment.url
+          end, files.remove)
+          return workitems.update_attachments(item.id, added, urls, function(ok, err)
+            if not ok then
+              return fail(err)
+            end
+            attached = true
+            next_step()
+          end)
         end
-        notify(("Updated #%d"):format(item.id))
-        if vim.api.nvim_buf_is_valid(bufnr) then
-          -- The comment was sent: its section starts empty again, and the history gets it
-          render(bufnr)
-          if fields.history then
-            load_comments(bufnr)
+        local name = vim.fn.fnamemodify(line.path, ":t")
+        workitems.upload_attachment(line.path, name, function(url, err)
+          if not url then
+            return fail(("uploading %s: %s"):format(name, tostring(err)))
           end
+          table.insert(added, { url = url, name = name })
+          upload(i + 1)
+        end)
+      end
+      upload(1)
+    end
+    local function apply_fields(next_step)
+      if not next(fields) then
+        return next_step()
+      end
+      workitems.update_fields(item.id, fields, function(_, err)
+        if err then
+          return fail(err)
         end
-        refresh_origin(state.origin)
+        next_step()
+      end, column_field)
+    end
+    apply_attachments(function()
+      apply_fields(function()
+        workitems.get(item.id, function(fresh)
+          state.saving = false
+          done()
+          if fresh then
+            state.item = fresh
+          else
+            -- Could not reload it: take the saved values as they were sent
+            state.item.board_column = fields.board_column or item.board_column
+            state.item.tags = fields.tags or item.tags
+            state.item.description = fields.description or item.description
+          end
+          notify(("Updated #%d"):format(item.id))
+          if vim.api.nvim_buf_is_valid(bufnr) then
+            -- The comment was sent: its section starts empty again, and the history gets it
+            render(bufnr)
+            if fields.history then
+              load_comments(bufnr)
+            end
+            if files then
+              load_attachments(bufnr, true)
+            end
+          end
+          refresh_origin(state.origin)
+        end)
       end)
-    end, column_field)
+    end)
   end)
 end
 
@@ -840,6 +1121,7 @@ function M.reload(bufnr)
     if vim.api.nvim_buf_is_valid(bufnr) then
       render(bufnr)
       load_comments(bufnr)
+      load_attachments(bufnr, true)
     end
   end)
 end
@@ -963,6 +1245,9 @@ local function create(item)
       end
       local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
       local line = lines[lnum] or ""
+      if in_attachments(lines, lnum) then
+        return attachment_choices(lines, lnum)
+      end
       if lnum >= next_header(lines, 1) or is_title(lnum, line) then
         return nil
       end
@@ -978,8 +1263,12 @@ local function create(item)
         return tag_choices(state.item, line), true
       end
     end,
-    -- A line still without its ":" completes the key
-    start = function(line)
+    -- A line still without its ":" completes the key; a line of the attachments section is a
+    -- file as a whole
+    start = function(line, lnum)
+      if lnum and in_attachments(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), lnum) then
+        return #line:match("^%s*")
+      end
       if not line:find(":", 1, true) then
         return #line:match("^%s*")
       end
@@ -1027,6 +1316,7 @@ function M.open(work_item, owner_bufnr)
     vim.api.nvim_win_set_cursor(details_win, { 1, 0 })
     M.jump(1)
     load_comments(bufnr)
+    load_attachments(bufnr)
   else
     M.decorate(bufnr)
   end

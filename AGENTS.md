@@ -58,6 +58,13 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `security.lua` - Roles (Reader, User, Administrator) per user and group (securityroles role assignments)
 - API: `api/libraries.lua`
 
+**Work item details** (`lua/workhorse/buffer/details.lua`, `<CR>` on a work item)
+- Column, Tags, Description, Attachments, Discussion Comment and Discussion History sections in one editable buffer
+- Attachments: one file name per line, a link (`url` extmark: `gx`); a deleted line removes it, a new line (a path, or a
+  file of the attachment folders: `attachments.lua`, shared with paperboy's `compose.attachment_dirs`) uploads it on save
+- API: `api/workitems.lua` (`list_attachments`, `upload_attachment`, `update_attachments`; uploads go through
+  `client.upload`, which hands curl the file itself)
+
 ### Data Flow
 
 ```

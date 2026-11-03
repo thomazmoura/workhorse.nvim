@@ -12,7 +12,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **State management** - Change work item states through a floating menu
 - **Virtual text** - Work item states displayed as virtual text at end of lines
 - **Confirmation dialog** - Review changes before applying to Azure DevOps
-- **Work item details** - Edit the board column, tags and description of a work item, read its discussion and add comments to it, in a buffer on the right
+- **Work item details** - Edit the board column, tags and description of a work item, attach and remove files, read its discussion and add comments to it, in a buffer on the right
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
@@ -248,6 +248,13 @@ require("workhorse").setup({
     delete_source_branch = true,  -- default answer when completing
     transition_work_items = false,
     work_items_query = nil,       -- saved query (id) completing the Work Items section; nil: the last query opened
+  },
+
+  -- Attachments section of the work item details (see "Work Item Details")
+  attachments = {
+    -- Folders new attachments are completed from (not their subfolders), newest first.
+    -- nil: paperboy.nvim's compose.attachment_dirs, else $PAPERBOY_ATTACHMENT_DIRS ("a:b")
+    dirs = nil,                   -- e.g. { "~/Documents/Attachments" }
   },
 })
 ```
@@ -500,6 +507,10 @@ Tags: frontend, urgent
 Description
   Free text of the description
 
+Attachments                                          2 files · gx downloads
+  spec.pdf                                           120 KB · 01/10/26 10:00
+  ~/Documents/Attachments/screenshot.png             [new · 48 KB]
+
 Discussion Comment
   Text of a new comment, added to the discussion on save
 
@@ -512,13 +523,20 @@ Discussion History                                   2 comments · read-only
   item like `<leader>ws` does: the state follows the column on the server (shown in the title)
 - **Tags**: Comma-separated, completed from the tags of the project; add or remove them by editing the line
 - **Description**: Edit the work item description (converted from HTML), indented one level
+- **Attachments**: The files attached to the work item, one per line. Each is a link: `gx` on it opens its download
+  URL in the browser (and terminals with hyperlinks make it clickable). Deleting a line removes that file from the work
+  item; a new line attaches a file when saving: a path (absolute, `~` or relative), or the name of a file of an
+  attachment folder. Typing on a new line completes the files of the attachment folders, newest first. The folders are
+  `attachments.dirs`, or else [paperboy.nvim](https://github.com/thomazmoura/paperboy.nvim)'s `compose.attachment_dirs`
+  (so both plugins share them), or else `$PAPERBOY_ATTACHMENT_DIRS`. A file that does not exist blocks saving
 - **Discussion Comment**: Any text under it is added as a new comment of the discussion when saving (in the same
   request as the other changes); the section starts empty again afterwards
 - **Discussion History**: The saved comments, newest first, below the new comment. They are plain text (yank and
   search work) but never saved: edits there are flagged and undone by the next reload or save. A missing or misplaced
   section header blocks saving until `<leader>R` restores it
-- **Navigation**: `<Tab>`/`<S-Tab>` move between the values, the description and the new comment
-- **Save**: `<leader><leader>` confirms the changes, sends them in one request and refreshes the work item buffer.
+- **Navigation**: `<Tab>`/`<S-Tab>` move between the values, the description, the attachments and the new comment
+- **Save**: `<leader><leader>` confirms the changes, sends them in one request (after uploading the new attachments, which
+  go with the removed ones in a request of their own) and refreshes the work item buffer.
   `:w` does nothing, so an auto-save plugin does not apply them
 - **Reload**: `<leader>R` discards the pending changes and loads the work item again
 - **Close**: `<CR>` in normal mode inside the details confirms and applies the pending changes, then closes them (with
