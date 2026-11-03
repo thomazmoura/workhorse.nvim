@@ -1,6 +1,6 @@
 local M = {}
 
-local curl = require("plenary.curl")
+local async = require("workhorse.async")
 local config = require("workhorse.config")
 local store = require("workhorse.store")
 
@@ -10,19 +10,31 @@ local pat = nil
 -- Callbacks waiting for the PAT from the locksmith store (concurrent requests share one prompt)
 local pat_waiting = nil
 
--- Base64 encode (fallback for Neovim < 0.10)
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+-- Base64 encode, in Lua for Neovim < 0.10 (no vim.base64): never through a shell, which would
+-- put the PAT on a command line
 local function base64_encode(str)
   if vim.base64 and vim.base64.encode then
     return vim.base64.encode(str)
   end
-  -- Fallback using base64 command
-  local handle = io.popen("echo -n " .. vim.fn.shellescape(str) .. " | base64 -w0 2>/dev/null || echo -n " .. vim.fn.shellescape(str) .. " | base64")
-  if handle then
-    local result = handle:read("*a"):gsub("%s+$", "")
-    handle:close()
-    return result
+  local out = {}
+  for i = 1, #str, 3 do
+    local a, b, c = str:byte(i, i + 2)
+    local n = a * 65536 + (b or 0) * 256 + (c or 0)
+    local digits = { math.floor(n / 262144) % 64, math.floor(n / 4096) % 64, math.floor(n / 64) % 64, n % 64 }
+    for d = 1, 4 do
+      digits[d] = B64:sub(digits[d] + 1, digits[d] + 1)
+    end
+    if not b then
+      digits[3] = "="
+    end
+    if not c then
+      digits[4] = "="
+    end
+    out[#out + 1] = table.concat(digits)
   end
-  error("Failed to base64 encode - neither vim.base64 nor base64 command available")
+  return table.concat(out)
 end
 
 --- The PAT: workhorse/pat from the locksmith store, its only source (its password is asked on
@@ -134,36 +146,64 @@ function M.request(opts)
   end)
 end
 
+-- A string quoted for a curl config file (its escapes: \\ \" \n \r \t)
+local CONFIG_ESCAPES = { ["\\"] = "\\\\", ['"'] = '\\"', ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" }
+local function config_quote(value)
+  return '"' .. value:gsub('[\\"\n\r\t]', CONFIG_ESCAPES) .. '"'
+end
+
+-- Status, headers ({ "Name: value" }) and body of curl's output with -D -: a header block per
+-- response (redirects, proxies), the last one the body's
+local function parse_output(output)
+  local status, headers, rest = 0, {}, output
+  while rest:match("^HTTP/") do
+    local block_end = rest:find("\r\n\r\n", 1, true)
+    local block = block_end and rest:sub(1, block_end - 1) or rest
+    rest = block_end and rest:sub(block_end + 4) or ""
+    headers = {}
+    for line in block:gmatch("[^\r\n]+") do
+      local code = line:match("^HTTP/%S*%s+(%d+)")
+      if code then
+        status = tonumber(code)
+      else
+        table.insert(headers, line)
+      end
+    end
+  end
+  return status, headers, rest
+end
+
 --- Send a request with this Authorization header (opts.base_url replaces the server URL, e.g.
---- for another host of the organization)
+--- for another host of the organization). The header and the body go to curl in a config on
+--- its stdin, never on its command line, which other processes can read (ps, /proc)
 function M.request_with(opts, auth)
   local url = (opts.base_url or get_base_url()) .. opts.path
+  local method = opts.method or "GET"
+  local body = opts.raw_body or (opts.body and vim.json.encode(opts.body)) or nil
 
-  local headers = {
-    authorization = auth,
-    content_type = opts.content_type or "application/json",
-    accept = "application/json",
+  local args = {
+    "-sSL", "--compressed", "-D", "-", "-X", method,
+    "-H", "Content-Type: " .. (opts.content_type or "application/json"),
+    "-H", "Accept: application/json",
+    "--config", "-",
+    url,
   }
-
-  local request_opts = {
-    url = url,
-    method = opts.method or "GET",
-    headers = headers,
-    body = opts.body and vim.json.encode(opts.body) or nil,
-    callback = function(response)
-      handle_response(response, opts)
-    end,
-    on_error = function(err)
-      handle_transport_error(err, opts)
-    end,
-  }
-
-  -- For raw body (already encoded JSON)
-  if opts.raw_body then
-    request_opts.body = opts.raw_body
+  local stdin = { "header = " .. config_quote("Authorization: " .. auth) }
+  if body then
+    table.insert(stdin, "data-raw = " .. config_quote(body))
   end
 
-  curl.request(request_opts)
+  async.exec(vim.g.plenary_curl_bin_path or "curl", args, function(stdout, stderr, code)
+    if code ~= 0 then
+      return handle_transport_error({
+        message = ("%s %s - curl error exit_code=%s stderr=%s"):format(method, url, code, stderr or ""),
+        stderr = stderr,
+        exit = code,
+      }, opts)
+    end
+    local status, headers, response_body = parse_output(stdout or "")
+    handle_response({ status = status, headers = headers, body = response_body, exit = code }, opts)
+  end, table.concat(stdin, "\n") .. "\n")
 end
 
 function M.get(path, opts)
