@@ -2,7 +2,7 @@
 -- pull request, editable as text on an active one, in the format of the work item buffers:
 --
 --   Work Items
---     #1234 | Login page                        📖 Active
+--     #1234 | Login page                        📖 Doing
 --
 -- A new line links a work item: completed from the work items of a saved query
 -- (prs.work_items_query, else the last query opened, the one :Workhorse resume reopens); an id
@@ -22,7 +22,7 @@ local INDENT = "  "
 local LINK_NAME = "Pull Request"
 
 -- Work items seen this session (linked, in the completion list or looked up): [id] = { id,
--- title, state, type }
+-- title, board_column, type }
 local known = {}
 -- Ids looked up and not found: [id] = true
 local missing = {}
@@ -43,7 +43,7 @@ local function text_of(item)
   return ("#%d | %s"):format(item.id, item.title)
 end
 
--- Work items linked to the pull request: { { id, title, state, type } } by id (those the PAT can't
+-- Work items linked to the pull request: { { id, title, board_column, type } } by id (those the PAT can't
 -- read keep their id, with an empty title)
 function M.fetch(ctx, callback, opts)
   prs_api.work_items(ctx.repo, ctx.id, function(ids, err)
@@ -58,7 +58,7 @@ function M.fetch(ctx, callback, opts)
       local result = {}
       for _, id in ipairs(ids) do
         -- Not readable with the PAT: known all the same, so its line is not looked up again
-        known[id] = known[id] or { id = id, title = "", state = "", type = "", hidden = true }
+        known[id] = known[id] or { id = id, title = "", board_column = "", type = "", hidden = true }
         table.insert(result, known[id])
       end
       table.sort(result, function(a, b)
@@ -133,12 +133,16 @@ function M.render(view, ctx, lines, editable)
       elseif item and item.hidden then
         table.insert(virt, { "not readable with this PAT", "WorkhorseRunHint" })
       elseif item then
+        -- The Kanban column, like the work item buffers (empty: not on a board)
+        local column = item.board_column or ""
         local text, hl = type_display(item.type)
         if text and text ~= "" then
-          table.insert(virt, { text .. " ", hl })
+          table.insert(virt, { column ~= "" and text .. " " or text, hl })
         end
-        local state_hl = (config.get().state_colors or {})[item.state] or "WorkhorseBuildMeta"
-        table.insert(virt, { item.state, state_hl })
+        if column ~= "" then
+          local column_hl = (config.get().column_colors or {})[column] or "WorkhorseBuildMeta"
+          table.insert(virt, { column, column_hl })
+        end
       end
       if parts.id and editable then
         if seen[parts.id] then
