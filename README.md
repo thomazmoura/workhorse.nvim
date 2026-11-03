@@ -910,7 +910,7 @@ last repository.
 with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
 
 - **Overview** - three sections, split by a separator:
-  - **Status** - actions (vote, complete, set or cancel auto-complete, copy the URL), the builds, the reviewers
+  - **Status** - actions (vote, complete, set or cancel auto-complete, copy the URL, check out the branch), the builds, the reviewers
     and their votes, the linked work items, the description and the comment threads. `<CR>` on a
     comment on a file opens the Changes tab on its line.
 
@@ -932,6 +932,12 @@ it off) while it is shown, and right after voting, completing or setting/cancell
 The refresh happens in the background: what is shown stays until the new data lands (and when a
 request fails), and the buffer is only redrawn when something changed. A new push also reloads the
 changed files, keeping the cursor on its diff line. `<leader>R` still reloads everything from scratch.
+
+**Checkout this branch** (`<leader>wk`) shows only when Neovim's working directory is a clone of
+the pull request's repository (one of its git remotes points to it). It fetches the source branch
+from that remote and switches to it: a new local branch is created tracking the remote one, and an
+existing one is switched to as it is (with how many commits it is behind, to pull). Git refuses
+the switch when local changes would be overwritten; open buffers are reloaded after it.
 
 Diffs compare the last push with its merge base, like the web's Files tab. The file contents are
 fetched in the background (`prs.max_concurrent` at a time) and each diff appears as it lands.
@@ -979,6 +985,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<leader>wc` | Complete the pull request |
 | `<leader>wa` | Set auto-complete, or cancel it when already set |
 | `<leader>wy` | Copy the URL of the pull request to the `0` and `+` registers |
+| `<leader>wk` | Check out the source branch (only in a clone of the pull request's repository) |
 | `<leader>wm` | Load 20 more pull requests (list) |
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |

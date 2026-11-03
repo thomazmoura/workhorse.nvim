@@ -299,15 +299,15 @@ local function repo_key(repo)
 end
 
 --- Fetch URLs of the git remotes of `dir`, "origin" first, then in `git remote` order
----@param callback function Callback(urls): empty when not a git repository
-local function remote_urls(dir, callback)
+---@param callback function Callback(remotes): { { name, url } }, empty when not a git repository
+local function remotes_of(dir, callback)
   async.exec("git", { "-C", dir, "remote", "-v" }, function(stdout, _, code)
     local origin, others = {}, {}
     if code == 0 then
       for line in (stdout or ""):gmatch("[^\n]+") do
         local name, url = line:match("^(%S+)%s+(%S+)%s+%(fetch%)")
         if url then
-          table.insert(name == "origin" and origin or others, url)
+          table.insert(name == "origin" and origin or others, { name = name, url = url })
         end
       end
     end
@@ -315,11 +315,30 @@ local function remote_urls(dir, callback)
   end)
 end
 
+--- The git remote of Neovim's working directory that points to `repo` ({ name, project = {
+--- name } }), "origin" first: no need for the cache, the remote URLs name the repository
+---@param callback function Callback(remote, dir): remote nil when none points to it
+function M.remote_of(repo, callback)
+  local cwd = vim.fn.getcwd()
+  local key = repo_key(repo)
+  remotes_of(cwd, function(remotes)
+    for _, remote in ipairs(remotes) do
+      if vim.tbl_contains(M.url_keys(remote.url), key) then
+        return callback(remote.name, cwd)
+      end
+    end
+    callback(nil, cwd)
+  end)
+end
+
 --- The cached repository of Neovim's working directory: the first git remote that matches one
 ---@param callback function Callback(repo, cache, reason): repo nil with a reason when none matches
 function M.current(callback)
   local cwd = vim.fn.getcwd()
-  remote_urls(cwd, function(urls)
+  remotes_of(cwd, function(remotes)
+    local urls = vim.tbl_map(function(remote)
+      return remote.url
+    end, remotes)
     if #urls == 0 then
       callback(nil, nil, cwd .. " is not a git repository with remotes")
       return

@@ -10,6 +10,7 @@ local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local reviewers = require("workhorse.prs.reviewers")
 local work_items = require("workhorse.prs.work_items")
+local async = require("workhorse.async")
 
 local uv = vim.uv or vim.loop
 -- Status of the builds on the Overview tab, drawn apart so the elapsed time ticks without re-rendering
@@ -829,6 +830,11 @@ local function render_status(view, ctx)
   end
   render.add_line(view, { { "  Copy URL", "WorkhorseBuildMeta" } }, { kind = "nav", target = "copy_url" },
     { { "<leader>wy", "WorkhorseRunHint" } })
+  -- Only when Neovim's working directory is a clone of the pull request's repository
+  if ctx.remote then
+    render.add_line(view, { { "  Checkout this branch", "WorkhorseBuildBranch" } },
+      { kind = "nav", target = "checkout" }, { { "<leader>wk", "WorkhorseRunHint" } })
+  end
   render.add_line(view, { { "" } })
 
   -- Latest build of each pipeline run on the pull request; their status is drawn by _draw_builds
@@ -1310,6 +1316,110 @@ function M.copy_url(bufnr)
   vim.notify("Workhorse: Copied " .. url, vim.log.levels.INFO)
 end
 
+-- Find the git remote of Neovim's working directory that points to the pull request's repository
+-- (ctx.remote: "Checkout this branch" shows only with one); redraws when it changes
+local function detect_clone(bufnr)
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" then
+    return
+  end
+  local ctx = state.ctx
+  require("workhorse.repos").remote_of(ctx.repo, function(remote)
+    if views[bufnr] ~= state or ctx.remote == remote then
+      return
+    end
+    ctx.remote = remote
+    rerender(bufnr)
+  end)
+end
+
+-- Check out the source branch of the pull request in Neovim's working directory: fetched from the
+-- remote that points to the repository, then switched to (a local branch tracking it is created
+-- when there is none; an existing one is left as it is, and how far behind it is reported)
+function M.checkout(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local pr = pr_of(bufnr)
+  if not pr then
+    return
+  end
+  local ctx = views[bufnr].ctx
+  if ctx.checking_out then
+    vim.notify("Workhorse: The checkout is under way", vim.log.levels.INFO)
+    return
+  end
+  local branch = short_branch(pr.source_ref)
+  ctx.checking_out = true
+  require("workhorse.repos").remote_of(ctx.repo, function(remote, dir)
+    local function finish()
+      ctx.checking_out = nil
+      if views[bufnr] and ctx.remote ~= remote then
+        ctx.remote = remote
+        rerender(bufnr)
+      end
+    end
+    if not remote then
+      finish()
+      vim.notify("Workhorse: " .. dir .. " is not a clone of " .. ctx.repo.name, vim.log.levels.WARN)
+      return
+    end
+    local function git(args, callback)
+      async.exec("git", vim.list_extend({ "-C", dir }, args), callback)
+    end
+    local function fail(what, stderr)
+      finish()
+      stderr = vim.trim(stderr or "")
+      vim.notify(("Workhorse: Failed to %s: %s"):format(what, stderr ~= "" and stderr or "unknown error"),
+        vim.log.levels.ERROR)
+    end
+    local upstream = remote .. "/" .. branch
+    vim.notify("Workhorse: Fetching " .. branch .. " from " .. remote .. "…", vim.log.levels.INFO)
+    -- An explicit refspec: the remote-tracking branch exists even when the remote's fetch refspec
+    -- leaves it out
+    git({ "fetch", remote, "+refs/heads/" .. branch .. ":refs/remotes/" .. upstream }, function(_, err, code)
+      if code ~= 0 then
+        return fail("fetch " .. branch, err)
+      end
+      git({ "rev-parse", "--verify", "--quiet", "refs/heads/" .. branch }, function(_, _, verify_code)
+        local exists = verify_code == 0
+        -- No --track: git refuses it when the remote's fetch refspec leaves the branch out (a
+        -- single-branch clone); the upstream is set in the branch's config instead
+        local args = exists and { "switch", branch } or { "switch", "--create", branch, "--no-track", upstream }
+        git(args, function(_, err2, code2)
+          if code2 ~= 0 then
+            return fail("check out " .. branch, err2)
+          end
+          -- Buffers of files the switch changed
+          vim.cmd("checktime")
+          if not exists then
+            git({ "config", "branch." .. branch .. ".remote", remote }, function(_, err3, code3)
+              if code3 == 0 then
+                git({ "config", "branch." .. branch .. ".merge", "refs/heads/" .. branch }, function(_, err4, code4)
+                  if code4 ~= 0 then
+                    return fail("set the upstream of " .. branch, err4)
+                  end
+                  finish()
+                  vim.notify("Workhorse: Checked out " .. branch .. " (tracking " .. upstream .. ")",
+                    vim.log.levels.INFO)
+                end)
+              else
+                fail("set the upstream of " .. branch, err3)
+              end
+            end)
+            return
+          end
+          finish()
+          git({ "rev-list", "--count", branch .. ".." .. upstream }, function(out, _, code3)
+            local behind = code3 == 0 and tonumber(vim.trim(out or "")) or 0
+            vim.notify("Workhorse: Checked out " .. branch .. (behind > 0
+              and (", %d commit%s behind %s: pull to update"):format(behind, behind == 1 and "" or "s", upstream)
+              or ""), vim.log.levels.INFO)
+          end)
+        end)
+      end)
+    end)
+  end)
+end
+
 -- Editing ---------------------------------------------------------------------
 
 local SECTION_LABELS = { reviewers = reviewers.HEADER, work_items = work_items.HEADER }
@@ -1569,6 +1679,8 @@ local function select_item(bufnr)
       M.auto_complete(bufnr)
     elseif item.target == "copy_url" then
       M.copy_url(bufnr)
+    elseif item.target == "checkout" then
+      M.checkout(bufnr)
     end
   elseif item.kind == "file" then
     local lnum = find_line(bufnr, "file_header:" .. item.file.path)
@@ -1669,6 +1781,9 @@ local function set_keymaps(bufnr, kind)
   end)
   map("<leader>wy", function()
     M.copy_url(bufnr)
+  end)
+  map("<leader>wk", function()
+    M.checkout(bufnr)
   end)
   -- The editable sections of the Overview
   map("<leader><leader>", function()
@@ -1882,6 +1997,7 @@ function M.open_pr(repo, pr)
   if created then
     vim.api.nvim_set_option_value("winbar", WINBAR, { scope = "local", win = vim.api.nvim_get_current_win() })
     M.set_tab(bufnr, views[bufnr].ctx.tab)
+    detect_clone(bufnr)
     local timer = uv.new_timer()
     views[bufnr].builds_timer = timer
     timer:start(BUILDS_TICK, BUILDS_TICK, vim.schedule_wrap(function()
@@ -1932,6 +2048,8 @@ function M.refresh(bufnr)
   ctx.data, ctx.errors, ctx.loading, ctx.files, ctx.builds_fetched = {}, {}, {}, nil, nil
   ctx.refreshing, ctx.refresh_again, ctx.changes_stale, ctx.refreshed = nil, nil, nil, uv.now()
   M.set_tab(bufnr, ctx.tab)
+  -- The working directory may have changed since
+  detect_clone(bufnr)
   return true
 end
 
