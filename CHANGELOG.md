@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [ddb944b] - 2026-11-03
+
+### Added
+- "New pull request" form in the pull request list (`<leader>wn`): source and target branches completed from the repository's (the target starts as its default branch), a title defaulting to the last commit message of the source branch, and an optional work item to link
+- `<leader>wN` in the pull request list of the repository Neovim is in: the `Criar-PullRequest.ps1` flow in a form that only needs a title and a work item (completed like the Work Items section). Pushes the current branch with `--set-upstream`, creates the pull request linked to the work item (titled after it by default), sets the merge commit message `PR <id>: <title>`, the merge strategy and deleting the source branch, sets auto-complete and optionally approves it
+
 ## [d070c4b] - 2026-11-03
 
 ### Added
