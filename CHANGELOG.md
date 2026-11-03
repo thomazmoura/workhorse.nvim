@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [05caff7] - 2026-11-03
+
+### Changed
+- The linked work items of a pull request's Overview show their Kanban column (colored by `column_colors`) instead of their state, like the work item buffers
+
 ## [e2ceeef] - 2026-11-03
 
 ### Added
