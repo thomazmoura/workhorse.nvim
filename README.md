@@ -16,7 +16,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
 - **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
-- **Pull requests** - Browse the pull requests of any repository, read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
+- **Pull requests** - Browse the pull requests of any repository, create them (also pushing the branch, linking a work item and setting auto-complete in one form), read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
 - **Repositories** - Create, rename and delete the project's repositories from an editable list, and edit their permissions (Security) and branch policies (required reviewers, builds, linked work items...) as text, with every value completed
 - **Libraries** - The project's variable groups as an editable list, each one's variables (secrets included), the pipelines allowed to use it and its security (Reader, User or Administrator roles) edited as text
 - **Context aware** - Open the pull requests and pipelines of the repository Neovim is in, found from its git remotes in a cache of every repository (encrypted on disk by locksmith.nvim)
@@ -942,6 +942,37 @@ the switch when local changes would be overwritten; open buffers are reloaded af
 Diffs compare the last push with its merge base, like the web's Files tab. The file contents are
 fetched in the background (`prs.max_concurrent` at a time) and each diff appears as it lands.
 
+### Creating pull requests
+
+From the pull request list, `<leader>wn` opens the "New pull request" form, like the web's: the
+source and target branches (completed from the repository's; the target starts as its default
+branch, the source as the current branch in a clone of the repository), a title (empty: the last
+commit message of the source branch) and an optional work item to link.
+
+`<leader>wN`, only in a clone of the repository (the list header shows it then), runs the flow of
+the `Criar-PullRequest.ps1` script in a form that only needs a title and a work item:
+
+```
+New pull request (Criar-PullRequest): Repo
+Title:                                  defaults to: Fix the login page
+Work item: #1234 | Fix the login page   Doing
+Source branch: feature/login            pushed to origin first
+Target branch: main                     default branch
+Push: yes
+Auto-complete: yes
+Merge strategy: squash
+Delete source branch: yes
+Approve: no
+```
+
+On `<CR>` (or `<leader><leader>`) and a confirmation it pushes the source branch
+(`git push --set-upstream`), creates the pull request linked to the work item (titled after it when
+the title is empty), sets its merge commit message to `PR <id>: <title>`, the merge strategy
+(`prs.merge_strategy` by default) and deleting the source branch, sets auto-complete, and approves
+it with `Approve: yes`. The work item completes like the Work Items section below (an id typed by
+hand is looked up on leaving insert mode). In both forms `<Tab>`/`<S-Tab>` move between the values,
+and the new pull request opens once created.
+
 ### Editing the reviewers and work items
 
 On an active pull request, the **Reviewers** and **Work Items** sections of the Overview are
@@ -987,6 +1018,8 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<leader>wy` | Copy the URL of the pull request to the `0` and `+` registers |
 | `<leader>wk` | Check out the source branch (only in a clone of the pull request's repository) |
 | `<leader>wm` | Load 20 more pull requests (list) |
+| `<leader>wn` | New pull request: source and target branches, title, optional work item (list) |
+| `<leader>wN` | New pull request the `Criar-PullRequest.ps1` way: push, link a work item, auto-complete (list, in a clone of the repository) |
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
 | `gb` | Open the pull request itself in the browser (its files on the Changes tab); on the list, the pull request under the cursor |

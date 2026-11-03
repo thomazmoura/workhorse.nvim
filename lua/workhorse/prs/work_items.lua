@@ -311,6 +311,12 @@ function M.completions(lines)
   return replace, unknown
 end
 
+--- What is known of work item `id`: its item (nil when unknown), whether it was not found and
+--- whether it is being looked up
+function M.info(id)
+  return known[id], missing[id] == true, fetching[id] == true
+end
+
 --- Look up `ids` on the server; on_done() once they are known (or missing)
 function M.lookup(ids, on_done)
   for _, id in ipairs(ids) do

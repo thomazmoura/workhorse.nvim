@@ -119,6 +119,89 @@ function M.list_repositories(callback)
   })
 end
 
+-- Branches of a repository (names without refs/heads/), sorted: callback(names) or (nil, err)
+function M.branches(repo, callback)
+  client.get(repo_path(repo, "refs?filter=heads/&api-version=7.1"), {
+    on_success = function(data)
+      local names = {}
+      for _, ref in ipairs(data and data.value or {}) do
+        if type(ref) == "table" and type(ref.name) == "string" then
+          table.insert(names, (ref.name:gsub("^refs/heads/", "")))
+        end
+      end
+      table.sort(names, function(a, b)
+        return a:lower() < b:lower()
+      end)
+      callback(names)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Default branch of a repository (a ref, "refs/heads/main"), for repositories known without it:
+-- callback(ref) or (nil, err)
+function M.default_branch(repo, callback)
+  if repo.default_branch then
+    return callback(repo.default_branch)
+  end
+  client.get("/" .. repo.project.id .. "/_apis/git/repositories/" .. repo.id .. "?api-version=7.1", {
+    on_success = function(data)
+      local ref = type(data) == "table" and type(data.defaultBranch) == "string" and data.defaultBranch or nil
+      callback(ref, not ref and "the repository has no default branch" or nil)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- First line of the message of the last commit of a branch: callback(text) or (nil, err)
+function M.last_commit_subject(repo, branch, callback)
+  client.get(repo_path(repo, "commits?searchCriteria.itemVersion.version=" .. url_encode(branch)
+    .. "&searchCriteria.$top=1&api-version=7.1"), {
+    silent = true,
+    on_success = function(data)
+      local commit = data and type(data.value) == "table" and data.value[1]
+      local comment = type(commit) == "table" and type(commit.comment) == "string" and commit.comment or nil
+      callback(comment and vim.trim(comment:match("^[^\r\n]*")) or nil)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Create a pull request. opts: { source_branch, target_branch (names or refs), title,
+-- work_item_ids } (the work items get linked to it): callback(pr) or (nil, err)
+function M.create(repo, opts, callback)
+  local function ref(branch)
+    return branch:match("^refs/") and branch or ("refs/heads/" .. branch)
+  end
+  local work_items = {}
+  for _, id in ipairs(opts.work_item_ids or {}) do
+    table.insert(work_items, { id = tostring(id) })
+  end
+  client.request({
+    path = repo_path(repo, "pullrequests?api-version=7.1"),
+    method = "POST",
+    body = {
+      sourceRefName = ref(opts.source_branch),
+      targetRefName = ref(opts.target_branch),
+      title = opts.title,
+      workItemRefs = #work_items > 0 and work_items or nil,
+    },
+    on_success = function(data)
+      local pr = type(data) == "table" and data.pullRequestId and map_pr(repo, data) or nil
+      callback(pr, not pr and "no pull request in the response" or nil)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- One page of the pull requests of a repository (all statuses, newest first)
 function M.list(repo, skip, top, callback)
   client.get(repo_path(repo, "pullrequests?searchCriteria.status=all&$top=" .. top .. "&$skip=" .. skip
@@ -416,11 +499,12 @@ local function completion_options(opts)
     mergeStrategy = opts.merge_strategy,
     deleteSourceBranch = opts.delete_source_branch,
     transitionWorkItems = opts.transition_work_items,
+    mergeCommitMessage = opts.merge_commit_message,
   }
 end
 
 -- Complete (merge) a pull request now. opts: { merge_strategy, delete_source_branch,
--- transition_work_items }
+-- transition_work_items, merge_commit_message (optional) }
 function M.complete(repo, pr, opts, callback)
   update(repo, pr.id, {
     status = "completed",
@@ -437,6 +521,11 @@ function M.set_auto_complete(repo, pr, opts, callback)
     end
     update(repo, pr.id, { autoCompleteSetBy = { id = me }, completionOptions = completion_options(opts) }, callback)
   end)
+end
+
+-- Set how the pull request completes (opts as in complete) without setting auto-complete
+function M.set_completion_options(repo, pr, opts, callback)
+  update(repo, pr.id, { completionOptions = completion_options(opts) }, callback)
 end
 
 function M.cancel_auto_complete(repo, pr, callback)

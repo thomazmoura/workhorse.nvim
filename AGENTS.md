@@ -48,7 +48,8 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `init.lua` - List of a repository's pull requests and the screen of one (Overview and Changes tabs, rendered from the data with `builds/render.lua`)
 - `reviewers.lua` / `work_items.lua` - Editable sections of the Overview of an active pull request (`name: required|optional` reviewers completed from the identity cache; `#id | title` linked work items completed from `prs.work_items_query` or the last query, typed ids looked up on InsertLeave). Their text is spliced into every render (`ctx.edits`), saved with `:w` / `<leader><leader>` after a `list_confirm`
 - `diff.lua` - Delta-style diffs of the Changes tab
-- API: `api/pullrequests.lua` (reviewers, linked work items), `api/workitems.lua` (`link_artifact` / `unlink_artifact`)
+- `new_pr.lua` - "New pull request" forms of the list (on `builds/form.lua`): `<leader>wn` (branches, title, optional work item) and `<leader>wN` (the Criar-PullRequest.ps1 flow in a clone: push, create linked to a work item, completion options with "PR <id>: <title>", auto-complete, optional approval)
+- API: `api/pullrequests.lua` (reviewers, linked work items, branches, creation), `api/workitems.lua` (`link_artifact` / `unlink_artifact`)
 
 **Libraries screen** (`lua/workhorse/libraries_screen/`, `<leader>wl`, `:Workhorse libraries`)
 - `init.lua` - Editable list of the project's variable groups (rename, delete one confirmation each; a new line opens a draft)

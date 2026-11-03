@@ -173,7 +173,13 @@ local function render_list(bufnr, focus)
   local ctx = state.ctx
   local width = view_width(bufnr)
   local view = render.new_view()
-  render.add_line(view, { { repo_label(ctx.repo), "WorkhorseBuildHeader" } }, { kind = "nav", target = "repo" })
+  -- <leader>wN only in a clone of the repository (see detect_clone)
+  local new_hint = { { "<leader>wn new pull request", "WorkhorseRunHint" } }
+  if ctx.remote then
+    table.insert(new_hint, { "  <leader>wN push and create", "WorkhorseRunHint" })
+  end
+  render.add_line(view, { { repo_label(ctx.repo), "WorkhorseBuildHeader" } }, { kind = "nav", target = "repo" },
+    new_hint)
   render.add_separator(view, width)
   local any = false
   for _, section in ipairs(SECTIONS) do
@@ -1316,11 +1322,12 @@ function M.copy_url(bufnr)
   vim.notify("Workhorse: Copied " .. url, vim.log.levels.INFO)
 end
 
--- Find the git remote of Neovim's working directory that points to the pull request's repository
--- (ctx.remote: "Checkout this branch" shows only with one); redraws when it changes
+-- Find the git remote of Neovim's working directory that points to the repository of the list or
+-- pull request (ctx.remote: "Checkout this branch" and the <leader>wN hint show only with one);
+-- redraws when it changes
 local function detect_clone(bufnr)
   local state = views[bufnr]
-  if not state or state.kind ~= "pr" then
+  if not state then
     return
   end
   local ctx = state.ctx
@@ -1417,6 +1424,44 @@ function M.checkout(bufnr)
         end)
       end)
     end)
+  end)
+end
+
+-- New pull request --------------------------------------------------------------
+
+-- Open the form to create a pull request on the repository of the list in `bufnr`. With
+-- `script`, the flow of Criar-PullRequest.ps1 (push, link a work item, auto-complete), only in a
+-- clone of the repository. Once created, the list reloads and the pull request opens
+function M.new_pr(bufnr, script)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  if not state or state.kind ~= "list" then
+    vim.notify("Workhorse: Open the pull requests of a repository first", vim.log.levels.WARN)
+    return
+  end
+  local ctx = state.ctx
+  local repo = ctx.repo
+  require("workhorse.repos").remote_of(repo, function(remote, dir)
+    if views[bufnr] == state and ctx.remote ~= remote then
+      ctx.remote = remote
+      rerender(bufnr)
+    end
+    if script and not remote then
+      vim.notify("Workhorse: " .. dir .. " is not a clone of " .. repo.name
+        .. ": <leader>wN pushes its current branch", vim.log.levels.WARN)
+      return
+    end
+    require("workhorse.prs.new_pr").open(repo, {
+      mode = script and "script" or "simple",
+      remote = remote,
+      dir = remote and dir or nil,
+      on_created = function(pr)
+        if views[bufnr] == state then
+          load_list(bufnr, true)
+        end
+        M.open_pr(repo, pr)
+      end,
+    })
   end)
 end
 
@@ -1739,6 +1784,12 @@ local function set_keymaps(bufnr, kind)
     map("<leader>wm", function()
       load_list(bufnr)
     end)
+    map("<leader>wn", function()
+      M.new_pr(bufnr)
+    end)
+    map("<leader>wN", function()
+      M.new_pr(bufnr, true)
+    end)
     -- Fuzzy search of the repositories, to list the pull requests of another one
     map("<M-/>", M.pick)
     return
@@ -1967,6 +2018,7 @@ function M.open_list(repo, focus_id)
   })
   if created then
     load_list(bufnr)
+    detect_clone(bufnr)
   elseif focus_id then
     local lnum = find_line(bufnr, "pr:" .. focus_id)
     if lnum then
@@ -2027,6 +2079,7 @@ function M.refresh(bufnr)
   end
   if state.kind == "list" then
     load_list(bufnr, true)
+    detect_clone(bufnr)
     return true
   end
   local ctx = state.ctx
