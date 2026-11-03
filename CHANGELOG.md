@@ -2,6 +2,21 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [4a1dfde] - 2026-11-03
+
+### Changed
+- API requests go through curl config files, and base64 for the PAT header is encoded in Lua instead of through a shell
+
+## [00001e4] - 2026-11-03
+
+### Added
+- Reviewers section of an active pull request's Overview is editable: `name: required|optional` lines, new reviewers completed from the identity cache, deleting a line removes the reviewer
+- Work Items section on the pull request Overview: `#id | title` lines, completed from the query in the new `prs.work_items_query` option (or the last query opened); ids typed by hand are looked up on the server when leaving insert mode
+- `:w` / `<leader><leader>` on the pull request screen confirms and applies the reviewer and work item changes
+
+### Changed
+- Work item requests fetch ids in batches of 200 and skip the ones the server doesn't return
+
 ## [c752e9d] - 2026-10-30
 
 ### Changed
