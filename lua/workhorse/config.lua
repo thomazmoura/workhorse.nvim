@@ -161,6 +161,9 @@ local defaults = {
     merge_strategy = "squash", -- "squash", "noFastForward", "rebase" or "rebaseMerge" (offered first)
     delete_source_branch = true,
     transition_work_items = false,
+    -- Saved query (id) whose work items complete the Work Items section of a pull request; nil
+    -- uses the last query opened (the one :Workhorse resume reopens)
+    work_items_query = nil,
   },
 
   -- Lualine integration settings

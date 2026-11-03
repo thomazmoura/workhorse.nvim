@@ -339,11 +339,52 @@ local function apply_decorations(bufnr, view, first_line)
   end
 end
 
--- Replace the whole buffer content with a view
-function M.apply(bufnr, view)
+-- Write `lines` over the buffer's, only the range where they differ (nothing when they are the
+-- same); true when something was written. opts.join joins the change to the previous undo block,
+-- opts.forget keeps it out of the undo history (clearing it)
+local function write_changed(bufnr, lines, opts)
+  local current = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local first = 1
+  while first <= #current and first <= #lines and current[first] == lines[first] do
+    first = first + 1
+  end
+  local last_current, last_new = #current, #lines
+  while last_current >= first and last_new >= first and current[last_current] == lines[last_new] do
+    last_current, last_new = last_current - 1, last_new - 1
+  end
+  if first > last_current and first > last_new then
+    return false
+  end
+  local undolevels = vim.bo[bufnr].undolevels
+  if opts.forget then
+    vim.bo[bufnr].undolevels = -1
+  elseif opts.join and vim.api.nvim_get_current_buf() == bufnr then
+    -- Fails right after an undo (E790): then it is a change of its own
+    pcall(vim.cmd.undojoin)
+  end
+  vim.api.nvim_buf_set_lines(bufnr, first - 1, last_current, false, vim.list_slice(lines, first, last_new))
+  if opts.forget then
+    vim.bo[bufnr].undolevels = undolevels
+  end
+  return true
+end
+
+-- Replace the whole buffer content with a view. opts.editable leaves the buffer modifiable and
+-- writes only the lines that changed (see write_changed: opts.join, opts.forget), so the undo
+-- history keeps the user's edits
+function M.apply(bufnr, view, opts)
+  opts = opts or {}
   vim.bo[bufnr].modifiable = true
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, view.lines)
-  vim.bo[bufnr].modifiable = false
+  if opts.editable then
+    write_changed(bufnr, view.lines, opts)
+  else
+    -- A read-only view has nothing to undo: kept out of the history
+    local undolevels = vim.bo[bufnr].undolevels
+    vim.bo[bufnr].undolevels = -1
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, view.lines)
+    vim.bo[bufnr].undolevels = undolevels
+    vim.bo[bufnr].modifiable = false
+  end
   vim.bo[bufnr].modified = false
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   vim.api.nvim_buf_clear_namespace(bufnr, pips_ns, 0, -1)

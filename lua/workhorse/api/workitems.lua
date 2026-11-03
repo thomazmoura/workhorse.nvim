@@ -84,35 +84,54 @@ local function get_all_fields(id, callback)
   })
 end
 
--- Get work items by IDs
-function M.get_by_ids(ids, callback)
-  if not ids or #ids == 0 then
-    if callback then
-      callback({})
-    end
-    return
-  end
+-- Get work items by IDs, in requests of at most 200 (the API's limit); items the server does not
+-- return (deleted, no access) are left out
+local MAX_IDS = 200
 
+local function get_page(ids, callback)
   local ids_str = table.concat(ids, ",")
   local fields_str = table.concat(FIELDS, ",")
-  local path = "/_apis/wit/workitems?ids=" .. ids_str .. "&fields=" .. fields_str .. "&api-version=7.1"
+  local path = "/_apis/wit/workitems?ids=" .. ids_str .. "&fields=" .. fields_str .. "&errorPolicy=omit&api-version=7.1"
 
   client.get(path, {
     on_success = function(data)
-      if callback then
-        local items = {}
-        for _, item in ipairs(data.value or {}) do
+      local items = {}
+      for _, item in ipairs(data and data.value or {}) do
+        -- errorPolicy=omit puts null in the place of the missing ones
+        if type(item) == "table" and item.id then
           table.insert(items, parse_work_item(item))
         end
-        callback(items)
       end
+      callback(items)
     end,
     on_error = function(err)
-      if callback then
-        callback(nil, err)
-      end
+      callback(nil, err)
     end,
   })
+end
+
+function M.get_by_ids(ids, callback)
+  callback = callback or function() end
+  if not ids or #ids == 0 then
+    callback({})
+    return
+  end
+  local all, index = {}, 1
+  local function next_page()
+    if index > #ids then
+      return callback(all)
+    end
+    local page = vim.list_slice(ids, index, index + MAX_IDS - 1)
+    index = index + MAX_IDS
+    get_page(page, function(items, err)
+      if not items then
+        return callback(nil, err)
+      end
+      vim.list_extend(all, items)
+      next_page()
+    end)
+  end
+  next_page()
 end
 
 -- Get a single work item by ID
@@ -125,7 +144,7 @@ function M.get(id, callback)
       return
     end
     if callback then
-      callback(items[1])
+      callback(items[1], not items[1] and "not found" or nil)
     end
   end)
 end
@@ -508,6 +527,56 @@ function M.update_parent(id, parent_id, callback)
         if callback then
           callback(nil, err_msg)
         end
+      end,
+    })
+  end)
+end
+
+-- Link a work item to an artifact (e.g. a pull request, see api/pullrequests.lua artifact_url)
+-- with an "ArtifactLink" relation named `name`; callback(true) or (nil, err)
+function M.link_artifact(id, url, name, callback)
+  local patch = {
+    {
+      op = "add",
+      path = "/relations/-",
+      value = { rel = "ArtifactLink", url = url, attributes = { name = name } },
+    },
+  }
+  client.patch("/_apis/wit/workitems/" .. id .. "?api-version=7.1", patch, {
+    on_success = function()
+      callback(true)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Remove the links of a work item to an artifact (every relation to `url`); callback(true) or
+-- (nil, err)
+function M.unlink_artifact(id, url, callback)
+  get_with_relations(id, function(data, err)
+    if not data then
+      return callback(nil, err)
+    end
+    local patch = {}
+    local relations = type(data.relations) == "table" and data.relations or {}
+    -- From the last one, so the indexes of those still to remove do not shift
+    for idx = #relations, 1, -1 do
+      local rel = relations[idx]
+      if type(rel) == "table" and type(rel.url) == "string" and rel.url:lower() == url:lower() then
+        table.insert(patch, { op = "remove", path = "/relations/" .. (idx - 1) })
+      end
+    end
+    if #patch == 0 then
+      return callback(true)
+    end
+    client.patch("/_apis/wit/workitems/" .. id .. "?api-version=7.1", patch, {
+      on_success = function()
+        callback(true)
+      end,
+      on_error = function(err2)
+        callback(nil, err2)
       end,
     })
   end)

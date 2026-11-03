@@ -247,6 +247,7 @@ require("workhorse").setup({
     merge_strategy = "squash",    -- offered first: "squash", "noFastForward", "rebase" or "rebaseMerge"
     delete_source_branch = true,  -- default answer when completing
     transition_work_items = false,
+    work_items_query = nil,       -- saved query (id) completing the Work Items section; nil: the last query opened
   },
 })
 ```
@@ -892,8 +893,8 @@ with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
 
 - **Overview** - three sections, split by a separator:
   - **Status** - actions (vote, complete, set or cancel auto-complete, copy the URL), the builds, the reviewers
-    and their votes, the description and the comment threads. `<CR>` on a comment on a file opens
-    the Changes tab on its line.
+    and their votes, the linked work items, the description and the comment threads. `<CR>` on a
+    comment on a file opens the Changes tab on its line.
 
     The builds are the latest run of each pipeline on the pull request, with its status on the
     right like in the pipelines list (icon, queue date and, while running, the elapsed time). They
@@ -917,6 +918,35 @@ changed files, keeping the cursor on its diff line. `<leader>R` still reloads ev
 Diffs compare the last push with its merge base, like the web's Files tab. The file contents are
 fetched in the background (`prs.max_concurrent` at a time) and each diff appears as it lands.
 
+### Editing the reviewers and work items
+
+On an active pull request, the **Reviewers** and **Work Items** sections of the Overview are
+editable text, like the sections of the repository screen:
+
+```
+Reviewers
+  [GTI]\Contributors: optional                                   ✅ Approved
+  Jane Doe: required                                            ⏳ No vote
+
+Work Items
+  #1234 | Login page                                                📖 Active
+```
+
+- **Reviewers** - one `name: required|optional` line per reviewer (a line without a value is
+  optional); the vote shows on the right. A new line adds a user or group, completed from the
+  identity cache (see [Repositories](#repositories)); deleting a line removes the reviewer;
+  changing the value only changes whether they are required (the vote stays).
+- **Work Items** - one `#id | title` line per linked work item, as in the work item buffers. A new
+  line links a work item, completed from the work items of `prs.work_items_query` (a saved query
+  id; without it, the last query opened, the one `:Workhorse resume` reopens): type its id or words
+  of its title. An id typed by hand (`1234` or `#1234`) is looked up when leaving insert mode, and
+  its line completed with the title; `work item not found` marks the ids the server doesn't know.
+  Deleting a line removes the link.
+
+`:w` or `<leader><leader>` lists the changes in a confirmation float, then applies them. The edits
+stay through the auto-refresh and tab switches; anything typed elsewhere in the buffer is put back
+on the next change. `<leader>R` and `q` ask before discarding pending edits.
+
 Completing and setting auto-complete ask for the merge strategy (`prs.merge_strategy` first) in a
 fuzzy picker, then whether to delete the source branch. A draft cannot be completed.
 
@@ -935,6 +965,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
 | `gb` | Open the pull request itself in the browser (its files on the Changes tab); on the list, the pull request under the cursor |
+| `<leader><leader>` / `:w` | Save the edits of the Reviewers and Work Items sections |
 | `<leader>R` | Reload from Azure DevOps |
 | `q` | Close the buffer |
 

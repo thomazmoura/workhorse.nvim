@@ -342,6 +342,60 @@ function M.vote(repo, id, vote, callback)
   end)
 end
 
+-- Add a reviewer (a user or group, by identity id), or change whether they are required: the
+-- vote is left out of the body, so an existing reviewer's vote stays. callback(true) or (nil, err)
+function M.add_reviewer(repo, id, reviewer_id, required, callback)
+  client.request({
+    path = pr_path(repo, id, "/reviewers/" .. reviewer_id .. "?api-version=7.1"),
+    method = "PUT",
+    body = { id = reviewer_id, isRequired = required == true },
+    on_success = function()
+      callback(true)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+function M.remove_reviewer(repo, id, reviewer_id, callback)
+  client.request({
+    path = pr_path(repo, id, "/reviewers/" .. reviewer_id .. "?api-version=7.1"),
+    method = "DELETE",
+    on_success = function()
+      callback(true)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Ids of the work items linked to a pull request: callback({ id, ... })
+function M.work_items(repo, id, callback, opts)
+  client.get(pr_path(repo, id, "/workitems?api-version=7.1"), {
+    silent = opts and opts.silent,
+    on_success = function(data)
+      local ids = {}
+      for _, ref in ipairs(data and data.value or {}) do
+        local wid = tonumber(type(ref) == "table" and ref.id or nil)
+        if wid then
+          table.insert(ids, wid)
+        end
+      end
+      callback(ids)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Artifact URL of a pull request: the url of the "Pull Request" link of a work item to it
+function M.artifact_url(repo, id)
+  return ("vstfs:///Git/PullRequestId/%s%%2F%s%%2F%s"):format(repo.project.id, repo.id, id)
+end
+
 -- Update a pull request (status, auto-complete, completion options); callback(pr)
 local function update(repo, id, body, callback)
   client.request({

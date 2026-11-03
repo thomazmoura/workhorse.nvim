@@ -7,6 +7,9 @@ local diff = require("workhorse.prs.diff")
 local cache = require("workhorse.cache")
 local config = require("workhorse.config")
 local pinned = require("workhorse.ui.pinned")
+local choices = require("workhorse.ui.choices")
+local reviewers = require("workhorse.prs.reviewers")
+local work_items = require("workhorse.prs.work_items")
 
 local uv = vim.uv or vim.loop
 -- Status of the builds on the Overview tab, drawn apart so the elapsed time ticks without re-rendering
@@ -76,6 +79,8 @@ local function item_key(item)
     return "build:" .. (item.run.definition_id or item.run.id)
   elseif item.kind == "nav" then
     return "nav:" .. item.target
+  elseif item.kind == "edit" then
+    return "edit:" .. item.section .. ":" .. item.index
   end
 end
 
@@ -88,21 +93,23 @@ local function find_line(bufnr, key)
   end
 end
 
--- Write `view` to the buffer, keeping each window on the item it was on (or `focus`, a key)
-local function apply_view(bufnr, view, focus)
+-- Write `view` to the buffer, keeping each window on the item it was on (or `focus`, a key);
+-- `opts` goes to render.apply (an editable Overview: see render_pr)
+local function apply_view(bufnr, view, focus, opts)
   local state = views[bufnr]
   local cursors = {}
   for _, win in ipairs(windows_of(bufnr)) do
-    local lnum = vim.api.nvim_win_get_cursor(win)[1]
-    cursors[win] = { lnum = lnum, key = focus or item_key(state.items and state.items[lnum]) }
+    local cursor = vim.api.nvim_win_get_cursor(win)
+    cursors[win] = { lnum = cursor[1], col = cursor[2], key = focus or item_key(state.items and state.items[cursor[1]]) }
   end
-  render.apply(bufnr, view)
+  render.apply(bufnr, view, opts)
   state.items = view.items
   state.header_lines = view.rule or 0
   pinned.refresh(bufnr)
   for win, pos in pairs(cursors) do
-    local target = pos.key and find_line(bufnr, pos.key) or pos.lnum
-    vim.api.nvim_win_set_cursor(win, { math.min(target, vim.api.nvim_buf_line_count(bufnr)), 0 })
+    local target = math.min(pos.key and find_line(bufnr, pos.key) or pos.lnum, vim.api.nvim_buf_line_count(bufnr))
+    -- Same line (e.g. the one just edited): the column stays too
+    vim.api.nvim_win_set_cursor(win, { target, target == pos.lnum and pos.col or 0 })
   end
 end
 
@@ -275,7 +282,7 @@ end
 
 -- What each tab needs loaded before it can render
 local NEEDS = {
-  overview = { "pr", "threads", "iterations", "commits" },
+  overview = { "pr", "threads", "iterations", "commits", "work_items" },
   changes = { "pr", "iterations", "changes", "threads" },
 }
 
@@ -291,6 +298,9 @@ local fetchers = {
   end,
   commits = function(ctx, cb, opts)
     prs_api.commits(ctx.repo, ctx.id, cb, opts)
+  end,
+  work_items = function(ctx, cb, opts)
+    work_items.fetch(ctx, cb, opts)
   end,
   -- Files changed by the last push, against the merge base
   changes = function(ctx, cb, opts)
@@ -438,7 +448,7 @@ local function refresh_pr(bufnr)
   end
   ctx.refreshed = uv.now()
   local names = {}
-  for _, name in ipairs({ "pr", "threads", "iterations", "commits" }) do
+  for _, name in ipairs({ "pr", "threads", "iterations", "commits", "work_items" }) do
     if (ctx.data[name] ~= nil or ctx.errors[name]) and not ctx.loading[name] then
       table.insert(names, name)
     end
@@ -684,6 +694,125 @@ local function add_text_block(view, text, indent, hl)
   end
 end
 
+-- Editable sections ---------------------------------------------------------------
+--
+-- The Reviewers and Work Items sections of the Overview of an active pull request are editable
+-- text (prs/reviewers.lua, prs/work_items.lua), saved by :w or <leader><leader>. The rest of the
+-- buffer is still rendered from the data: every render puts back the text of those sections as
+-- edited (ctx.edits, captured from the buffer after each change), so the edits survive the
+-- refreshes, and an edit anywhere else is undone by the next render.
+
+local EDITABLE = { "reviewers", "work_items" }
+local SECTION_MODULES = { reviewers = reviewers, work_items = work_items }
+-- Header of the section after each one: where its lines end
+local NEXT_HEADER = { reviewers = work_items.HEADER, work_items = "Description" }
+-- Data each section lists
+local SECTION_DATA = { reviewers = "pr", work_items = "work_items" }
+
+-- Whether the pull request can be edited: active, its Overview loaded
+local function pr_editable(ctx)
+  return ctx.data.pr ~= nil and ctx.data.pr.status == "active" and ctx.data.threads ~= nil
+end
+
+local function overview_editable(ctx)
+  return ctx.tab == "overview" and pr_editable(ctx)
+end
+
+local function section_editable(ctx, name)
+  return overview_editable(ctx) and ctx.data[SECTION_DATA[name]] ~= nil
+end
+
+local function has_edits(ctx)
+  return next(ctx.edits) ~= nil
+end
+
+-- Buffer lines first..last of an editable section (after its header, up to the header of the next
+-- one), nil when one of them is gone
+local function section_range(bufnr, name)
+  local state = views[bufnr]
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local header
+  for lnum = (state.header_lines or 0) + 1, #lines do
+    if not header and lines[lnum] == SECTION_MODULES[name].HEADER then
+      header = lnum
+    elseif header and lines[lnum] == NEXT_HEADER[name] then
+      return header + 1, lnum - 1
+    end
+  end
+end
+
+-- Lines of an editable section in the buffer, without the blank ones at its end, and the buffer
+-- line of the first one; nil when its headers are gone
+local function section_text(bufnr, name)
+  local first, last = section_range(bufnr, name)
+  if not first then
+    return nil
+  end
+  local lines = vim.api.nvim_buf_get_lines(bufnr, first - 1, last, false)
+  while #lines > 0 and lines[#lines]:match("^%s*$") do
+    table.remove(lines)
+  end
+  return lines, first
+end
+
+-- The editable section of buffer line `lnum`, if any
+local function editable_section_at(bufnr, lnum)
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" or not overview_editable(state.ctx) then
+    return nil
+  end
+  for _, name in ipairs(EDITABLE) do
+    if section_editable(state.ctx, name) then
+      local first, last = section_range(bufnr, name)
+      if first and lnum >= first and lnum <= last then
+        return name
+      end
+    end
+  end
+end
+
+-- Keep the text of the editable sections in ctx.edits (nil for one as rendered from the data); a
+-- section whose header was deleted keeps its previous edits (the render puts the header back)
+local function capture_edits(bufnr)
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" or not state.items then
+    return
+  end
+  local ctx = state.ctx
+  for _, name in ipairs(EDITABLE) do
+    if section_editable(ctx, name) then
+      local lines = section_text(bufnr, name)
+      if lines then
+        ctx.edits[name] = not vim.deep_equal(lines, SECTION_MODULES[name].canonical(ctx)) and lines or nil
+      end
+    end
+  end
+end
+
+-- An editable section (the data as rendered, or its edits) or, until its data is there, its
+-- header and the loading (or error) line
+local function render_section(view, ctx, name)
+  local module = SECTION_MODULES[name]
+  local data = SECTION_DATA[name]
+  if ctx.data[data] == nil then
+    render.add_line(view, { { module.HEADER, "WorkhorseRunSection" } })
+    local err = ctx.errors[data]
+    render.add_line(view, { { "  " .. (err and ("Failed to load: " .. err) or "Loading…"),
+      err and "WorkhorseBuildFailed" or "WorkhorseBuildMeta" } })
+    return
+  end
+  local editable = section_editable(ctx, name)
+  -- The section's lines (after its header) are named by their position, to keep the cursor there
+  local first = #view.lines + 2
+  module.render(view, ctx, editable and ctx.edits[name] or module.canonical(ctx), editable)
+  for lnum = first, #view.lines do
+    local item = view.items[lnum]
+    if item and item.kind == "edit" then
+      item.index = lnum - first + 1
+    end
+  end
+end
+
 local function render_status(view, ctx)
   local pr = ctx.data.pr
   render.add_line(view, { { "Actions", "WorkhorseRunSection" } })
@@ -720,25 +849,9 @@ local function render_status(view, ctx)
   end
   render.add_line(view, { { "" } })
 
-  render.add_line(view, { { "Reviewers", "WorkhorseRunSection" } })
-  if #pr.reviewers == 0 then
-    render.add_line(view, { { "  None", "WorkhorseBuildMeta" } })
-  end
-  local reviewers = vim.list_slice(pr.reviewers)
-  table.sort(reviewers, function(a, b)
-    if a.required ~= b.required then
-      return a.required
-    end
-    return a.name:lower() < b.name:lower()
-  end)
-  for _, r in ipairs(reviewers) do
-    local label, icon, hl = prs_api.vote_display(r.vote)
-    local segments = { { "  " }, { icon, hl }, { " " .. r.name }, { "  " .. label, hl } }
-    if r.required then
-      table.insert(segments, { "  (required)", "WorkhorseRunRequired" })
-    end
-    render.add_line(view, segments)
-  end
+  render_section(view, ctx, "reviewers")
+  render.add_line(view, { { "" } })
+  render_section(view, ctx, "work_items")
   render.add_line(view, { { "" } })
 
   render.add_line(view, { { "Description", "WorkhorseRunSection" } })
@@ -855,8 +968,9 @@ local function render_commits(view, ctx, width)
   end
 end
 
--- Returns true when the cursor was moved to a comment thread's line
-local function render_pr(bufnr, focus)
+-- Returns true when the cursor was moved to a comment thread's line. opts.join: a render right
+-- after an edit, joined to its undo block (see render.apply)
+local function render_pr(bufnr, focus, opts)
   local jumped = false
   local state = views[bufnr]
   local ctx = state.ctx
@@ -875,7 +989,21 @@ local function render_pr(bufnr, focus)
   elseif not loading_or_error(view, ctx, NEEDS.changes) then
     render_files(view, ctx, width)
   end
-  apply_view(bufnr, view, focus)
+  local editable = overview_editable(ctx)
+  local join = opts and opts.join
+  apply_view(bufnr, view, focus, editable and {
+    editable = true,
+    join = join,
+    -- Out of the undo history when there is nothing of the user's in it to keep (and when the
+    -- buffer showed something else, which undo would bring back)
+    forget = not join and (not has_edits(ctx) or not state.was_editable),
+  } or nil)
+  state.was_editable = editable
+  -- Edits kept while another tab shows count too (:q warns)
+  if pr_editable(ctx) then
+    vim.bo[bufnr].modified = has_edits(ctx)
+  end
+  state.tick = vim.b[bufnr].changedtick
   M._draw_builds(bufnr)
   -- A thread picked on the Overview tab: land on its line once the file's diff is there (in
   -- the window of the pull request: the jump waits while another one is current)
@@ -912,6 +1040,9 @@ rerender = function(bufnr)
   end
   if state.kind == "list" then
     render_list(bufnr)
+  elseif vim.api.nvim_get_current_buf() == bufnr and vim.fn.mode():match("^[iR]") then
+    -- Not while typing (the completion menu would go): leaving insert mode renders
+    return
   else
     render_pr(bufnr)
   end
@@ -957,9 +1088,12 @@ function M.set_tab(bufnr, tab)
   end
   tab = LEGACY_TABS[tab] or tab
   local ctx = state.ctx
-  -- Each tab keeps its own cursor
+  -- Each tab keeps its own cursor; the Overview its edits
   if state.items then
     ctx.cursor[ctx.tab] = vim.api.nvim_win_get_cursor(0)[1]
+    if ctx.tab == "overview" then
+      capture_edits(bufnr)
+    end
   end
   ctx.tab = tab
   ensure(bufnr, tab)
@@ -1176,6 +1310,211 @@ function M.copy_url(bufnr)
   vim.notify("Workhorse: Copied " .. url, vim.log.levels.INFO)
 end
 
+-- Editing ---------------------------------------------------------------------
+
+local SECTION_LABELS = { reviewers = reviewers.HEADER, work_items = work_items.HEADER }
+
+-- Complete the lines of the Work Items section whose work item is known ("1234" becomes
+-- "#1234 | Its title") and look up the others on the server, completing them once found. `join`
+-- joins the completions to the edit that typed them (leaving insert mode)
+local function resolve_work_items(bufnr, join)
+  local state = views[bufnr]
+  if not state or not section_editable(state.ctx, "work_items") then
+    return
+  end
+  local lines, first = section_text(bufnr, "work_items")
+  if not lines then
+    return
+  end
+  local replace, unknown = work_items.completions(lines)
+  for i, text in pairs(replace) do
+    if join and vim.api.nvim_get_current_buf() == bufnr then
+      pcall(vim.cmd.undojoin)
+    end
+    vim.api.nvim_buf_set_lines(bufnr, first + i - 2, first + i - 1, false, { text })
+  end
+  if #unknown > 0 then
+    work_items.lookup(unknown, function()
+      if not views[bufnr] or not vim.api.nvim_buf_is_valid(bufnr) then
+        return
+      end
+      -- While typing, leaving insert mode completes them
+      if vim.api.nvim_get_current_buf() == bufnr and vim.fn.mode():match("^[iR]") then
+        return
+      end
+      resolve_work_items(bufnr, false)
+      capture_edits(bufnr)
+      rerender(bufnr)
+    end)
+  end
+end
+
+-- After a change of the text (in normal mode): keep the edits, then render (which takes back
+-- any change outside the editable sections and names the lines again)
+local function on_text_changed(bufnr)
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" or not state.items or vim.b[bufnr].changedtick == state.tick then
+    return
+  end
+  if not overview_editable(state.ctx) then
+    return
+  end
+  capture_edits(bufnr)
+  render_pr(bufnr, nil, { join = true })
+end
+
+local function on_insert_leave(bufnr)
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" or not state.items or not overview_editable(state.ctx) then
+    return
+  end
+  resolve_work_items(bufnr, true)
+  capture_edits(bufnr)
+  render_pr(bufnr, nil, { join = true })
+end
+
+-- What completion needs, loaded on the first insert: the identity cache (reviewers) and the work
+-- items of the query (prs.work_items_query)
+local function start_completion(bufnr)
+  local state = views[bufnr]
+  if not state or state.completion_started or not overview_editable(state.ctx) then
+    return
+  end
+  state.completion_started = true
+  require("workhorse.identities").get(function(_, err)
+    if err then
+      vim.notify("Workhorse: Could not load the identity cache: " .. err, vim.log.levels.WARN)
+    end
+    if views[bufnr] and vim.api.nvim_buf_is_valid(bufnr) then
+      choices.refresh(bufnr)
+      rerender(bufnr)
+    end
+  end)
+  work_items.load_list(function()
+    if views[bufnr] and vim.api.nvim_buf_is_valid(bufnr) then
+      choices.refresh(bufnr)
+    end
+  end)
+end
+
+--- Save the edits of the Reviewers and Work Items sections of the pull request in `bufnr`
+--- (default: current): confirms them in a list, then applies them
+function M.save(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local state = views[bufnr]
+  if not state or state.kind ~= "pr" then
+    return
+  end
+  local ctx = state.ctx
+  if ctx.saving then
+    vim.notify("Workhorse: Already saving", vim.log.levels.WARN)
+    return
+  end
+  if ctx.tab == "overview" then
+    capture_edits(bufnr)
+  end
+  if not pr_editable(ctx) or not has_edits(ctx) then
+    vim.bo[bufnr].modified = false
+    vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
+    return
+  end
+  -- Reviewers are named from the identity cache
+  if ctx.edits.reviewers and not require("workhorse.identities").loaded() then
+    require("workhorse.identities").get(function(data, err)
+      if data then
+        M.save(bufnr)
+      else
+        vim.notify("Workhorse: Could not load the identity cache: " .. tostring(err), vim.log.levels.ERROR)
+      end
+    end)
+    return
+  end
+
+  local steps, entries, errors = {}, {}, {}
+  for _, name in ipairs(EDITABLE) do
+    if ctx.edits[name] and ctx.data[SECTION_DATA[name]] ~= nil then
+      local result, err = SECTION_MODULES[name].prepare(ctx, ctx.edits[name])
+      if err then
+        table.insert(errors, SECTION_LABELS[name] .. ":\n" .. err)
+      elseif result then
+        table.insert(entries, { text = SECTION_LABELS[name], hl = "WorkhorseBuildHeader" })
+        vim.list_extend(entries, result.entries)
+        vim.list_extend(steps, result.steps)
+      end
+    end
+  end
+  if #errors > 0 then
+    vim.notify("Workhorse: " .. table.concat(errors, "\n"), vim.log.levels.WARN)
+    return
+  end
+  if #steps == 0 then
+    ctx.edits = {}
+    rerender(bufnr)
+    vim.notify("Workhorse: No changes to apply", vim.log.levels.INFO)
+    return
+  end
+
+  require("workhorse.ui.list_confirm").show("Changes to !" .. ctx.id, entries, function(confirmed)
+    if not confirmed or not views[bufnr] then
+      return
+    end
+    ctx.saving = true
+    local saved = vim.deepcopy(ctx.edits)
+    local generation = ctx.generation
+    local failures = {}
+
+    -- Fetch again what changed; the edits saved give way to it once it is there (those made
+    -- meanwhile stay)
+    local function reload()
+      local fresh, pending = {}, 2
+      for _, name in ipairs({ "pr", "work_items" }) do
+        fetchers[name](ctx, function(data)
+          fresh[name] = data
+          pending = pending - 1
+          if pending > 0 or not views[bufnr] or ctx.generation ~= generation then
+            return
+          end
+          for key, value in pairs(fresh) do
+            ctx.data[key], ctx.errors[key] = value, nil
+          end
+          if fresh.pr then
+            update_list_entry(ctx.repo, fresh.pr)
+          end
+          for section, lines in pairs(saved) do
+            if vim.deep_equal(ctx.edits[section], lines) then
+              ctx.edits[section] = nil
+            end
+          end
+          rerender(bufnr)
+        end, { silent = true })
+      end
+    end
+
+    local function run(index)
+      local step = steps[index]
+      if step then
+        return step.run(function(ok, err)
+          if not ok then
+            table.insert(failures, step.label .. ": " .. tostring(err))
+          end
+          run(index + 1)
+        end)
+      end
+      ctx.saving = nil
+      local applied = #steps - #failures
+      if #failures > 0 then
+        vim.notify("Workhorse: Failed to apply:\n" .. table.concat(failures, "\n"), vim.log.levels.ERROR)
+      end
+      vim.notify(("Workhorse: Applied %d change%s to !%d"):format(applied, applied == 1 and "" or "s", ctx.id),
+        vim.log.levels.INFO)
+      if views[bufnr] and ctx.generation == generation then
+        reload()
+      end
+    end
+    run(1)
+  end)
+end
+
 -- Buffers ---------------------------------------------------------------------
 
 local function browser_url(bufnr)
@@ -1279,6 +1618,9 @@ local function set_keymaps(bufnr, kind)
     M.refresh(bufnr)
   end)
   map("q", function()
+    if vim.bo[bufnr].modified and vim.fn.confirm("Discard the pending changes?", "&Discard\n&Cancel", 2) ~= 1 then
+      return
+    end
     vim.api.nvim_buf_delete(bufnr, { force = true })
   end)
   if kind == "list" then
@@ -1328,6 +1670,72 @@ local function set_keymaps(bufnr, kind)
   map("<leader>wy", function()
     M.copy_url(bufnr)
   end)
+  -- The editable sections of the Overview
+  map("<leader><leader>", function()
+    M.save(bufnr)
+  end)
+  -- Accept a completion with <CR>; a plain new line otherwise
+  vim.keymap.set("i", "<CR>", choices.insert_cr, { buffer = bufnr, silent = true, expr = true,
+    desc = "Workhorse: accept the completion" })
+end
+
+-- Completion and saving of the editable sections of a pull request's Overview
+local function setup_editing(bufnr)
+  -- acwrite: :w saves (through BufWriteCmd); the buffer is modifiable only while editable
+  vim.bo[bufnr].buftype = "acwrite"
+  choices.attach(bufnr, {
+    choices = function(b, lnum)
+      local name = editable_section_at(b, lnum)
+      if name then
+        return SECTION_MODULES[name].choices(vim.api.nvim_buf_get_lines(b, lnum - 1, lnum, false)[1] or "")
+      end
+    end,
+    start = function(line, lnum)
+      local name = editable_section_at(bufnr, lnum)
+      if name then
+        return SECTION_MODULES[name].start(line)
+      end
+    end,
+  })
+  local group = vim.api.nvim_create_augroup("workhorse_pr_edit_" .. bufnr, { clear = true })
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      M.save(bufnr)
+    end,
+  })
+  vim.api.nvim_create_autocmd("TextChanged", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      on_text_changed(bufnr)
+    end,
+  })
+  vim.api.nvim_create_autocmd("InsertEnter", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      start_completion(bufnr)
+    end,
+  })
+  vim.api.nvim_create_autocmd("InsertLeave", {
+    group = group,
+    buffer = bufnr,
+    callback = function()
+      on_insert_leave(bufnr)
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = group,
+    buffer = bufnr,
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        pcall(vim.api.nvim_del_augroup_by_id, group)
+      end)
+    end,
+  })
 end
 
 local function open_buffer(key, name, kind, ctx)
@@ -1352,6 +1760,9 @@ local function open_buffer(key, name, kind, ctx)
     return views[bufnr] and views[bufnr].header_lines or 0
   end)
   set_keymaps(bufnr, kind)
+  if kind == "pr" then
+    setup_editing(bufnr)
+  end
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = bufnr,
     once = true,
@@ -1461,6 +1872,8 @@ function M.open_pr(repo, pr)
       tab = config.get().prs.default_tab,
       cursor = {},
       data = {},
+      -- Text of the editable sections as edited (see capture_edits)
+      edits = {},
       errors = {},
       loading = {},
       generation = 0,
@@ -1501,6 +1914,19 @@ function M.refresh(bufnr)
     return true
   end
   local ctx = state.ctx
+  if ctx.saving then
+    vim.notify("Workhorse: Wait for the save to finish", vim.log.levels.WARN)
+    return true
+  end
+  if ctx.tab == "overview" then
+    capture_edits(bufnr)
+  end
+  if has_edits(ctx) and vim.fn.confirm("Discard the pending changes and reload?", "&Discard\n&Cancel", 2) ~= 1 then
+    return true
+  end
+  ctx.edits = {}
+  work_items.reset_list()
+  state.completion_started = nil
   -- Responses of the previous generation are dropped when they land
   ctx.generation = ctx.generation + 1
   ctx.data, ctx.errors, ctx.loading, ctx.files, ctx.builds_fetched = {}, {}, {}, nil, nil
