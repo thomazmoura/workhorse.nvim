@@ -2,6 +2,16 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [e2ceeef] - 2026-11-03
+
+### Added
+- Attachments section in the work item details: the attached files as links (`gx` downloads them), deleting a line removes the attachment, and a new line attaches a file on save
+- New attachment lines complete from the attachment folders, newest first: the new `attachments.dirs` option, else paperboy.nvim's `compose.attachment_dirs`, else `$PAPERBOY_ATTACHMENT_DIRS`
+- Binary file uploads in the API client (the file is handed to curl itself)
+
+### Fixed
+- Highlights that start at a column in the work item details (field keys, history author and date) were silently not drawn
+
 ## [4a1dfde] - 2026-11-03
 
 ### Changed
