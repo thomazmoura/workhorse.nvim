@@ -3,7 +3,7 @@
 -- repository is created in the configured project; with a default branch and something to
 -- commit (the chosen .gitignore and/or a README.md, off by default), a first commit creates the
 -- branch, so its policies can be set right away; with nothing to commit it starts without
--- branches. <CR>, <leader><leader> creates it after a confirmation.
+-- branches. <CR> (normal mode) or <leader><leader> creates it after a confirmation.
 local M = {}
 
 local forms = require("workhorse.builds.form")
@@ -213,7 +213,7 @@ function M.submit(bufnr)
   local details = opts.branch == "" and "without branches"
     or ("with branch %s (%s)"):format(opts.branch, table.concat(contents, ", "))
   local choice = vim.fn.confirm(("Create repository %s in %s %s?"):format(opts.name, config.get().project, details),
-    "&Create\n&Cancel", 1)
+    "&Yes\n&No", 1)
   if choice ~= 1 then
     -- <C-c>/<Esc> on the prompt stops the save of the repositories list
     if choice == 0 then

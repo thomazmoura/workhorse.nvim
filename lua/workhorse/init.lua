@@ -341,6 +341,7 @@ end
 -- Refresh current buffer from server: what <leader>R does in it (<leader>wr in any buffer)
 -- opts.focus_id: work item to place the cursor on after the re-render
 -- opts.focus_title: title to land on when the item had no id yet (just created)
+-- opts.skip_pending: do not ask about unsaved work item details (they are kept)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
 function M.refresh(opts)
   local repo_tabs = package.loaded["workhorse.repos_screen.repo"]
@@ -375,6 +376,27 @@ function M.refresh(opts)
   if not bufnr then
     vim.notify("Workhorse: Not in a workhorse buffer", vim.log.levels.WARN)
     return
+  end
+
+  -- The refresh drops the unsaved details of the work items of this query: ask first
+  local details = package.loaded["workhorse.buffer.details"]
+  if details and not (opts and opts.skip_pending) then
+    local ids = {}
+    for _, item in ipairs(state.original_items or {}) do
+      ids[item.id] = true
+    end
+    local pending = details.pending(ids)
+    if #pending > 0 then
+      local names = vim.tbl_map(function(p)
+        return ("#%d %s"):format(p.id, p.title)
+      end, pending)
+      local prompt = ("%d work item%s with unsaved details:\n%s\n\nRefresh and discard the changes?"):format(
+        #pending, #pending == 1 and "" or "s", table.concat(names, "\n"))
+      if vim.fn.confirm(prompt, "&Yes\n&No", 2) ~= 1 then
+        return
+      end
+      details.discard(ids)
+    end
   end
 
   -- Capture before the async round-trip: capture_focus reads the current window

@@ -32,6 +32,7 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `menu.lua` - Fuzzy menu of the screens (`<leader>w/`, `:Workhorse menu`; Telescope or vim.ui.select)
 - `picker.lua` - Shared fuzzy picker (Telescope or vim.ui.select), used by the menu and the `<M-/>` context search of each screen
 - `header.lua` - Header of the editable lists (title, `<CR>` actions, `───── ◇ ─────` rule; empty lines with virtual text) and the shared rule
+- `send.lua` - The send keys of every screen: `<leader><leader>` in normal mode (buffer-local, so it overrides the global save-all mapping), `<C-CR>` in insert mode only, `<CR>` in normal mode only on popup screens (the forms); `:w` does nothing (`ignore_write`). Every send asks first (`list_confirm` or `vim.fn.confirm` with `&Yes\n&No`): `y`/`<CR>` confirms, `n`/`<Esc>` cancels
 - `pinned.lua` - Frozen headers: a copy of a screen's header (lines and extmarks) pinned in a float while it is scrolled away
 
 **Repositories screen** (`lua/workhorse/repos_screen/`, `<leader>wG`; `<leader>wg` opens the screen of the repository of the working directory)
@@ -46,7 +47,7 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 
 **Pull requests** (`lua/workhorse/prs/`, `<leader>wp`)
 - `init.lua` - List of a repository's pull requests and the screen of one (Overview and Changes tabs, rendered from the data with `builds/render.lua`)
-- `reviewers.lua` / `work_items.lua` - Editable sections of the Overview of an active pull request (`name: required|optional` reviewers completed from the identity cache; `#id | title` linked work items completed from `prs.work_items_query` or the last query, typed ids looked up on InsertLeave). Their text is spliced into every render (`ctx.edits`), saved with `:w` / `<leader><leader>` after a `list_confirm`
+- `reviewers.lua` / `work_items.lua` - Editable sections of the Overview of an active pull request (`name: required|optional` reviewers completed from the identity cache; `#id | title` linked work items completed from `prs.work_items_query` or the last query, typed ids looked up on InsertLeave). Their text is spliced into every render (`ctx.edits`), saved with `<leader><leader>` after a `list_confirm`
 - `diff.lua` - Delta-style diffs of the Changes tab
 - `new_pr.lua` - "New pull request" forms of the list (on `builds/form.lua`): `<leader>wn` (branches, title, optional work item) and `<leader>wN` (the Criar-PullRequest.ps1 flow in a clone: push, create linked to a work item, completion options with "PR <id>: <title>", auto-complete, optional approval)
 - Required and optional checks on the Overview: the policy evaluations of the pull request (`api/pullrequests.lua` `checks`), expired / failed build checks re-queued with `<leader>wq` (`requeue_check`)
@@ -61,6 +62,7 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - API: `api/libraries.lua`
 
 **Work item details** (`lua/workhorse/buffer/details.lua`, `<CR>` on a work item)
+- A popup (float); one hidden buffer per work item keeps its edits after the popup closes, `<CR>`/`<leader><leader>`/`<C-CR>` send the pending changes of all of them in one confirmation, and refreshing a query with pending details asks first (`details.pending` / `details.discard`)
 - Column, Tags, Description, Attachments, Discussion Comment and Discussion History sections in one editable buffer
 - Attachments: one file name per line, a link (`url` extmark: `gx`); a deleted line removes it, a new line (a path, or a
   file of the attachment folders: `attachments.lua`, shared with paperboy's `compose.attachment_dirs`) uploads it on save

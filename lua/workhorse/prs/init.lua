@@ -750,7 +750,7 @@ end
 -- Editable sections ---------------------------------------------------------------
 --
 -- The Reviewers and Work Items sections of the Overview of an active pull request are editable
--- text (prs/reviewers.lua, prs/work_items.lua), saved by :w or <leader><leader>. The rest of the
+-- text (prs/reviewers.lua, prs/work_items.lua), saved with <leader><leader>. The rest of the
 -- buffer is still rendered from the data: every render puts back the text of those sections as
 -- edited (ctx.edits, captured from the buffer after each change), so the edits survive the
 -- refreshes, and an edit anywhere else is undone by the next render.
@@ -2065,9 +2065,9 @@ local function set_keymaps(bufnr, kind)
     M.requeue(bufnr)
   end)
   -- The editable sections of the Overview
-  map("<leader><leader>", function()
+  require("workhorse.ui.send").map(bufnr, function()
     M.save(bufnr)
-  end)
+  end, "save the edits of the Overview")
   -- Accept a completion with <CR>; a plain new line otherwise
   vim.keymap.set("i", "<CR>", choices.insert_cr, { buffer = bufnr, silent = true, expr = true,
     desc = "Workhorse: accept the completion" })
@@ -2075,7 +2075,7 @@ end
 
 -- Completion and saving of the editable sections of a pull request's Overview
 local function setup_editing(bufnr)
-  -- acwrite: :w saves (through BufWriteCmd); the buffer is modifiable only while editable
+  -- acwrite: :w does nothing (BufWriteCmd); the buffer is modifiable only while editable
   vim.bo[bufnr].buftype = "acwrite"
   choices.attach(bufnr, {
     choices = function(b, lnum)
@@ -2092,13 +2092,8 @@ local function setup_editing(bufnr)
     end,
   })
   local group = vim.api.nvim_create_augroup("workhorse_pr_edit_" .. bufnr, { clear = true })
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      M.save(bufnr)
-    end,
-  })
+  -- :w does not send (an auto-save plugin must not apply anything): <leader><leader> does
+  require("workhorse.ui.send").ignore_write(bufnr, group)
   vim.api.nvim_create_autocmd("TextChanged", {
     group = group,
     buffer = bufnr,

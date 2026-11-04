@@ -1,5 +1,5 @@
 -- Details of one work item, opened by <CR> on the work item buffers (flat or tree): one editable
--- buffer in a split on the right, styled like the repository screen (repos_screen/repo.lua):
+-- buffer in a popup, styled like the repository screen (repos_screen/repo.lua):
 --
 --   #123 Fix the login page   User Story · Active · Area   (meta as virtual text)
 --   ───── ◇ ─────                                         (virtual line: never in the text)
@@ -27,10 +27,12 @@
 -- the work item, and a new line attaches a file (a path, or the name of a file of an attachment
 -- folder, completed from those folders: see attachments.lua). The column is the board column, as
 -- <leader>ws moves it: the state follows it on the server, through the board's state mappings.
--- A missing Column or Tags line keeps that field as it is. Saving (<leader><leader>, or <CR>,
--- which then closes the details; :w does nothing) confirms the changes, sends them in one request, then refreshes the work item buffer the details were
--- opened from. There is one buffer per work item, hidden when its window closes: its unsaved
--- edits stay until it is saved or reloaded.
+-- A missing Column or Tags line keeps that field as it is. Saving (<CR> or <leader><leader> in
+-- normal mode, <C-CR> in insert mode; :w does nothing) confirms the pending changes of the details
+-- of every work item together, sends them (one request per work item), then refreshes the work
+-- item buffer the details were opened from. There is one buffer per work item, hidden when the
+-- popup closes (q / <Esc>): its unsaved edits stay, even when the details of other work items are
+-- opened later, until they are saved, reloaded or discarded by a refresh of the query.
 local M = {}
 
 local config = require("workhorse.config")
@@ -890,7 +892,7 @@ end
 
 -- Window ------------------------------------------------------------------------------
 
--- Whether the details split is open, showing a details buffer
+-- Whether the details popup is open, showing a details buffer
 local function details_open()
   return details_win and vim.api.nvim_win_is_valid(details_win)
     and buffers[vim.api.nvim_win_get_buf(details_win)] ~= nil
@@ -899,7 +901,8 @@ end
 local function close()
   if details_open() then
     local origin = buffers[vim.api.nvim_win_get_buf(details_win)].origin
-    -- The buffer is only hidden (bufhidden=hide): its edits survive
+    -- The buffer is only hidden (bufhidden=hide): its edits survive, even when the details of
+    -- other work items are opened later
     pcall(vim.api.nvim_win_close, details_win, true)
     local win = origin and vim.api.nvim_buf_is_valid(origin) and vim.fn.bufwinid(origin)
     if win and win ~= -1 then
@@ -910,12 +913,13 @@ local function close()
 end
 
 local function show(bufnr)
+  local title = (" %s "):format(buffers[bufnr].item.title and ("#%d"):format(buffers[bufnr].item.id) or "work item")
+  local win_config = require("workhorse.builds.form").float_config(title)
   if details_open() then
+    vim.api.nvim_win_set_config(details_win, { title = win_config.title, title_pos = "center" })
     vim.api.nvim_set_current_win(details_win)
   else
-    vim.cmd("vsplit")
-    vim.cmd("wincmd L")
-    details_win = vim.api.nvim_get_current_win()
+    details_win = vim.api.nvim_open_win(bufnr, true, win_config)
   end
   vim.api.nvim_win_set_buf(details_win, bufnr)
   vim.wo[details_win].wrap = true
@@ -939,34 +943,31 @@ local function refresh_origin(origin)
   end
   -- The refresh resolves its buffer from the current window
   vim.api.nvim_win_call(win, function()
-    require("workhorse").refresh()
+    -- A failed work item keeps its edits: they must not stop this refresh with a question
+    require("workhorse").refresh({ skip_pending = true })
   end)
 end
 
---- Confirm the changes of the details buffer `bufnr` (default: current), then send them.
---- `on_confirmed`, when given, runs once they are confirmed (or when there is nothing to apply)
-function M.save(bufnr, on_confirmed)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
+--- The changes of the details buffer `bufnr` as confirmation `entries` and a `run(on_done)` that
+--- sends them (on_done runs once it ended, well or not). nil without changes; nil and true when
+--- it cannot be saved now (a message tells why)
+local function prepare(bufnr)
   local state = buffers[bufnr]
   if not state then
-    return
+    return nil
   end
   if state.saving then
-    notify("Wait for the save to finish", vim.log.levels.WARN)
-    return
+    notify(("Wait for the save of #%d to finish"):format(state.item.id), vim.log.levels.WARN)
+    return nil, true
   end
   local changes, errors = detect(bufnr)
   if #errors > 0 then
-    notify(table.concat(errors, "\n"), vim.log.levels.WARN)
-    return
+    notify(("#%d: %s"):format(state.item.id, table.concat(errors, "\n")), vim.log.levels.WARN)
+    return nil, true
   end
   if not next(changes) then
     vim.bo[bufnr].modified = false
-    notify("No changes to apply")
-    if on_confirmed then
-      on_confirmed()
-    end
-    return
+    return nil
   end
   local item = state.item
   local entries, fields = {}, {}
@@ -1004,13 +1005,7 @@ function M.save(bufnr, on_confirmed)
       table.insert(entries, { text = "Remove attachment: " .. attachment.name, hl = "DiagnosticError" })
     end
   end
-  require("workhorse.ui.list_confirm").show(("Changes to #%d"):format(item.id), entries, function(confirmed)
-    if not confirmed then
-      return
-    end
-    if on_confirmed then
-      on_confirmed()
-    end
+  local function run(on_done)
     state.saving = true
     local done = require("workhorse.progress").start("Saving #" .. item.id)
     -- Whether the attachments were changed already (a later failure still shows them)
@@ -1019,6 +1014,7 @@ function M.save(bufnr, on_confirmed)
       state.saving = false
       done(true)
       notify(("Failed to update #%d: %s"):format(item.id, tostring(err)), vim.log.levels.ERROR)
+      on_done()
       if attached and vim.api.nvim_buf_is_valid(bufnr) then
         -- Its new lines are attached now: saving again would attach them twice
         load_attachments(bufnr, true)
@@ -1090,11 +1086,100 @@ function M.save(bufnr, on_confirmed)
               load_attachments(bufnr, true)
             end
           end
-          refresh_origin(state.origin)
+          on_done(state.origin)
         end)
       end)
     end)
+  end
+  return entries, run
+end
+
+--- Confirm the pending changes of the details of every work item, then send them all (each work
+--- item in a request of its own, in parallel); the work item buffer they came from is refreshed
+--- once they ended
+function M.save()
+  local pending = {}
+  for bufnr, state in pairs(buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) and (vim.bo[bufnr].modified or state.saving) then
+      table.insert(pending, bufnr)
+    end
+  end
+  table.sort(pending, function(a, b)
+    return buffers[a].item.id < buffers[b].item.id
   end)
+  local groups = {}
+  for _, bufnr in ipairs(pending) do
+    local item_entries, run = prepare(bufnr)
+    if run == true then
+      -- One cannot be saved now (its message was shown): nothing is sent
+      return
+    end
+    if item_entries then
+      table.insert(groups, { item = buffers[bufnr].item, entries = item_entries, run = run })
+    end
+  end
+  if #groups == 0 then
+    notify("No changes to apply")
+    return
+  end
+  local entries, runs = {}, {}
+  for _, group in ipairs(groups) do
+    if #groups > 1 then
+      table.insert(entries, { text = title(group.item), hl = "WorkhorseBuildHeader" })
+    end
+    for _, entry in ipairs(group.entries) do
+      entry.text = (#groups > 1 and "  " or "") .. entry.text
+      table.insert(entries, entry)
+    end
+    table.insert(runs, group.run)
+  end
+  local heading = #groups == 1 and ("Changes to #%d"):format(groups[1].item.id)
+    or ("Changes to %d work items"):format(#groups)
+  require("workhorse.ui.list_confirm").show(heading, entries, function(confirmed)
+    if not confirmed then
+      return
+    end
+    local left, origins = #runs, {}
+    for _, run in ipairs(runs) do
+      run(function(origin)
+        if origin then
+          origins[origin] = true
+        end
+        left = left - 1
+        if left == 0 then
+          for o in pairs(origins) do
+            refresh_origin(o)
+          end
+        end
+      end)
+    end
+  end)
+end
+
+--- The details with unsaved changes among the work items `ids` ({ [id] = true }, all when nil):
+--- a list of { id, title }
+function M.pending(ids)
+  local list = {}
+  for bufnr, state in pairs(buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].modified and (not ids or ids[state.item.id]) then
+      table.insert(list, { id = state.item.id, title = state.item.title or "" })
+    end
+  end
+  table.sort(list, function(a, b)
+    return a.id < b.id
+  end)
+  return list
+end
+
+--- Drop the unsaved changes of the details of the work items `ids` ({ [id] = true }): their
+--- buffers load the work item again
+function M.discard(ids)
+  for bufnr, state in pairs(buffers) do
+    if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].modified and ids[state.item.id] then
+      vim.bo[bufnr].modified = false
+      M.reload(bufnr)
+    end
+  end
 end
 
 --- Load the work item again, asking first when there are unsaved changes
@@ -1142,21 +1227,19 @@ local function setup_keymaps(bufnr)
   local function map(lhs, fn, desc, mode)
     vim.keymap.set(mode or "n", lhs, fn, { buffer = bufnr, silent = true, nowait = true, desc = "Workhorse: " .. desc })
   end
-  map("<leader><leader>", function()
-    M.save(bufnr)
-  end, "apply the changes")
+  local send = require("workhorse.ui.send")
+  local function save()
+    M.save()
+  end
+  send.map(bufnr, save, "apply the pending changes of every work item")
+  send.map_enter(bufnr, save, "apply the pending changes of every work item")
   map("<leader>R", function()
     M.reload(bufnr)
   end, "reload the work item")
-  -- With changes, confirm and apply them first: the save goes on with the buffer hidden, and a
-  -- failed one leaves its edits there
-  map("<CR>", function()
-    if vim.bo[bufnr].modified then
-      M.save(bufnr, close)
-    else
-      close()
-    end
-  end, "apply the changes and close the details")
+  -- Closing keeps the edits: the buffer of each work item stays hidden with them
+  for _, lhs in ipairs({ "q", "<Esc>" }) do
+    map(lhs, close, "close the details (keeping the edits)")
+  end
   for _, lhs in ipairs({ "gb", "gw" }) do
     map(lhs, function()
       require("workhorse.builds").open_url(web_url(buffers[bufnr].item))
@@ -1287,7 +1370,7 @@ local function create(item)
   return bufnr
 end
 
---- Open the details of `work_item` in the split on the right (closing it when it already shows
+--- Open the details of `work_item` in the popup (closing it when it already shows
 --- them). `owner_bufnr` is the work item buffer they are opened from, refreshed after a save
 function M.open(work_item, owner_bufnr)
   if not work_item then

@@ -2,7 +2,7 @@
 -- Repos Git repository, one "name: value" line per field. Built on the form engine of the
 -- "Run new build" form (builds/form.lua): <Tab>/<S-Tab> move between the values, typing in a
 -- field shows its choices (folders, repositories, branches, YAML files, agent queues), and
--- <CR>, <leader><leader> creates the pipeline after a confirmation.
+-- <CR> (normal mode) or <leader><leader> creates the pipeline after a confirmation.
 local M = {}
 
 local builds_api = require("workhorse.api.builds")
@@ -358,7 +358,7 @@ function M.submit(bufnr)
     opts.yaml_file,
     short_branch(opts.branch)
   )
-  local choice = vim.fn.confirm(prompt, "&Create\n&Cancel", 1)
+  local choice = vim.fn.confirm(prompt, "&Yes\n&No", 1)
   if choice ~= 1 then
     -- Opened by a save of the pipelines list: <C-c>/<Esc> on the prompt stops that save
     if choice == 0 and form.on_done then

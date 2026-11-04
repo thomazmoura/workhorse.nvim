@@ -1,7 +1,7 @@
 -- Form engine of the build forms ("Run new build", "New pipeline"): a buffer of "name: value"
 -- lines in a float (or in place of the current buffer). <Tab>/<S-Tab> move between the values,
 -- typing in a field with choices shows them like a dropdown (blink.cmp or the native menu), and
--- <CR> (normal mode) or <leader><leader> submits. The fields, their choices, highlights and what
+-- <CR> or <leader><leader> (normal mode), <C-CR> (insert mode) submits. The fields, their choices, highlights and what
 -- submitting does come from the form's spec (see M.create).
 local M = {}
 
@@ -118,7 +118,7 @@ local function float_size(value, total)
   return math.max(1, math.min(n, total))
 end
 
-local function float_config(title)
+function M.float_config(title)
   local opts = config.get().builds.run_form
   local columns, lines = vim.o.columns - 2, vim.o.lines - vim.o.cmdheight - 2
   local width, height = float_size(opts.width, columns), float_size(opts.height, lines)
@@ -174,11 +174,12 @@ local function setup_keymaps(bufnr, spec)
   vim.keymap.set("n", "<S-Tab>", function()
     M.jump(-1)
   end, with_desc("previous field"))
-  for _, lhs in ipairs({ "<CR>", "<leader><leader>" }) do
-    vim.keymap.set("n", lhs, function()
-      spec.submit(bufnr)
-    end, with_desc(spec.submit_desc))
+  local send = require("workhorse.ui.send")
+  local function submit()
+    spec.submit(bufnr)
   end
+  send.map(bufnr, submit, spec.submit_desc)
+  send.map_enter(bufnr, submit, spec.submit_desc)
   if spec.keymaps then
     spec.keymaps(bufnr, with_desc)
   end
@@ -285,7 +286,7 @@ function M.show(bufnr, cursor)
   if config.get().builds.run_form.layout == "full" then
     vim.api.nvim_win_set_buf(0, bufnr)
   else
-    vim.api.nvim_open_win(bufnr, true, float_config(forms[bufnr].spec.title))
+    vim.api.nvim_open_win(bufnr, true, M.float_config(forms[bufnr].spec.title))
   end
   if cursor then
     vim.api.nvim_win_set_cursor(0, cursor)

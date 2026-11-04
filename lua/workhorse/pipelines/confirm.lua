@@ -1,6 +1,6 @@
 -- Confirmation of the pipeline deletions of a save of the pipelines list: a float listing all
--- of them. <CR>, y or :w goes on to type the name of each one (a pipeline whose name does not
--- match, case aside, is kept); <C-c>, q, <Esc>, n or leaving the float cancels.
+-- of them. <CR> or y goes on to type the name of each one (a pipeline whose name does not
+-- match, case aside, is kept); <Esc>, n, <C-c> or leaving the float cancels.
 local M = {}
 
 local config = require("workhorse.config")
@@ -35,11 +35,11 @@ function M.show(deletes, on_result)
   for _, d in ipairs(deletes) do
     table.insert(lines, ("- #%d %s  (%s)"):format(d.id, d.name, d.path))
   end
-  vim.list_extend(lines, { "", "Their runs are deleted too.", "<CR>/y/:w type their names to delete   <C-c>/q/<Esc>/n cancel" })
+  vim.list_extend(lines, { "", "Their runs are deleted too.", "<CR>/y type their names to delete   <Esc>/n cancel" })
 
   local bufnr = vim.api.nvim_create_buf(false, true)
   pcall(vim.api.nvim_buf_set_name, bufnr, "Workhorse|delete-pipelines")
-  vim.bo[bufnr].buftype = "acwrite"
+  vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
@@ -93,20 +93,13 @@ function M.show(deletes, on_result)
       finish(true)
     end, opts)
   end
-  for _, lhs in ipairs({ "<C-c>", "q", "<Esc>", "n" }) do
+  for _, lhs in ipairs({ "<C-c>", "<Esc>", "n" }) do
     vim.keymap.set("n", lhs, function()
       finish(false)
     end, opts)
   end
 
   local group = vim.api.nvim_create_augroup("workhorse_pipelines_confirm_" .. bufnr, { clear = true })
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      finish(true)
-    end,
-  })
   -- Leaving the float (or it being closed some other way) cancels
   vim.api.nvim_create_autocmd({ "WinLeave", "BufWipeout" }, {
     group = group,

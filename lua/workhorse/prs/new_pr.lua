@@ -1,6 +1,6 @@
 -- "New pull request" forms of the pull request list, on the form engine of the build forms
 -- (builds/form.lua: "name: value" lines in a float, <Tab>/<S-Tab> between the values, choices
--- shown while typing, <CR> or <leader><leader> submits after a confirmation). Two modes:
+-- shown while typing, <CR> (normal mode) or <leader><leader> submits after a confirmation). Two modes:
 --
 --   simple (<leader>wn)  like the web's "New pull request": source and target branches
 --                        (completed from the repository's), a title (by default the last commit
@@ -451,7 +451,7 @@ function M.submit(bufnr)
     vim.notify("Workhorse: Cannot create the pull request:\n  " .. table.concat(errors, "\n  "), vim.log.levels.ERROR)
     return
   end
-  if vim.fn.confirm(summary(form, opts) .. "?", "&Create\n&Cancel", 1) ~= 1 then
+  if vim.fn.confirm(summary(form, opts) .. "?", "&Yes\n&No", 1) ~= 1 then
     return
   end
 

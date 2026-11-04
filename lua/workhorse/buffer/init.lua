@@ -354,10 +354,10 @@ end
 function M.setup_keymaps(bufnr)
   local opts = { buffer = bufnr, silent = true }
 
-  -- Leader-Leader to apply changes (overrides global :wa mapping)
-  vim.keymap.set("n", "<leader><leader>", function()
+  -- <leader><leader> applies the changes (after a confirmation)
+  require("workhorse.ui.send").map(bufnr, function()
     require("workhorse").apply()
-  end, opts)
+  end, "apply the changes")
 
   -- Enter to open description (or run the header action under the cursor)
   vim.keymap.set("n", "<CR>", function()
@@ -477,13 +477,9 @@ function M.on_write(bufnr)
 
     -- Helper to proceed with confirmation and apply
     local function proceed_with_changes(area_path)
-      if config.should_confirm(changes, changes_mod.ChangeType) then
-        require("workhorse.ui.confirm").show(changes, function()
-          M.apply_changes(bufnr, changes, area_path)
-        end)
-      else
+      require("workhorse.ui.confirm").show(changes, function()
         M.apply_changes(bufnr, changes, area_path)
-      end
+      end)
     end
 
     if has_new then

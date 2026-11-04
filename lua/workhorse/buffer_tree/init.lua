@@ -445,9 +445,9 @@ end
 function M.setup_keymaps(bufnr)
   local opts = { buffer = bufnr, silent = true }
 
-  vim.keymap.set("n", "<leader><leader>", function()
+  require("workhorse.ui.send").map(bufnr, function()
     require("workhorse").apply()
-  end, opts)
+  end, "apply the changes")
 
   -- On a folded item: unfold it; on the header: run its action; otherwise <CR> opens the description
   vim.keymap.set("n", "<CR>", function()
@@ -515,33 +515,6 @@ function M.find_by_query_id(query_id)
     end
   end
   return nil
-end
-
-local function show_confirm(changes, on_confirm, on_cancel)
-  local formatted = changes_mod.format_for_display(changes)
-
-  if #formatted == 0 then
-    if on_confirm then
-      on_confirm()
-    end
-    return
-  end
-
-  vim.notify("Pending changes:\n" .. table.concat(formatted, "\n"), vim.log.levels.INFO)
-
-  vim.ui.select({ "Yes - Apply changes", "No - Cancel" }, {
-    prompt = "Apply changes?",
-  }, function(choice)
-    if choice and choice:match("^Yes") then
-      if on_confirm then
-        on_confirm()
-      end
-    else
-      if on_cancel then
-        on_cancel()
-      end
-    end
-  end)
 end
 
 function M.on_write(bufnr)
@@ -621,13 +594,9 @@ function M.on_write(bufnr)
     end
 
     local function proceed_with_changes(area_path)
-      if config.should_confirm(changes, changes_mod.ChangeType) then
-        show_confirm(changes, function()
-          M.apply_changes(bufnr, changes, area_path)
-        end)
-      else
+      require("workhorse.ui.confirm").show(changes, function()
         M.apply_changes(bufnr, changes, area_path)
-      end
+      end)
     end
 
     local has_new = false

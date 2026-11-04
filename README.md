@@ -198,12 +198,6 @@ require("workhorse").setup({
   },
 
   -- UI options
-  -- Confirmation mode: "Always", "None", or "OnlyOnRemovals"
-  -- "Always" - always show confirmation dialog (default)
-  -- "None" - apply changes without confirmation
-  -- "OnlyOnRemovals" - only confirm when deleting items
-  confirm_changes = "Always",
-
   -- Cache settings
   cache = {
     enabled = true,
@@ -376,12 +370,16 @@ On every screen, opening something in the browser (`gw`, `gb`) also yanks its UR
 (or `"0p`) pastes it. Wherever `gb` opens something, `gy` yanks its URL (into `"0`) without
 opening it, and `<leader>gy` copies it to the clipboard (`"+`).
 
+Sending (applying) works the same on every screen: `<leader><leader>` in normal mode (buffer-local, so it
+replaces the global save-all mapping), `<C-CR>` in insert mode, and `<CR>` in normal mode only on popup
+screens (the forms). `:w` never sends. Every send asks first: `y`/`<CR>` confirms, `n`/`<Esc>` cancels.
+
 When in a workhorse buffer (flat queries):
 
 | Key | Action |
 |-----|--------|
 | `<CR>` | Toggle the details of the work item under cursor |
-| `<leader><leader>` | Apply changes |
+| `<leader><leader>` | Apply changes (after a confirmation) |
 | `<leader>R` | Refresh buffer |
 | `gw` or `gb` | Open work item in browser |
 | `<M-/>` | Fuzzy search of the saved queries |
@@ -393,7 +391,7 @@ When in a workhorse buffer (tree queries):
 | `<CR>` | Unfold the item under cursor when it is folded; otherwise toggle the details of the work item |
 | `<Space>` / `<S-Space>` / `<M-Space>` | Fold/unfold the item under cursor |
 | `<leader>ws` | Open column/state selection menu |
-| `<leader><leader>` | Apply changes |
+| `<leader><leader>` | Apply changes (after a confirmation) |
 | `<leader>R` | Refresh buffer |
 | `gw` or `gb` | Open work item in browser |
 | `<M-/>` | Fuzzy search of the saved queries |
@@ -444,9 +442,9 @@ Work items are displayed as editable text lines:
 
 | Action | How |
 |--------|-----|
-| **Edit title** | Modify the title text after the `\|`, then `:w` to save |
-| **Create work item** | Add a new line with just the title (no `#id \|` prefix), then `:w` |
-| **Delete work item** | Remove the line entirely, then `:w` (soft-delete: state changes to "Removed") |
+| **Edit title** | Modify the title text after the `\|`, then `<leader><leader>` to apply |
+| **Create work item** | Add a new line with just the title (no `#id \|` prefix), then `<leader><leader>` |
+| **Delete work item** | Remove the line entirely, then `<leader><leader>` (soft-delete: state changes to "Removed") |
 | **Change state** | Press `<CR>` to open actions menu, select "Change state" |
 
 ## Tree Queries (Parent/Child)
@@ -498,7 +496,7 @@ require("workhorse").setup({
 
 ## Work Item Details
 
-Press `<CR>` on any work item to open its details in a split on the right:
+Press `<CR>` on any work item to open its details in a popup:
 
 ```
 #123 Fix the login page            User Story · Active · Area
@@ -537,13 +535,17 @@ Discussion History                                   2 comments · read-only
   search work) but never saved: edits there are flagged and undone by the next reload or save. A missing or misplaced
   section header blocks saving until `<leader>R` restores it
 - **Navigation**: `<Tab>`/`<S-Tab>` move between the values, the description, the attachments and the new comment
-- **Save**: `<leader><leader>` confirms the changes, sends them in one request (after uploading the new attachments, which
-  go with the removed ones in a request of their own) and refreshes the work item buffer.
-  `:w` does nothing, so an auto-save plugin does not apply them
+- **Save**: `<CR>` or `<leader><leader>` in normal mode, `<C-CR>` in insert mode. It sends the pending changes of
+  *every* work item whose details were edited: one confirmation lists them all, then each work item goes in one
+  request (after uploading its new attachments, which go with the removed ones in a request of their own), and the
+  work item buffer is refreshed. `:w` does nothing, so an auto-save plugin does not apply them
 - **Reload**: `<leader>R` discards the pending changes and loads the work item again
-- **Close**: `<CR>` in normal mode inside the details confirms and applies the pending changes, then closes them (with
-  no changes it just closes them; cancelling the confirmation keeps them open). Pressing `<CR>` again on the same item
-  in the list closes them too, keeping unsaved edits
+- **Close**: `q` or `<Esc>` close the popup and keep the edits: each work item has its own hidden buffer, so the
+  changes are still there when the popup is opened again, even after the details of other work items were opened.
+  Pressing `<CR>` on the same item in the list closes it too
+- **Refresh with pending changes**: refreshing the query (`<leader>wr`, `<leader>R`, or opening the same query again,
+  e.g. `<leader>wt`) when work items of it have unsaved details lists them and asks `y`/`n`; `y` refreshes and discards
+  those changes, `n` (or `<Esc>`) cancels the refresh
 - **Browser**: Press `gb` or `gw` inside the details to open the work item in the browser
 
 ### Example Workflow
@@ -552,7 +554,7 @@ Discussion History                                   2 comments · read-only
 2. Select a saved query from Telescope
 3. Work items appear in a buffer
 4. Edit titles, add new lines, or delete lines
-5. Press `:w` to save - a confirmation dialog shows pending changes
+5. Press `<leader><leader>` to apply - a confirmation dialog shows pending changes
 6. Press `y` to apply changes to Azure DevOps
 
 ## Pipeline Builds
@@ -770,7 +772,7 @@ Infra/
 
 A folder line ends with `/`; a line belongs to the folder line above it one level less indented.
 Edit it like any buffer — move lines around, re-indent them, rename pipelines or folders, add
-and delete lines — then save with `:w` (or `<leader><leader>`, `:Workhorse apply`). Pending
+and delete lines — then send with `<leader><leader>` (or `:Workhorse apply`). Pending
 changes show on the right: `[from \Infra]` / `[was Old name]` on moved or renamed pipelines,
 `[new]` on new ones. Saving applies them in this order:
 
@@ -779,7 +781,7 @@ changes show on the right: `[from \Infra]` / `[was Old name]` on moved or rename
 2. **New pipelines** — any line without `#ID |` that does not end in `/` — open the "New
    pipeline" form (see above) one at a time, pre-filled with the line's name and folder.
    Creating it gives the line its `#ID |`; `q`/`<Esc>` skips it (the line stays pending).
-3. **Deletions** are listed together in one confirmation; `<CR>`, `y` or `:w` then asks you to
+3. **Deletions** are listed together in one confirmation; `<CR>` or `y` then asks you to
    type the name of each pipeline (case aside) and deletes the ones typed right (with their
    runs). Any typo keeps that pipeline (its deletion stays pending); `<Esc>` while typing cancels
    all the deletions.
@@ -1024,7 +1026,7 @@ Work Items
   its line completed with the title; `work item not found` marks the ids the server doesn't know.
   Deleting a line removes the link.
 
-`:w` or `<leader><leader>` lists the changes in a confirmation float, then applies them. The edits
+`<leader><leader>` lists the changes in a confirmation float, then applies them. The edits
 stay through the auto-refresh and tab switches; anything typed elsewhere in the buffer is put back
 on the next change. `<leader>R` and `q` ask before discarding pending edits.
 
@@ -1050,7 +1052,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
 | `gb` | Open the pull request itself in the browser (its files on the Changes tab); on the list, the pull request under the cursor |
-| `<leader><leader>` / `:w` | Save the edits of the Reviewers and Work Items sections |
+| `<leader><leader>` | Save the edits of the Reviewers and Work Items sections |
 | `<leader>R` | Reload from Azure DevOps |
 | `q` | Close the buffer |
 
@@ -1066,7 +1068,7 @@ as an editable list, with each one's default branch and size on the right:
 
 `#id` is the start of the repository's id (a GUID), like a short commit hash: 8 characters, more
 when two repositories share them. Edit it like any buffer, then save with
-`:w` (or `<leader><leader>`): pending changes show as `[was Old name]` and `[new]`. Saving
+`<leader><leader>`: pending changes show as `[was Old name]` and `[new]`. Saving
 applies them in this order:
 
 1. **Renames** are applied right away, each with a notification.
@@ -1129,7 +1131,7 @@ fold), like on the build forms; in insert mode they indent on a line still blank
 cursor, and move in an open completion menu. It is edited as text and indented like the work item
 tree (tree guides, folds; `<CR>` or `<Space>` on a line with a fold folds and unfolds it): every
 value is completed as you type (blink.cmp or the native menu, like the build forms), and
-`:w` (or `<leader><leader>`) lists the changes of every section in one confirmation float, then
+`<leader><leader>` lists the changes of every section in one confirmation float, then
 applies them and reloads the sections that changed. Pending changes show on the right
 (`[was Not set]`, `[new]`); `-` goes back to the repositories list, `gw` opens the repository
 settings page of the cursor's section in the browser, `gb` opens the repository itself in the
@@ -1232,7 +1234,7 @@ and description on the right:
 #7 | Web-Production                  14 variables
 ```
 
-`#id` is the library's id. Save with `:w` (or `<leader><leader>`): renames are applied right
+`#id` is the library's id. Send with `<leader><leader>`: renames are applied right
 away, deletions are confirmed one library at a time (**Delete** asks you to type its name, **Keep**
 puts its line back, **Stop** stops the remaining ones), and a new line opens a draft library screen
 (the line leaves the list): type its variables there, and its first save creates it. `<CR>` on a
@@ -1244,7 +1246,7 @@ The screen of a library is styled like the repository screen: the library's name
 (its description and who last changed it on the right; `<CR>` on it, or `-` anywhere, goes back to
 the list), then three sections under bold titles, separated by horizontal rules. `}`/`{` move
 between them (`g1`/`g2`/`g3` jump to one, the window bar names them), `<Tab>`/`<S-Tab>` move
-between the values, and `:w` (or `<leader><leader>`) lists the changes of every section in one
+between the values, and `<leader><leader>` lists the changes of every section in one
 confirmation float, then applies them and reloads the sections that changed.
 
 ```

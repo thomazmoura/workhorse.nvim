@@ -111,7 +111,7 @@ local function setup_keymaps(bufnr)
   local function map(lhs, fn, desc)
     vim.keymap.set("n", lhs, fn, { buffer = bufnr, silent = true, desc = "Workhorse: " .. desc })
   end
-  map("<leader><leader>", function()
+  require("workhorse.ui.send").map(bufnr, function()
     M.save(bufnr)
   end, "apply the changes to the repositories")
   map("<leader>R", function()
@@ -140,13 +140,8 @@ end
 
 local function setup_autocmds(bufnr)
   local group = vim.api.nvim_create_augroup("workhorse_repos_" .. bufnr, { clear = true })
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      M.save(bufnr)
-    end,
-  })
+  -- :w does not send (an auto-save plugin must not apply anything): <leader><leader> does
+  require("workhorse.ui.send").ignore_write(bufnr, group)
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
     buffer = bufnr,
@@ -180,7 +175,7 @@ function M.open()
 
   local bufnr = vim.api.nvim_create_buf(true, false)
   vim.api.nvim_buf_set_name(bufnr, "Workhorse|repos")
-  -- acwrite: :w saves (through BufWriteCmd) instead of writing a file
+  -- acwrite: :w does nothing (BufWriteCmd) instead of writing a file
   vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].bufhidden = "hide"
   vim.bo[bufnr].swapfile = false

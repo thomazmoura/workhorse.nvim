@@ -1,5 +1,5 @@
--- Confirmation of a list of changes in a float (the saves of the repository screen). <CR>, y or :w
--- confirms; <C-c>, q, <Esc>, n or leaving the float cancels.
+-- Confirmation of a list of changes in a float (the saves of the screens). <CR> or y confirms;
+-- <Esc>, n, <C-c> or leaving the float cancels. :w does nothing.
 local M = {}
 
 local config = require("workhorse.config")
@@ -13,10 +13,10 @@ function M.show(title, entries, on_result)
   for _, entry in ipairs(entries) do
     table.insert(lines, entry.text)
   end
-  vim.list_extend(lines, { "", "<CR>/y/:w apply   <C-c>/q/<Esc>/n cancel" })
+  vim.list_extend(lines, { "", "<CR>/y apply   <Esc>/n cancel" })
 
   local bufnr = vim.api.nvim_create_buf(false, true)
-  vim.bo[bufnr].buftype = "acwrite"
+  vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
   pcall(vim.api.nvim_buf_set_name, bufnr, "Workhorse|confirm|" .. bufnr)
@@ -71,20 +71,13 @@ function M.show(title, entries, on_result)
       finish(true)
     end, opts)
   end
-  for _, lhs in ipairs({ "<C-c>", "q", "<Esc>", "n" }) do
+  for _, lhs in ipairs({ "<C-c>", "<Esc>", "n" }) do
     vim.keymap.set("n", lhs, function()
       finish(false)
     end, opts)
   end
 
   local group = vim.api.nvim_create_augroup("workhorse_list_confirm_" .. bufnr, { clear = true })
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    group = group,
-    buffer = bufnr,
-    callback = function()
-      finish(true)
-    end,
-  })
   vim.api.nvim_create_autocmd({ "WinLeave", "BufWipeout" }, {
     group = group,
     buffer = bufnr,
