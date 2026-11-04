@@ -2,6 +2,21 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [98f85cc] - 2026-11-04
+
+### Added
+- `ui/send.lua`: the send keys of every screen — `<leader><leader>` in normal mode (overrides the global save-all mapping), `<C-CR>` in insert mode, `<CR>` in normal mode on popups only
+- Pending work item details are kept per work item when the popup closes; sending saves all of them in one confirmation
+- Refreshing a query (`<leader>wr`, `<leader>R`, reopening it) asks before discarding unsaved details of its work items
+
+### Changed
+- Work item details open in a popup (`q` / `<Esc>` close it) instead of a side split
+- `:w` no longer sends on any screen
+- Confirmations answer `y`/`<CR>` and `n`/`<Esc>`; the query buffers use the same float and always ask; the form confirmations are Yes/No
+
+### Removed
+- The `confirm_changes` option (a send always asks)
+
 ## [9708b5c] - 2026-11-04
 
 ### Added
