@@ -38,6 +38,12 @@ function M.pr_url(repo, id)
   return M.repo_url(repo) .. "/pullrequest/" .. id
 end
 
+-- Web page of a build of the repository's project
+function M.build_url(repo, build_id)
+  local server = (config.get().server_url or ""):gsub("/$", "")
+  return server .. "/" .. url_encode(repo.project.name) .. "/_build/results?buildId=" .. build_id
+end
+
 function M.commit_url(repo, sha)
   return M.repo_url(repo) .. "/commit/" .. sha
 end
@@ -558,6 +564,145 @@ function M.builds(repo, id, callback, opts)
       callback(nil, err)
     end,
   })
+end
+
+-- Policy types of the checks of a pull request (as in api/policies.lua)
+local CHECK_KINDS = {
+  ["0609b952-1397-4640-95ec-e00a01b2c241"] = "build",
+  ["fa4e907d-c16b-4a4c-9dfa-4906e5d171dd"] = "min_reviewers",
+  ["fd2167ab-b0be-447a-8ec8-39368250530e"] = "reviewers",
+  ["40e92b44-2fe1-4dd6-b3d8-74a9c21d0c6e"] = "work_items",
+  ["c6a1889d-b943-4856-b76f-9e46bb6b0df2"] = "comments",
+  ["fa4e907d-c16b-4a4c-9dfa-4916e5d171ab"] = "merge_strategy",
+  ["cbdc66da-9728-4af8-aada-9a5a32e4a226"] = "status",
+}
+
+-- Name of a check, as the web shows it
+local function check_name(kind, settings, context, type_name)
+  if kind == "build" then
+    local name = settings.displayName or context.buildDefinitionName
+    return "Build" .. (name and name ~= "" and (": " .. name) or "")
+  elseif kind == "min_reviewers" then
+    local count = tonumber(settings.minimumApproverCount) or 1
+    return ("At least %d reviewer%s must approve"):format(count, count == 1 and "" or "s")
+  elseif kind == "reviewers" then
+    return "Required reviewers" .. (type(settings.message) == "string" and settings.message ~= ""
+      and (": " .. settings.message) or "")
+  elseif kind == "work_items" then
+    return "Work items must be linked"
+  elseif kind == "comments" then
+    return "Comments must be resolved"
+  elseif kind == "merge_strategy" then
+    return "Merge strategy"
+  elseif kind == "status" then
+    local name = settings.defaultDisplayName
+    if not name or name == "" then
+      local genre = settings.statusGenre
+      name = (genre and genre ~= "" and (genre .. "/") or "") .. (settings.statusName or "")
+    end
+    return "Status: " .. (name ~= "" and name or "?")
+  end
+  return type_name or "Policy"
+end
+
+-- Checks of a pull request (the evaluations of the branch policies of its target), the
+-- not-applicable ones left out: callback({ { id (the evaluation's), kind, name, status
+-- ("approved", "rejected", "running", "queued" or "broken"), blocking, build_id,
+-- build_definition_id, expired (a build that is no longer valid: it must be queued again),
+-- outdated (a build of an older merge commit), started, completed } }), sorted by name
+function M.checks(repo, id, callback, opts)
+  local artifact = ("vstfs:///CodeReview/CodeReviewId/%s/%s"):format(repo.project.id, id)
+  client.get("/" .. repo.project.id .. "/_apis/policy/evaluations?artifactId=" .. url_encode(artifact)
+    .. "&api-version=7.1-preview.1", {
+    silent = opts and opts.silent,
+    on_success = function(data)
+      local checks = {}
+      for _, e in ipairs(data and data.value or {}) do
+        strip_nulls(e)
+        local configuration = type(e.configuration) == "table" and strip_nulls(e.configuration) or {}
+        local ptype = type(configuration.type) == "table" and configuration.type or {}
+        local settings = type(configuration.settings) == "table" and strip_nulls(configuration.settings) or {}
+        local context = type(e.context) == "table" and strip_nulls(e.context) or {}
+        if e.status ~= "notApplicable" and configuration.isEnabled ~= false then
+          local kind = CHECK_KINDS[ptype.id] or "other"
+          table.insert(checks, {
+            id = e.evaluationId,
+            kind = kind,
+            name = check_name(kind, settings, context, ptype.displayName),
+            status = e.status,
+            blocking = configuration.isBlocking == true,
+            build_id = tonumber(context.buildId),
+            build_definition_id = tonumber(context.buildDefinitionId or settings.buildDefinitionId),
+            expired = context.isExpired == true,
+            outdated = context.buildIsNotCurrent == true,
+            started = e.startedDate,
+            completed = e.completedDate,
+          })
+        end
+      end
+      table.sort(checks, function(a, b)
+        return a.name:lower() < b.name:lower()
+      end)
+      callback(checks)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Queue a check again (an expired or failed build policy queues a new build): callback(true) or
+-- (nil, err)
+function M.requeue_check(repo, evaluation_id, callback)
+  client.request({
+    path = "/" .. repo.project.id .. "/_apis/policy/evaluations/" .. evaluation_id .. "?api-version=7.1-preview.1",
+    method = "PATCH",
+    raw_body = "{}",
+    silent = true,
+    on_success = function()
+      callback(true)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- State of a check: its label ("succeeded", "expired", ...), icon and highlight
+function M.check_display(check)
+  local build = check.kind == "build"
+  local label, status, result
+  if check.status == "running" then
+    label, status = build and "running" or "in progress", "inProgress"
+  elseif check.expired then
+    label, status, result = "expired", "completed", "partiallySucceeded"
+  elseif check.status == "approved" then
+    label, status, result = build and "succeeded" or "passed", "completed", "succeeded"
+  elseif check.status == "rejected" then
+    label, status, result = build and "failed" or "not met", "completed", "failed"
+  elseif check.status == "broken" then
+    label, status, result = "broken", "completed", "failed"
+  elseif build and check.build_id and not check.outdated then
+    label, status = "queued", "notStarted"
+  elseif build then
+    -- A build policy queued by hand (or whose build is of an older commit) waits to be queued
+    label, status, result = check.outdated and "outdated" or "not started", "completed", "partiallySucceeded"
+  else
+    label, status = "pending", "notStarted"
+  end
+  local icon, hl = builds_api.status_icon(status, result)
+  return label, icon, hl
+end
+
+-- Whether a check is a build that can be queued again (anything but a build under way)
+function M.can_requeue(check)
+  return check.kind == "build" and check.status ~= "running"
+    and not (check.status == "queued" and check.build_id and not check.expired and not check.outdated)
+end
+
+-- Whether a check waits for something to queue it again (expired, failed, never started)
+function M.needs_requeue(check)
+  return M.can_requeue(check) and check.status ~= "approved" or (check.kind == "build" and check.expired == true)
 end
 
 -- Votes, best first, as offered when voting

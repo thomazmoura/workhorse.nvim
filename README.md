@@ -288,7 +288,7 @@ In this mode:
 |---------|-------------|
 | `:Workhorse query` | Open Telescope picker to select a saved query |
 | `:Workhorse query <id>` | Open a specific saved query by ID |
-| `:Workhorse refresh` | Refresh current buffer from Azure DevOps |
+| `:Workhorse refresh` | Refresh current buffer from Azure DevOps (also `<leader>wr`, set by default: what `<leader>R` does in any Workhorse buffer) |
 | `:Workhorse state` | Change state of work item under cursor |
 | `:Workhorse builds` | Open Telescope picker to select a pipeline and browse its runs |
 | `:Workhorse builds <id>` | Browse the runs of a pipeline (build definition) by ID |
@@ -422,8 +422,10 @@ The cursor follows the work item you were on, not the line number:
 
 ```lua
 vim.keymap.set("n", "<leader>wq", require("workhorse").pick_query, { desc = "Workhorse: Pick query" })
-vim.keymap.set("n", "<leader>wr", require("workhorse").refresh, { desc = "Workhorse: Refresh" })
 ```
+
+`<leader>wr` (refresh the current Workhorse buffer, like `<leader>R` in it) is set by default. In a
+pull request, `<leader>wq` re-queues builds instead (see "Pull Requests").
 
 ## Buffer Format
 
@@ -910,9 +912,33 @@ last repository.
 with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
 
 - **Overview** - three sections, split by a separator:
-  - **Status** - actions (vote, complete, set or cancel auto-complete, copy the URL, check out the branch), the builds, the reviewers
-    and their votes, the linked work items, the description and the comment threads. `<CR>` on a
-    comment on a file opens the Changes tab on its line.
+  - **Status** - actions (vote, complete, set or cancel auto-complete, copy the URL, check out the
+    branch, re-queue builds), the required and optional checks, the builds, the reviewers and their
+    votes, the linked work items, the description and the comment threads. `<CR>` on a comment on
+    a file opens the Changes tab on its line.
+
+    The checks are the evaluations of the branch policies of the target branch, like the web's
+    "Required checks" (blocking policies) and "Optional checks" (only shown when there are some),
+    each with how many passed:
+
+    ```
+    Required checks  1/4 passed
+      ✓ At least 2 reviewers must approve  passed
+      ⚠ Build: CI  expired                          <leader>wq re-queue  03/11/26 07:00
+      ▶ Build: Tests  running
+      ✗ Work items must be linked  not met
+    ```
+
+    A build check is `succeeded`, `failed`, `running`, `queued`, `expired` (its build is past the
+    policy's validity: it must be queued again to complete), `outdated` (a build of an older merge
+    commit, for policies that do not queue on every push) or `not started` (policies queued by
+    hand). `<leader>wq` on a build check queues it again (the policy queues a new build of the
+    pull request); elsewhere, it queues every build waiting for it (expired, outdated, failed or
+    not started; the "Re-queue N builds" action shows then), after a confirmation when there are
+    several. `<CR>` on a build check opens its build, or re-queues it when it has none to show
+    (expired, outdated, not started); on the other checks it goes to the section they are about
+    (Reviewers, Work Items, Comments). The checks are fetched again with the builds, and after
+    the actions.
 
     The builds are the latest run of each pipeline on the pull request, with its status on the
     right like in the pipelines list (icon, queue date and, while running, the elapsed time). They
@@ -1007,7 +1033,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 
 | Key | Action |
 |-----|--------|
-| `<CR>` / `<Space>` | Open the pull request / follow the line (action, build, file, comment) |
+| `<CR>` / `<Space>` | Open the pull request / follow the line (action, check, build, file, comment) |
 | `<Tab>` / `<S-Tab>` | Next / previous tab |
 | `g1` `g2` | Overview / Changes tab |
 | `]f` / `[f` | Next / previous file diff |
@@ -1017,6 +1043,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `<leader>wa` | Set auto-complete, or cancel it when already set |
 | `<leader>wy` | Copy the URL of the pull request to the `0` and `+` registers |
 | `<leader>wk` | Check out the source branch (only in a clone of the pull request's repository) |
+| `<leader>wq` | Re-queue the build check under the cursor, or every expired, failed or not started one |
 | `<leader>wm` | Load 20 more pull requests (list) |
 | `<leader>wn` | New pull request: source and target branches, title, optional work item (list) |
 | `<leader>wN` | New pull request the `Criar-PullRequest.ps1` way: push, link a work item, auto-complete (list, in a clone of the repository) |

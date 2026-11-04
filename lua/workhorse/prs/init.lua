@@ -78,6 +78,8 @@ local function item_key(item)
     return "thread:" .. item.thread.id
   elseif item.kind == "build" then
     return "build:" .. (item.run.definition_id or item.run.id)
+  elseif item.kind == "check" then
+    return "check:" .. item.check.id
   elseif item.kind == "nav" then
     return "nav:" .. item.target
   elseif item.kind == "edit" then
@@ -321,9 +323,15 @@ local fetchers = {
 
 local rerender
 
-local function builds_running(runs)
+local function builds_running(runs, checks)
   for _, run in ipairs(runs or {}) do
     if not builds_api.is_completed(run.status) then
+      return true
+    end
+  end
+  -- A check under way (its build queued or running) passes or fails soon
+  for _, check in ipairs(checks or {}) do
+    if check.status == "running" or (check.status == "queued" and check.build_id and not check.expired) then
       return true
     end
   end
@@ -356,8 +364,38 @@ local function fetch_builds(bufnr)
   end, { silent = ctx.data.builds ~= nil })
 end
 
--- Every second while the Overview tab is shown: fetch the builds again once due (running and idle
--- intervals as in the pipelines list) and redraw their status, so the elapsed time ticks
+-- Fetch the checks of the pull request (the evaluations of its branch policies). Like the builds,
+-- they do not hold the Overview back, and a failed refresh keeps what is shown; redraws only when
+-- they changed
+local function fetch_checks(bufnr)
+  local ctx = views[bufnr].ctx
+  if ctx.loading.checks then
+    return
+  end
+  ctx.loading.checks = true
+  local generation = ctx.generation
+  prs_api.checks(ctx.repo, ctx.id, function(checks, err)
+    if not views[bufnr] or ctx.generation ~= generation then
+      return
+    end
+    ctx.loading.checks = nil
+    local changed = false
+    if checks then
+      changed = ctx.errors.checks ~= nil or not vim.deep_equal(checks, ctx.data.checks)
+      ctx.data.checks, ctx.errors.checks = checks, nil
+    elseif not ctx.data.checks then
+      changed = ctx.errors.checks == nil
+      ctx.errors.checks = err or "unknown error"
+    end
+    if changed and ctx.tab == "overview" and vim.api.nvim_buf_is_valid(bufnr) then
+      rerender(bufnr)
+    end
+  end, { silent = ctx.data.checks ~= nil })
+end
+
+-- Every second while the Overview tab is shown: fetch the builds and checks again once due
+-- (running and idle intervals as in the pipelines list) and redraw the status of the builds, so
+-- the elapsed time ticks
 local function builds_tick(bufnr)
   local state = views[bufnr]
   if not state or not vim.api.nvim_buf_is_valid(bufnr) or #windows_of(bufnr) == 0 then
@@ -368,10 +406,11 @@ local function builds_tick(bufnr)
     return
   end
   local cfg = config.get().pipelines
-  local running = builds_running(ctx.data.builds)
+  local running = builds_running(ctx.data.builds, ctx.data.checks)
   local interval = running and cfg.status_running_interval or cfg.status_idle_interval
   if not ctx.builds_fetched or uv.now() - ctx.builds_fetched >= interval then
     fetch_builds(bufnr)
+    fetch_checks(bufnr)
   end
   if running then
     M._draw_builds(bufnr)
@@ -429,6 +468,9 @@ local function ensure(bufnr, tab)
   if tab == "overview" and ctx.data.builds == nil and not ctx.errors.builds then
     fetch_builds(bufnr)
   end
+  if tab == "overview" and ctx.data.checks == nil and not ctx.errors.checks then
+    fetch_checks(bufnr)
+  end
   if tab == "changes" and ctx.data.changes and not ctx.files then
     M._load_files(bufnr)
   end
@@ -454,6 +496,10 @@ local function refresh_pr(bufnr)
     return
   end
   ctx.refreshed = uv.now()
+  -- The checks follow the votes, the linked work items and the comments
+  if ctx.data.checks ~= nil or ctx.errors.checks then
+    fetch_checks(bufnr)
+  end
   local names = {}
   for _, name in ipairs({ "pr", "threads", "iterations", "commits", "work_items" }) do
     if (ctx.data[name] ~= nil or ctx.errors[name]) and not ctx.loading[name] then
@@ -820,6 +866,63 @@ local function render_section(view, ctx, name)
   end
 end
 
+-- Builds of the checks to queue again: those waiting for it (expired, failed, never started)
+local function requeue_targets(ctx)
+  return vim.tbl_filter(prs_api.needs_requeue, ctx.data.checks or {})
+end
+
+local function add_check_line(view, check)
+  local label, icon, hl = prs_api.check_display(check)
+  local virt = {}
+  local date = builds_api.format_date(check.completed or check.started)
+  if prs_api.needs_requeue(check) then
+    table.insert(virt, { "<leader>wq re-queue" .. (date ~= "" and "  " or ""), "WorkhorseRunHint" })
+  end
+  if date ~= "" then
+    table.insert(virt, { date, "WorkhorseBuildDate" })
+  end
+  render.add_line(view, {
+    { "  " },
+    { icon, hl },
+    { " " .. check.name, "WorkhorseBuildTitle" },
+    { "  " .. label, hl },
+  }, { kind = "check", check = check }, #virt > 0 and virt or nil)
+end
+
+-- Required and optional checks of the pull request (the evaluations of the branch policies of its
+-- target branch), with how many of them passed; optional ones only when there are some
+local function render_checks(view, ctx)
+  local checks = ctx.data.checks
+  if ctx.errors.checks or not checks then
+    render.add_line(view, { { "Required checks", "WorkhorseRunSection" } })
+    render.add_line(view, { { ctx.errors.checks and ("  Failed to load checks: " .. ctx.errors.checks) or "  Loading…",
+      ctx.errors.checks and "WorkhorseBuildFailed" or "WorkhorseBuildMeta" } })
+    render.add_line(view, { { "" } })
+    return
+  end
+  for _, blocking in ipairs({ true, false }) do
+    local group = vim.tbl_filter(function(c)
+      return c.blocking == blocking
+    end, checks)
+    if blocking or #group > 0 then
+      local passed = #vim.tbl_filter(function(c)
+        return c.status == "approved" and not c.expired
+      end, group)
+      local title = blocking and "Required checks" or "Optional checks"
+      render.add_line(view, { { title, "WorkhorseRunSection" },
+        { #group > 0 and ("  " .. passed .. "/" .. #group .. " passed") or "",
+          passed == #group and "WorkhorsePRApproved" or "WorkhorseBuildMeta" } })
+      if #group == 0 then
+        render.add_line(view, { { "  None", "WorkhorseBuildMeta" } })
+      end
+      for _, check in ipairs(group) do
+        add_check_line(view, check)
+      end
+      render.add_line(view, { { "" } })
+    end
+  end
+end
+
 local function render_status(view, ctx)
   local pr = ctx.data.pr
   render.add_line(view, { { "Actions", "WorkhorseRunSection" } })
@@ -841,7 +944,14 @@ local function render_status(view, ctx)
     render.add_line(view, { { "  Checkout this branch", "WorkhorseBuildBranch" } },
       { kind = "nav", target = "checkout" }, { { "<leader>wk", "WorkhorseRunHint" } })
   end
+  local requeue = #requeue_targets(ctx)
+  if requeue > 0 then
+    render.add_line(view, { { ("  Re-queue %d build%s"):format(requeue, requeue == 1 and "" or "s"), "WorkhorseBuildRetry" } },
+      { kind = "nav", target = "requeue" }, { { "<leader>wq", "WorkhorseRunHint" } })
+  end
   render.add_line(view, { { "" } })
+
+  render_checks(view, ctx)
 
   -- Latest build of each pipeline run on the pull request; their status is drawn by _draw_builds
   render.add_line(view, { { "Builds", "WorkhorseRunSection" } })
@@ -1322,6 +1432,68 @@ function M.copy_url(bufnr)
   vim.notify("Workhorse: Copied " .. url, vim.log.levels.INFO)
 end
 
+-- Queue the build of a check again: the one under the cursor (a build check), or else every build
+-- waiting for it (expired, failed, never started; more than one after a confirmation). The builds
+-- and checks are fetched again right after
+function M.requeue(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local pr = pr_of(bufnr)
+  if not pr then
+    return
+  end
+  local ctx = views[bufnr].ctx
+  local item = ctx.tab == "overview" and current_item(bufnr)
+  local targets
+  if item and item.kind == "check" then
+    if not prs_api.can_requeue(item.check) then
+      vim.notify("Workhorse: " .. (item.check.kind == "build" and "This build is already under way"
+        or "Only build checks can be queued again"), vim.log.levels.INFO)
+      return
+    end
+    targets = { item.check }
+  else
+    targets = requeue_targets(ctx)
+    if #targets == 0 then
+      vim.notify("Workhorse: " .. (ctx.data.checks and "No builds to re-queue on !" .. pr.id
+        or "The checks are still loading"), vim.log.levels.INFO)
+      return
+    end
+    if #targets > 1 then
+      local names = vim.tbl_map(function(c)
+        return "  " .. c.name
+      end, targets)
+      if vim.fn.confirm(("Re-queue %d builds of !%d?\n%s"):format(#targets, pr.id, table.concat(names, "\n")),
+        "&Re-queue\n&Cancel", 1) ~= 1 then
+        return
+      end
+    end
+  end
+  local pending, failures = #targets, {}
+  for _, check in ipairs(targets) do
+    prs_api.requeue_check(ctx.repo, check.id, function(ok, err)
+      if not ok then
+        table.insert(failures, check.name .. ": " .. tostring(err))
+      end
+      pending = pending - 1
+      if pending > 0 then
+        return
+      end
+      if #failures > 0 then
+        vim.notify("Workhorse: Failed to re-queue:\n" .. table.concat(failures, "\n"), vim.log.levels.ERROR)
+      end
+      local queued = #targets - #failures
+      if queued > 0 then
+        vim.notify(("Workhorse: Re-queued %s on !%d"):format(queued == 1 and targets[1].name
+          or (queued .. " builds"), pr.id), vim.log.levels.INFO)
+      end
+      if views[bufnr] then
+        fetch_checks(bufnr)
+        fetch_builds(bufnr)
+      end
+    end)
+  end
+end
+
 -- Find the git remote of Neovim's working directory that points to the repository of the list or
 -- pull request (ctx.remote: "Checkout this branch" and the <leader>wN hint show only with one);
 -- redraws when it changes
@@ -1672,6 +1844,42 @@ end
 
 -- Buffers ---------------------------------------------------------------------
 
+-- Open a build of the pull request: its run tree (the builds view works on the configured project;
+-- builds of other projects open in the browser)
+local function open_build(ctx, run)
+  local project = config.get().project
+  if project == ctx.repo.project.name or project == ctx.repo.project.id then
+    require("workhorse.builds").open_run(run, nil, { watch = true })
+  elseif run.url then
+    open_url(run.url)
+  end
+end
+
+-- The build of a check, as listed in the Builds section when it is there
+local function build_of_check(ctx, check)
+  for _, run in ipairs(ctx.data.builds or {}) do
+    if run.id == check.build_id then
+      return run
+    end
+  end
+end
+
+-- Put the cursor on the first line of the Overview starting with `prefix` (a section header)
+local function jump_to_section(bufnr, prefix)
+  local state = views[bufnr]
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  for lnum = (state.header_lines or 0) + 1, #lines do
+    if vim.startswith(lines[lnum], prefix) then
+      vim.api.nvim_win_set_cursor(0, { lnum, 0 })
+      return
+    end
+  end
+end
+
+-- Sections the checks other than builds are about
+local CHECK_SECTIONS = { min_reviewers = reviewers.HEADER, reviewers = reviewers.HEADER,
+  work_items = work_items.HEADER, comments = "Comments (" }
+
 local function browser_url(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
@@ -1682,6 +1890,9 @@ local function browser_url(bufnr)
     return prs_api.commit_url(ctx.repo, item.commit.id)
   elseif item and item.kind == "build" and item.run.url then
     return item.run.url
+  elseif item and item.kind == "check" and item.check.build_id then
+    local run = build_of_check(ctx, item.check)
+    return run and run.url or prs_api.build_url(ctx.repo, item.check.build_id)
   elseif state.kind == "list" then
     return prs_api.repo_url(ctx.repo) .. "/pullrequests"
   elseif item and item.file then
@@ -1726,6 +1937,8 @@ local function select_item(bufnr)
       M.copy_url(bufnr)
     elseif item.target == "checkout" then
       M.checkout(bufnr)
+    elseif item.target == "requeue" then
+      M.requeue(bufnr)
     end
   elseif item.kind == "file" then
     local lnum = find_line(bufnr, "file_header:" .. item.file.path)
@@ -1740,12 +1953,24 @@ local function select_item(bufnr)
   elseif item.kind == "commit" then
     open_url(prs_api.commit_url(ctx.repo, item.commit.id))
   elseif item.kind == "build" then
-    -- The builds view works on the configured project; builds of other projects open in the browser
-    local project = config.get().project
-    if project == ctx.repo.project.name or project == ctx.repo.project.id then
-      require("workhorse.builds").open_run(item.run, nil, { watch = true })
-    elseif item.run.url then
-      open_url(item.run.url)
+    open_build(ctx, item.run)
+  elseif item.kind == "check" then
+    -- A build check: its build, or queued again when it has none to show (expired, outdated, not
+    -- started); the others go to the section they are about
+    local check = item.check
+    if check.kind == "build" then
+      if check.build_id and not check.expired and not check.outdated then
+        local run = build_of_check(ctx, check)
+        if run then
+          open_build(ctx, run)
+        else
+          open_url(prs_api.build_url(ctx.repo, check.build_id))
+        end
+      elseif prs_api.can_requeue(check) then
+        M.requeue(bufnr)
+      end
+    elseif CHECK_SECTIONS[check.kind] then
+      jump_to_section(bufnr, CHECK_SECTIONS[check.kind])
     end
   end
 end
@@ -1835,6 +2060,9 @@ local function set_keymaps(bufnr, kind)
   end)
   map("<leader>wk", function()
     M.checkout(bufnr)
+  end)
+  map("<leader>wq", function()
+    M.requeue(bufnr)
   end)
   -- The editable sections of the Overview
   map("<leader><leader>", function()
