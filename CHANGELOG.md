@@ -2,6 +2,21 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [9708b5c] - 2026-11-04
+
+### Added
+- Global `<leader>wr` keymap (same as `:Workhorse refresh`): refreshes the current Workhorse buffer, like `<leader>R` in it
+
+### Changed
+- `:Workhorse refresh` also reloads the work item details buffer and the "Run new build" form
+
+## [993760e] - 2026-11-04
+
+### Added
+- "Required checks" and "Optional checks" sections in the PR Overview, showing the status of the branch policy evaluations (passed, failed, running, queued, expired, outdated, not started) with how many passed
+- `<leader>wq` in a pull request re-queues the build check under the cursor, or every expired, outdated, failed or not started build (with a confirmation for several); a "Re-queue N builds" action shows when there are any, and `<CR>` on an expired check re-queues it
+- The checks refresh with the builds and after votes and other actions
+
 ## [ddb944b] - 2026-11-03
 
 ### Added
