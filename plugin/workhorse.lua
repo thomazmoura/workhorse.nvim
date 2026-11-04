@@ -257,6 +257,10 @@ vim.keymap.set("n", "<leader>w<C-p>", function()
   require("workhorse").resume_prs()
 end, { silent = true, desc = "Workhorse: Resume last repository (pull requests)" })
 
+vim.keymap.set("n", "<leader>wr", function()
+  require("workhorse").refresh()
+end, { silent = true, desc = "Workhorse: Refresh the current Workhorse buffer" })
+
 vim.keymap.set("n", "<leader>wR", function()
   require("workhorse").refresh_repos()
 end, { silent = true, desc = "Workhorse: Update the repository cache" })

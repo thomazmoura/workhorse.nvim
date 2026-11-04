@@ -499,6 +499,13 @@ local spec = {
   end,
 }
 
+--- Whether `bufnr` (default: current) is a "Run new build" form (the other build forms share the
+--- form engine)
+function M.is_form(bufnr)
+  local form = forms.get(bufnr or vim.api.nvim_get_current_buf())
+  return form ~= nil and form.spec == spec
+end
+
 -- Form values ({ branch, params, variables }) of a past run, to queue it again
 local function values_of_run(run)
   local values = { branch = short_branch(run.source_branch), params = {}, variables = {} }

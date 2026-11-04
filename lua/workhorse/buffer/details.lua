@@ -1098,6 +1098,11 @@ function M.save(bufnr, on_confirmed)
 end
 
 --- Load the work item again, asking first when there are unsaved changes
+--- Whether `bufnr` (default: current) is a work item details buffer
+function M.is_details_buffer(bufnr)
+  return buffers[bufnr or vim.api.nvim_get_current_buf()] ~= nil
+end
+
 function M.reload(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local state = buffers[bufnr]

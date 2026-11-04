@@ -338,7 +338,7 @@ function M.toggle_build_live()
   require("workhorse.builds").toggle_live()
 end
 
--- Refresh current buffer from server
+-- Refresh current buffer from server: what <leader>R does in it (<leader>wr in any buffer)
 -- opts.focus_id: work item to place the cursor on after the re-render
 -- opts.focus_title: title to land on when the item had no id yet (just created)
 -- opts.expected_line: only jump if the cursor is still on this line when the refresh lands
@@ -351,6 +351,15 @@ function M.refresh(opts)
     or (repo_tabs and repo_tabs.refresh()) or (libraries and libraries.refresh())
     or (library and library.refresh()) then
     return
+  end
+  -- Their own reload: the work item of a details buffer, the parameters of a "Run new build" form
+  local details = package.loaded["workhorse.buffer.details"]
+  if details and details.is_details_buffer() then
+    return details.reload()
+  end
+  local new_run = package.loaded["workhorse.builds.new_run"]
+  if new_run and new_run.is_form() then
+    return new_run.reload()
   end
 
   local buffer = require("workhorse.buffer")
