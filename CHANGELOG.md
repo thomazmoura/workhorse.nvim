@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [a17c323] - 2026-11-10
+
+### Changed
+- `<CR>` in normal mode in the work item details now saves and closes the popup once the save is confirmed (a cancelled confirmation keeps it open; with nothing to save it just closes); `<leader><leader>` and `<C-CR>` still save and keep it open
+
 ## [98f85cc] - 2026-11-04
 
 ### Added
