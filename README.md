@@ -535,10 +535,12 @@ Discussion History                                   2 comments · read-only
   search work) but never saved: edits there are flagged and undone by the next reload or save. A missing or misplaced
   section header blocks saving until `<leader>R` restores it
 - **Navigation**: `<Tab>`/`<S-Tab>` move between the values, the description, the attachments and the new comment
-- **Save**: `<CR>` or `<leader><leader>` in normal mode, `<C-CR>` in insert mode. It sends the pending changes of
+- **Save**: `<leader><leader>` in normal mode, `<C-CR>` in insert mode. It sends the pending changes of
   *every* work item whose details were edited: one confirmation lists them all, then each work item goes in one
   request (after uploading its new attachments, which go with the removed ones in a request of their own), and the
   work item buffer is refreshed. `:w` does nothing, so an auto-save plugin does not apply them
+- **Save and close**: `<CR>` in normal mode saves the same way and closes the popup once the save is confirmed
+  (a cancelled confirmation keeps it open; with nothing to save it just closes)
 - **Reload**: `<leader>R` discards the pending changes and loads the work item again
 - **Close**: `q` or `<Esc>` close the popup and keep the edits: each work item has its own hidden buffer, so the
   changes are still there when the popup is opened again, even after the details of other work items were opened.

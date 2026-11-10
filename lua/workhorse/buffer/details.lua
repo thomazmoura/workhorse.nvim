@@ -27,12 +27,14 @@
 -- the work item, and a new line attaches a file (a path, or the name of a file of an attachment
 -- folder, completed from those folders: see attachments.lua). The column is the board column, as
 -- <leader>ws moves it: the state follows it on the server, through the board's state mappings.
--- A missing Column or Tags line keeps that field as it is. Saving (<CR> or <leader><leader> in
--- normal mode, <C-CR> in insert mode; :w does nothing) confirms the pending changes of the details
--- of every work item together, sends them (one request per work item), then refreshes the work
--- item buffer the details were opened from. There is one buffer per work item, hidden when the
--- popup closes (q / <Esc>): its unsaved edits stay, even when the details of other work items are
--- opened later, until they are saved, reloaded or discarded by a refresh of the query.
+-- A missing Column or Tags line keeps that field as it is. Saving (<leader><leader> in normal
+-- mode, <C-CR> in insert mode; :w does nothing) confirms the pending changes of the details of
+-- every work item together, sends them (one request per work item), then refreshes the work item
+-- buffer the details were opened from. <CR> in normal mode saves and closes: the popup closes once
+-- the save is confirmed (or at once when there is nothing to save). There is one buffer per work
+-- item, hidden when the popup closes (q / <Esc>): its unsaved edits stay, even when the details of
+-- other work items are opened later, until they are saved, reloaded or discarded by a refresh of
+-- the query.
 local M = {}
 
 local config = require("workhorse.config")
@@ -1096,8 +1098,10 @@ end
 
 --- Confirm the pending changes of the details of every work item, then send them all (each work
 --- item in a request of its own, in parallel); the work item buffer they came from is refreshed
---- once they ended
-function M.save()
+--- once they ended. With `opts.close`, the popup closes too (save and close): right after the
+--- confirmation, or at once when there is nothing to apply; a cancelled confirmation keeps it open
+function M.save(opts)
+  opts = opts or {}
   local pending = {}
   for bufnr, state in pairs(buffers) do
     if vim.api.nvim_buf_is_valid(bufnr) and (vim.bo[bufnr].modified or state.saving) then
@@ -1119,7 +1123,11 @@ function M.save()
     end
   end
   if #groups == 0 then
-    notify("No changes to apply")
+    if opts.close then
+      close()
+    else
+      notify("No changes to apply")
+    end
     return
   end
   local entries, runs = {}, {}
@@ -1138,6 +1146,10 @@ function M.save()
   require("workhorse.ui.list_confirm").show(heading, entries, function(confirmed)
     if not confirmed then
       return
+    end
+    if opts.close then
+      -- The saves go on with the buffers hidden: they keep the edits until each one ended
+      close()
     end
     local left, origins = #runs, {}
     for _, run in ipairs(runs) do
@@ -1228,11 +1240,12 @@ local function setup_keymaps(bufnr)
     vim.keymap.set(mode or "n", lhs, fn, { buffer = bufnr, silent = true, nowait = true, desc = "Workhorse: " .. desc })
   end
   local send = require("workhorse.ui.send")
-  local function save()
+  send.map(bufnr, function()
     M.save()
-  end
-  send.map(bufnr, save, "apply the pending changes of every work item")
-  send.map_enter(bufnr, save, "apply the pending changes of every work item")
+  end, "apply the pending changes of every work item")
+  send.map_enter(bufnr, function()
+    M.save({ close = true })
+  end, "apply the pending changes of every work item and close the details")
   map("<leader>R", function()
     M.reload(bufnr)
   end, "reload the work item")
