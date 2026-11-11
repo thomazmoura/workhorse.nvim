@@ -2,6 +2,12 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [b6ad97c] - 2026-11-11
+
+### Added
+- The "New pull request" forms (`<leader>wn`, `<leader>wN`), in a clone of the repository, fetch the source branch and compare the local branch with the remote's before creating the pull request: only local or ahead, they ask to push it; behind, to fast-forward it (also when it is not checked out); diverged, to rebase it onto the remote's (`--autostash`, aborted on a conflict) and push it. Declining asks whether to create the pull request from the server's branch anyway, or fails when the branch is yet to be pushed
+- A source branch that is only local is accepted by the simple form in a clone (hint "only local")
+
 ## [a17c323] - 2026-11-10
 
 ### Changed
