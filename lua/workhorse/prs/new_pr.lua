@@ -25,7 +25,7 @@ local prs_api = require("workhorse.api.pullrequests")
 local forms = require("workhorse.builds.form")
 local work_items = require("workhorse.prs.work_items")
 local config = require("workhorse.config")
-local async = require("workhorse.async")
+local git_cmd = require("workhorse.git")
 
 local ns = vim.api.nvim_create_namespace("workhorse_new_pr")
 
@@ -420,9 +420,19 @@ end
 
 -- Sync of the source branch ---------------------------------------------------
 
+-- Never prompts (no askpass popup, no password): a remote that needs credentials fails instead
 local function git(form, args, callback)
-  -- No terminal to ask for credentials in: fail instead of waiting for an answer
-  async.exec("git", vim.list_extend({ "-C", form.dir }, args), callback, nil, { GIT_TERMINAL_PROMPT = "0" })
+  git_cmd.run(form.dir, args, callback)
+end
+
+-- fail(what, err) for a command that reached the remote: why it could not, when that is it (e.g.
+-- the SSH key not in the agent); the form stays open with its values, to send it again
+local function remote_fail(form, fail)
+  return function(what, err)
+    git_cmd.access(form.remote, err, function(message)
+      fail(what, message)
+    end)
+  end
 end
 
 local function commits(n)
@@ -494,7 +504,7 @@ local function sync_source(form, opts, done, fail, cancel)
     end
     git(form, args, function(_, err, code)
       if code ~= 0 then
-        return fail("push " .. branch, err)
+        return remote_fail(form, fail)("push " .. branch, err)
       end
       opts.push = false
       next()
@@ -549,10 +559,11 @@ local function sync_source(form, opts, done, fail, cancel)
     end)
   end
 
+  local net_fail = remote_fail(form, fail)
   source_status(form, branch, function(status, what, err)
     if not status then
       if what then
-        return fail(what, err)
+        return net_fail(what, err)
       end
       return done()
     end
@@ -657,7 +668,8 @@ function M.submit(bufnr)
     progress(true)
     form.creating = false
     err = vim.trim(err or "")
-    vim.notify(("Workhorse: Failed to %s: %s"):format(what, err ~= "" and err or "unknown error"), vim.log.levels.ERROR)
+    vim.notify(("Workhorse: Failed to %s: %s\nThe form keeps its values: send it again once fixed"):format(what,
+      err ~= "" and err or "unknown error"), vim.log.levels.ERROR)
   end
   local function cancel()
     progress(false)
@@ -727,7 +739,7 @@ function M.submit(bufnr)
     end
     git(form, { "push", "--set-upstream", form.remote, opts.source }, function(_, err, code)
       if code ~= 0 then
-        return fail("push " .. opts.source, err)
+        return remote_fail(form, fail)("push " .. opts.source, err)
       end
       create()
     end)

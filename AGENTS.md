@@ -45,6 +45,9 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - API: `api/repositories.lua`, `api/security.lua`, `api/policies.lua`, `api/identities.lua`
 - `identities.lua` - Encrypted identity cache (users and groups, via the members of Project Collection Valid Users)
 
+**Git** (`lua/workhorse/git.lua`)
+- `run` - git commands that may reach a remote, never prompting (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `SSH_ASKPASS_REQUIRE=never`, `ssh -o BatchMode=yes` unless an ssh command is configured, a new session without a tty); `access` explains a failure (SSH key not in the agent of `$SSH_AUTH_SOCK`, no agent, unknown host key)
+
 **Pull requests** (`lua/workhorse/prs/`, `<leader>wp`)
 - `init.lua` - List of a repository's pull requests and the screen of one (Overview and Changes tabs, rendered from the data with `builds/render.lua`)
 - `reviewers.lua` / `work_items.lua` - Editable sections of the Overview of an active pull request (`name: required|optional` reviewers completed from the identity cache; `#id | title` linked work items completed from `prs.work_items_query` or the last query, typed ids looked up on InsertLeave). Their text is spliced into every render (`ctx.edits`), saved with `<leader><leader>` after a `list_confirm`

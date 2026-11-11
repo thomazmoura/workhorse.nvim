@@ -10,7 +10,6 @@ local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local reviewers = require("workhorse.prs.reviewers")
 local work_items = require("workhorse.prs.work_items")
-local async = require("workhorse.async")
 
 local uv = vim.uv or vim.loop
 -- Status of the builds on the Overview tab, drawn apart so the elapsed time ticks without re-rendering
@@ -1542,7 +1541,8 @@ function M.checkout(bufnr)
       return
     end
     local function git(args, callback)
-      async.exec("git", vim.list_extend({ "-C", dir }, args), callback)
+      -- Never prompts: a remote that needs credentials fails instead (see workhorse/git.lua)
+      require("workhorse.git").run(dir, args, callback)
     end
     local function fail(what, stderr)
       finish()
@@ -1556,7 +1556,10 @@ function M.checkout(bufnr)
     -- leaves it out
     git({ "fetch", remote, "+refs/heads/" .. branch .. ":refs/remotes/" .. upstream }, function(_, err, code)
       if code ~= 0 then
-        return fail("fetch " .. branch, err)
+        require("workhorse.git").access(remote, err, function(message)
+          fail("fetch " .. branch, message)
+        end)
+        return
       end
       git({ "rev-parse", "--verify", "--quiet", "refs/heads/" .. branch }, function(_, _, verify_code)
         local exists = verify_code == 0

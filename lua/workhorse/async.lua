@@ -7,7 +7,9 @@ local M = {}
 ---@param callback function Callback(stdout, stderr, exit_code)
 ---@param stdin string|nil Optional data written to the process stdin
 ---@param env table|nil Extra environment variables ({ NAME = value }), added to Neovim's
-function M.exec(cmd, args, callback, stdin, env)
+---@param opts table|nil { detached = true }: run it in a new session, without Neovim's terminal as
+---  its controlling terminal (nothing it runs can open /dev/tty to prompt there)
+function M.exec(cmd, args, callback, stdin, env, opts)
   local stdin_pipe = stdin and vim.loop.new_pipe(false) or nil
   local stdout_pipe = vim.loop.new_pipe(false)
   local stderr_pipe = vim.loop.new_pipe(false)
@@ -28,6 +30,7 @@ function M.exec(cmd, args, callback, stdin, env)
     env = env_list,
     stdio = { stdin_pipe, stdout_pipe, stderr_pipe },
     hide = true,
+    detached = opts and opts.detached or nil,
   }, function(code, _signal)
     -- Stop reading and close pipes
     if stdin_pipe and not stdin_pipe:is_closing() then

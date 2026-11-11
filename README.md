@@ -1018,6 +1018,13 @@ Declining, when the branch is on the server, asks whether to create the pull req
 the branch as it is there; when it is not, the creation fails because the branch is yet to be
 pushed. A source branch that is not local is not checked.
 
+These git commands (and the fetch of "Checkout this branch") never prompt: no askpass popup for the
+SSH key's passphrase or the account's password, no HTTPS credential prompt. They use the SSH agent of
+Neovim's `$SSH_AUTH_SOCK`; when it has no key, the creation fails saying so, with the
+`SSH_AUTH_SOCK=… ssh-add` that adds it to that agent, and the form keeps its values to be sent again.
+Neovim keeps the `$SSH_AUTH_SOCK` it was started with, so a key added in a shell that uses another
+agent does not reach it.
+
 ### Editing the reviewers and work items
 
 On an active pull request, the **Reviewers** and **Work Items** sections of the Overview are
