@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [abb420a] - 2026-11-11
+
+### Fixed
+- Creating a pull request (and "Checkout this branch") no longer opens a desktop popup asking for the SSH key's passphrase or the account password when the SSH agent of Neovim has no key: the git commands that reach the remote never prompt (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `SSH_ASKPASS_REQUIRE=never`, `ssh -o BatchMode=yes` unless an ssh command is configured, no controlling terminal), so no empty passwords are sent to the server either
+
+### Added
+- When the remote refuses the SSH key, the error says why: the key is not added to the agent yet (with the `SSH_AUTH_SOCK=… ssh-add` for the agent Neovim uses), the agent is not running, Neovim has no agent, or the host key is unknown; the new pull request form keeps its values to be sent again
+- `workhorse/git.lua`: `run` (prompt-free git) and `access` (the reason of a remote failure); `async.exec` takes `{ detached = true }`
+
 ## [b6ad97c] - 2026-11-11
 
 ### Added
