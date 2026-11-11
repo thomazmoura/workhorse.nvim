@@ -11,6 +11,11 @@
 --                        completes (merge commit message "PR <id>: <title>", auto-complete,
 --                        deleting the source branch) and optionally approve it
 --
+-- In a clone of the repository, the local source branch is compared with the remote's before the
+-- pull request is created: ahead (or only local), it asks to push it; behind or diverged, to rebase
+-- it onto the remote's (and push). Declined, the pull request is created from the branch as it is
+-- on the server after one more confirmation, or not at all when the branch is not on the server.
+--
 -- The work item completes like the Work Items section of a pull request (prs/work_items.lua):
 -- from prs.work_items_query or the last query opened; an id typed by hand is looked up when
 -- leaving insert mode.
@@ -52,7 +57,8 @@ end
 
 local APPROVE = 10
 
--- Form state (see forms.get): { prev, repo, mode, remote, dir, current_branch, default_branch,
+-- Form state (see forms.get): { prev, repo, mode, remote, dir, current_branch, local_branches,
+-- default_branch,
 -- branches (names, nil while loading), subjects = { [branch] = text, "loading" or false },
 -- looked_up = { [id] = true }, creating, on_created }
 
@@ -116,6 +122,11 @@ end
 
 local function has_branch(form, name)
   return form.branches and vim.tbl_contains(form.branches, name)
+end
+
+-- Whether the clone has a local branch of that name (pushed after asking, when not on the server)
+local function is_local(form, name)
+  return form.local_branches ~= nil and vim.tbl_contains(form.local_branches, name)
 end
 
 -- Loading ---------------------------------------------------------------------
@@ -261,6 +272,8 @@ local function field_hints(form, parsed)
     hints.source = { hint("loading branches…") }
   elseif push then
     hints.source = { hint("pushed to " .. form.remote .. " first") }
+  elseif not has_branch(form, source) and is_local(form, source) then
+    hints.source = { hint("only local: asks to push it to " .. form.remote .. " first") }
   elseif not has_branch(form, source) then
     hints.source = required("not on the server")
   elseif source == form.current_branch then
@@ -358,7 +371,8 @@ local function collect(form, parsed)
 
   if result.source == "" then
     table.insert(errors, "Source branch is empty")
-  elseif form.branches and not result.push and not has_branch(form, result.source) then
+  elseif form.branches and not result.push and not has_branch(form, result.source)
+    and not is_local(form, result.source) then
     table.insert(errors, "Source branch " .. result.source .. " is not on the server")
   end
   if result.target == "" then
@@ -402,6 +416,186 @@ local function collect(form, parsed)
     return nil, errors
   end
   return result
+end
+
+-- Sync of the source branch ---------------------------------------------------
+
+local function git(form, args, callback)
+  -- No terminal to ask for credentials in: fail instead of waiting for an answer
+  async.exec("git", vim.list_extend({ "-C", form.dir }, args), callback, nil, { GIT_TERMINAL_PROMPT = "0" })
+end
+
+local function commits(n)
+  return ("%d commit%s"):format(n, n == 1 and "" or "s")
+end
+
+--- How the local `branch` of the clone stands against the remote's, fetched first:
+--- callback(status) with { remote = on the server, ahead, behind, current = checked out }, or
+--- callback(nil) when there is no such local branch (nothing to sync), callback(nil, what, err) on
+--- a failure
+local function source_status(form, branch, callback)
+  local tracking = "refs/remotes/" .. form.remote .. "/" .. branch
+  git(form, { "rev-parse", "--verify", "--quiet", "refs/heads/" .. branch }, function(_, _, code)
+    if code ~= 0 then
+      return callback(nil)
+    end
+    git(form, { "symbolic-ref", "--quiet", "--short", "HEAD" }, function(head)
+      local status = { current = vim.trim(head or "") == branch, ahead = 0, behind = 0 }
+      git(form, { "ls-remote", "--heads", form.remote, "refs/heads/" .. branch }, function(out, err, code2)
+        if code2 ~= 0 then
+          return callback(nil, "reach " .. form.remote, err)
+        end
+        status.remote = vim.trim(out or "") ~= ""
+        if not status.remote then
+          return callback(status)
+        end
+        -- An explicit refspec: the remote-tracking branch exists even when the remote's fetch
+        -- refspec leaves it out
+        git(form, { "fetch", form.remote, "+refs/heads/" .. branch .. ":" .. tracking }, function(_, err3, code3)
+          if code3 ~= 0 then
+            return callback(nil, "fetch " .. branch, err3)
+          end
+          git(form, { "rev-list", "--left-right", "--count", "refs/heads/" .. branch .. "..." .. tracking },
+            function(counts, err4, code4)
+              local ahead, behind = (counts or ""):match("(%d+)%s+(%d+)")
+              if code4 ~= 0 or not ahead then
+                return callback(nil, "compare " .. branch .. " with " .. form.remote .. "/" .. branch, err4)
+              end
+              status.ahead, status.behind = tonumber(ahead), tonumber(behind)
+              callback(status)
+            end)
+        end)
+      end)
+    end)
+  end)
+end
+
+local function ask(question)
+  return vim.fn.confirm(question, "&Yes\n&No", 1) == 1
+end
+
+--- Bring the local source branch and the remote's in step before the pull request is created,
+--- asking first. Calls done() to go on (opts.push cleared when the branch was pushed here or must
+--- not be pushed), fail(what, err) on a failure or when the branch is not on the server, and
+--- cancel() when the pull request is not to be created
+local function sync_source(form, opts, done, fail, cancel)
+  if not form.dir or not form.remote then
+    return done()
+  end
+  local branch, remote = opts.source, form.remote
+  local upstream = remote .. "/" .. branch
+  -- The push step of the script form pushes a branch that is only ahead (asked in its summary)
+  local will_push = form.mode == "script" and opts.push
+
+  local function push(next)
+    local args = { "push", remote, "refs/heads/" .. branch .. ":refs/heads/" .. branch }
+    if will_push then
+      args = { "push", "--set-upstream", remote, branch }
+    end
+    git(form, args, function(_, err, code)
+      if code ~= 0 then
+        return fail("push " .. branch, err)
+      end
+      opts.push = false
+      next()
+    end)
+  end
+
+  -- The local branch is left as it is: create the pull request from the server's, if it is there
+  local function declined(status, why)
+    if not status.remote then
+      return fail("create the pull request", branch .. " is yet to be pushed to " .. remote)
+    end
+    local question = (why and (why .. "\n") or "") .. "Create the pull request from " .. upstream
+      .. " as it is on the server anyway?"
+    if not ask(question) then
+      return cancel()
+    end
+    -- Pushing a branch behind the server's would be rejected
+    opts.push = false
+    done()
+  end
+
+  local function rebase(status)
+    local function pushed_or_done()
+      if status.ahead > 0 then
+        return push(done)
+      end
+      done()
+    end
+    if not status.current then
+      -- Not checked out and only behind: a fast-forward of the branch, without touching the
+      -- working tree (refused if it is not one)
+      git(form, { "fetch", ".", "refs/remotes/" .. upstream .. ":refs/heads/" .. branch }, function(_, err, code)
+        if code ~= 0 then
+          return fail("fast-forward " .. branch .. " to " .. upstream, err)
+        end
+        pushed_or_done()
+      end)
+      return
+    end
+    git(form, { "rebase", "--autostash", upstream }, function(_, err, code)
+      -- Buffers of files the rebase changed
+      vim.cmd("checktime")
+      if code ~= 0 then
+        git(form, { "rebase", "--abort" }, function()
+          vim.cmd("checktime")
+          fail("rebase " .. branch .. " onto " .. upstream,
+            vim.trim(err or "") .. "\n(rebase aborted: rebase " .. branch .. " by hand)")
+        end)
+        return
+      end
+      pushed_or_done()
+    end)
+  end
+
+  source_status(form, branch, function(status, what, err)
+    if not status then
+      if what then
+        return fail(what, err)
+      end
+      return done()
+    end
+
+    if not status.remote then
+      if will_push then
+        return done()
+      end
+      if ask(branch .. " is not on " .. remote .. " yet.\nPush it before creating the pull request?") then
+        return push(done)
+      end
+      return declined(status)
+    end
+
+    if status.behind == 0 then
+      if status.ahead == 0 or will_push then
+        return done()
+      end
+      if ask(("%s is %s ahead of %s.\nPush %s before creating the pull request?"):format(branch,
+          commits(status.ahead), upstream, status.ahead == 1 and "it" or "them")) then
+        return push(done)
+      end
+      return declined(status)
+    end
+
+    if status.ahead == 0 then
+      if ask(("%s is %s behind %s.\nRebase it onto %s (a fast-forward) before creating the pull request?")
+          :format(branch, commits(status.behind), upstream, upstream)) then
+        return rebase(status)
+      end
+      return declined(status)
+    end
+
+    local diverged = ("%s has diverged from %s (%s ahead, %s behind)."):format(branch, upstream,
+      commits(status.ahead), commits(status.behind))
+    if not status.current then
+      return declined(status, diverged .. "\nIt is not checked out, so it cannot be rebased here.")
+    end
+    if ask(diverged .. "\nRebase it onto " .. upstream .. " and push it before creating the pull request?") then
+      return rebase(status)
+    end
+    declined(status)
+  end)
 end
 
 -- The confirmation of what submitting does
@@ -465,6 +659,11 @@ function M.submit(bufnr)
     err = vim.trim(err or "")
     vim.notify(("Workhorse: Failed to %s: %s"):format(what, err ~= "" and err or "unknown error"), vim.log.levels.ERROR)
   end
+  local function cancel()
+    progress(false)
+    form.creating = false
+    vim.notify("Workhorse: The pull request was not created", vim.log.levels.INFO)
+  end
   local function finish(pr)
     progress(#warnings > 0)
     local msg = "Workhorse: Created pull request !" .. pr.id .. " " .. pr.title
@@ -522,16 +721,18 @@ function M.submit(bufnr)
       completion(pr)
     end)
   end
-  if not opts.push then
-    return create()
-  end
-  -- No terminal to ask for credentials in: fail instead of waiting for an answer
-  async.exec("git", { "-C", form.dir, "push", "--set-upstream", form.remote, opts.source }, function(_, err, code)
-    if code ~= 0 then
-      return fail("push " .. opts.source, err)
+  local function push()
+    if not opts.push then
+      return create()
     end
-    create()
-  end, nil, { GIT_TERMINAL_PROMPT = "0" })
+    git(form, { "push", "--set-upstream", form.remote, opts.source }, function(_, err, code)
+      if code ~= 0 then
+        return fail("push " .. opts.source, err)
+      end
+      create()
+    end)
+  end
+  sync_source(form, opts, push, fail, cancel)
 end
 
 -- Open ------------------------------------------------------------------------
@@ -550,10 +751,12 @@ local TITLES = {
 function M.open(repo, opts)
   opts = opts or {}
   local mode = opts.mode == "script" and "script" or "simple"
-  local current_branch
+  local current_branch, local_branches
   if opts.dir then
     local out = vim.fn.systemlist({ "git", "-C", opts.dir, "branch", "--show-current" })
     current_branch = vim.v.shell_error == 0 and out[1] and out[1] ~= "" and out[1] or nil
+    out = vim.fn.systemlist({ "git", "-C", opts.dir, "for-each-ref", "--format=%(refname:short)", "refs/heads" })
+    local_branches = vim.v.shell_error == 0 and out or nil
   end
   local cfg = config.get().prs
   local default_branch = repo.default_branch and short_branch(repo.default_branch) or nil
@@ -581,6 +784,7 @@ function M.open(repo, opts)
     remote = opts.remote,
     dir = opts.dir,
     current_branch = current_branch,
+    local_branches = local_branches,
     default_branch = default_branch,
     subjects = {},
     looked_up = {},

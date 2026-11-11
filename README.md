@@ -1003,6 +1003,21 @@ it with `Approve: yes`. The work item completes like the Work Items section belo
 hand is looked up on leaving insert mode). In both forms `<Tab>`/`<S-Tab>` move between the values,
 and the new pull request opens once created.
 
+In a clone of the repository, once the creation is confirmed, both forms fetch the source branch
+and compare the local branch with the remote's before creating the pull request (a source branch
+that is only local is accepted then: its hint reads "only local"):
+
+- only local, or ahead of the remote's: asks to push it (`<leader>wN` with `Push: yes` pushes
+  without asking again);
+- behind: asks to rebase it onto the remote's (a fast-forward; done without checking it out when it
+  is not the current branch);
+- diverged: asks to rebase it onto the remote's (`git rebase --autostash`; a conflict aborts the
+  rebase) and push it. A diverged branch that is not checked out cannot be rebased there.
+
+Declining, when the branch is on the server, asks whether to create the pull request anyway from
+the branch as it is there; when it is not, the creation fails because the branch is yet to be
+pushed. A source branch that is not local is not checked.
+
 ### Editing the reviewers and work items
 
 On an active pull request, the **Reviewers** and **Work Items** sections of the Overview are
