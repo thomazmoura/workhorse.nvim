@@ -2,6 +2,15 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [5d8c077] - 2026-11-12
+
+### Added
+- The Builds section of the Overview of a completed pull request also lists the latest run of each pipeline started by its merge (the builds of the target branch on the merge commit), after the builds run on the pull request; each build is marked `PR check` or `after merge` in its virtual text
+- `api/pullrequests.lua`: `merge_builds`; the pull request carries `last_merge_commit`
+
+### Changed
+- The builds are fetched again when the pull request is found completed after they were first fetched
+
 ## [abb420a] - 2026-11-11
 
 ### Fixed
