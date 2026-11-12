@@ -944,8 +944,11 @@ with `<Tab>`/`<S-Tab>` or jump with `g1`/`g2`):
     (Reviewers, Work Items, Comments). The checks are fetched again with the builds, and after
     the actions.
 
-    The builds are the latest run of each pipeline on the pull request, with its status on the
-    right like in the pipelines list (icon, queue date and, while running, the elapsed time). They
+    The builds are the latest run of each pipeline on the pull request and, once it is completed,
+    the latest run of each pipeline its merge started (the builds of the target branch on the
+    merge commit), listed after them. Each has its status on the right like in the pipelines list
+    (icon, queue date and, while running, the elapsed time), after `PR check` or `after merge`
+    telling the two apart. They
     are refreshed while the tab is shown, at the `pipelines.status_running_interval` /
     `pipelines.status_idle_interval` pace. `<CR>` on a build opens its run tree (in the browser
     when the repository is in another project than `project`), `gw` its web page.

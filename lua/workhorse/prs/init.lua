@@ -76,7 +76,7 @@ local function item_key(item)
   elseif item.kind == "thread" then
     return "thread:" .. item.thread.id
   elseif item.kind == "build" then
-    return "build:" .. (item.run.definition_id or item.run.id)
+    return "build:" .. (item.run.origin or "") .. ":" .. (item.run.definition_id or item.run.id)
   elseif item.kind == "check" then
     return "check:" .. item.check.id
   elseif item.kind == "nav" then
@@ -337,8 +337,16 @@ local function builds_running(runs, checks)
   return false
 end
 
--- Fetch the builds of the pull request. They do not hold the Overview tab back: it shows them
--- loading (or failed) in their own section, and a failed refresh keeps what is shown
+-- Merge commit of a completed pull request (its merge builds are those run on it)
+local function merge_commit(ctx)
+  local pr = ctx.data.pr
+  return pr and pr.status == "completed" and pr.last_merge_commit or nil
+end
+
+-- Fetch the builds of the pull request: those run on its merge ref (its checks, origin "check")
+-- and, once completed, those its merge started on the target branch (origin "merge"). They do
+-- not hold the Overview tab back: it shows them loading (or failed) in their own section, and a
+-- failed refresh keeps what is shown
 local function fetch_builds(bufnr)
   local ctx = views[bufnr].ctx
   if ctx.loading.builds then
@@ -346,21 +354,66 @@ local function fetch_builds(bufnr)
   end
   ctx.loading.builds = true
   local generation = ctx.generation
-  prs_api.builds(ctx.repo, ctx.id, function(runs, err)
-    if not views[bufnr] or ctx.generation ~= generation then
-      return
-    end
+  local opts = { silent = ctx.data.builds ~= nil }
+  -- The merge commit the builds were fetched for: a pull request completed since (or loaded
+  -- after them) fetches them again (builds_tick)
+  ctx.builds_merge = merge_commit(ctx) or false
+  local results, pending = {}, 2
+
+  local function done()
     ctx.loading.builds = nil
     ctx.builds_fetched = uv.now()
-    if runs then
+    local check, merge = results.check, results.merge
+    if check and not merge then
+      -- The merge builds failed (notified): the ones shown stay
+      merge = vim.tbl_filter(function(run)
+        return run.origin == "merge"
+      end, ctx.data.builds or {})
+    end
+    if check then
+      local runs = {}
+      for origin, list in pairs({ check = check, merge = merge }) do
+        for _, run in ipairs(list) do
+          run.origin = origin
+          table.insert(runs, run)
+        end
+      end
+      -- The checks first, then the merge builds, each by pipeline name (as listed)
+      table.sort(runs, function(a, b)
+        if a.origin ~= b.origin then
+          return a.origin == "check"
+        end
+        return (a.definition_name or ""):lower() < (b.definition_name or ""):lower()
+      end)
       ctx.data.builds, ctx.errors.builds = runs, nil
     elseif not ctx.data.builds then
-      ctx.errors.builds = err or "unknown error"
+      ctx.errors.builds = results.err or "unknown error"
     end
     if ctx.tab == "overview" and vim.api.nvim_buf_is_valid(bufnr) then
       rerender(bufnr)
     end
-  end, { silent = ctx.data.builds ~= nil })
+  end
+
+  local function collect(origin)
+    return function(runs, err)
+      if not views[bufnr] or ctx.generation ~= generation then
+        return
+      end
+      results[origin] = runs
+      results.err = results.err or err
+      pending = pending - 1
+      if pending == 0 then
+        done()
+      end
+    end
+  end
+
+  prs_api.builds(ctx.repo, ctx.id, collect("check"), opts)
+  if ctx.data.pr then
+    prs_api.merge_builds(ctx.repo, ctx.data.pr, collect("merge"), opts)
+  else
+    collect("merge")({})
+  end
 end
 
 -- Fetch the checks of the pull request (the evaluations of its branch policies). Like the builds,
@@ -410,6 +463,9 @@ local function builds_tick(bufnr)
   if not ctx.builds_fetched or uv.now() - ctx.builds_fetched >= interval then
     fetch_builds(bufnr)
     fetch_checks(bufnr)
+  elseif ctx.builds_merge ~= (merge_commit(ctx) or false) then
+    -- Completed since the builds were fetched (or they were fetched before the pull request)
+    fetch_builds(bufnr)
   end
   if running then
     M._draw_builds(bufnr)
@@ -422,8 +478,11 @@ function M._draw_builds(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, builds_ns, 0, -1)
   for lnum, item in pairs(state.items or {}) do
     if item.kind == "build" then
+      -- Why the build ran: as a check of the pull request, or started by its merge
+      local origin = item.run.origin == "merge" and { "after merge  ", "WorkhorseBuildBranch" }
+        or { "PR check  ", "WorkhorseBuildMeta" }
       vim.api.nvim_buf_set_extmark(bufnr, builds_ns, lnum - 1, 0, {
-        virt_text = render.run_status(item.run, { branch = false }),
+        virt_text = vim.list_extend({ origin }, render.run_status(item.run, { branch = false })),
         virt_text_pos = "right_align",
       })
     end
@@ -952,7 +1011,8 @@ local function render_status(view, ctx)
 
   render_checks(view, ctx)
 
-  -- Latest build of each pipeline run on the pull request; their status is drawn by _draw_builds
+  -- Latest build of each pipeline run on the pull request, then of each one its merge started;
+  -- their status (and which of the two they are) is drawn by _draw_builds
   render.add_line(view, { { "Builds", "WorkhorseRunSection" } })
   local builds = ctx.data.builds
   if ctx.errors.builds then
@@ -2324,7 +2384,7 @@ function M.refresh(bufnr)
   state.completion_started = nil
   -- Responses of the previous generation are dropped when they land
   ctx.generation = ctx.generation + 1
-  ctx.data, ctx.errors, ctx.loading, ctx.files, ctx.builds_fetched = {}, {}, {}, nil, nil
+  ctx.data, ctx.errors, ctx.loading, ctx.files, ctx.builds_fetched, ctx.builds_merge = {}, {}, {}, nil, nil, nil
   ctx.refreshing, ctx.refresh_again, ctx.changes_stale, ctx.refreshed = nil, nil, nil, uv.now()
   M.set_tab(bufnr, ctx.tab)
   -- The working directory may have changed since

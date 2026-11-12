@@ -83,6 +83,8 @@ local function map_pr(repo, p)
     auto_complete_set_by = display_name(p.autoCompleteSetBy),
     reviewers = reviewers,
     last_merge_source_commit = commit_id(p.lastMergeSourceCommit),
+    -- Once completed: the commit the merge left on the target branch
+    last_merge_commit = commit_id(p.lastMergeCommit),
     completion_options = {
       merge_strategy = options.mergeStrategy,
       delete_source_branch = options.deleteSourceBranch,
@@ -538,6 +540,22 @@ function M.cancel_auto_complete(repo, pr, callback)
   update(repo, pr.id, { autoCompleteSetBy = { id = "00000000-0000-0000-0000-000000000000" } }, callback)
 end
 
+-- The latest run of each pipeline among `runs` (newest first), sorted by pipeline name
+local function latest_per_pipeline(runs)
+  local latest, seen = {}, {}
+  for _, run in ipairs(runs) do
+    local key = run.definition_id or run.id
+    if not seen[key] then
+      seen[key] = true
+      table.insert(latest, run)
+    end
+  end
+  table.sort(latest, function(a, b)
+    return (a.definition_name or ""):lower() < (b.definition_name or ""):lower()
+  end)
+  return latest
+end
+
 -- Builds of a pull request (those run on its merge ref), the latest of each pipeline, sorted
 -- by pipeline name: callback(runs). opts.silent suppresses error notifications (used while polling)
 function M.builds(repo, id, callback, opts)
@@ -545,20 +563,60 @@ function M.builds(repo, id, callback, opts)
     .. "&repositoryId=" .. repo.id .. "&repositoryType=TfsGit&queryOrder=queueTimeDescending&$top=100&api-version=7.1", {
     silent = opts and opts.silent,
     on_success = function(data)
-      local runs, seen = {}, {}
+      local runs = {}
+      for _, b in ipairs(data and data.value or {}) do
+        table.insert(runs, builds_api.map_run(b))
+      end
+      callback(latest_per_pipeline(runs))
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Margin before the completion of a pull request from which its merge builds are searched (the
+-- push of the merge commit and the completion are not stamped at the same instant)
+local MERGE_BUILDS_MARGIN = 10 * 60
+
+-- `iso` (an ISO 8601 UTC date) moved `seconds` back, in the same format; nil when unparseable
+local function iso_minus(iso, seconds)
+  local y, mo, d, h, mi, s = (iso or ""):match("^(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+  if not y then
+    return nil
+  end
+  -- os.time reads the fields as local time: `offset` (local time to UTC) turns it into the epoch
+  -- of the UTC date, which os.date("!") writes back as UTC
+  local t = os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = s, isdst = false })
+  local offset = os.time(os.date("!*t", t)) - t
+  return os.date("!%Y-%m-%dT%H:%M:%SZ", t - offset - seconds)
+end
+
+-- Builds started by the merge of a completed pull request: those of its target branch whose
+-- source is the merge commit, the latest of each pipeline, sorted by pipeline name:
+-- callback(runs) ({} for a pull request not completed). opts.silent as in builds
+function M.merge_builds(repo, pr, callback, opts)
+  local commit = pr.status == "completed" and pr.last_merge_commit
+  if not commit or not pr.target_ref then
+    return callback({})
+  end
+  -- Oldest first from just before the completion: the merge builds are among the first runs of
+  -- the target branch after it, however long ago the pull request was completed
+  local min_time = iso_minus(pr.closed_date, MERGE_BUILDS_MARGIN)
+  client.get("/" .. repo.project.id .. "/_apis/build/builds?branchName=" .. url_encode(pr.target_ref)
+    .. "&repositoryId=" .. repo.id .. "&repositoryType=TfsGit&queryOrder=queueTimeAscending&$top=200"
+    .. (min_time and ("&minTime=" .. url_encode(min_time)) or "") .. "&api-version=7.1", {
+    silent = opts and opts.silent,
+    on_success = function(data)
+      local runs = {}
       for _, b in ipairs(data and data.value or {}) do
         local run = builds_api.map_run(b)
-        -- Newest first: the first run of each pipeline is its latest
-        local key = run.definition_id or run.id
-        if not seen[key] then
-          seen[key] = true
-          table.insert(runs, run)
+        if run.source_version == commit then
+          -- Newest first, for latest_per_pipeline
+          table.insert(runs, 1, run)
         end
       end
-      table.sort(runs, function(a, b)
-        return (a.definition_name or ""):lower() < (b.definition_name or ""):lower()
-      end)
-      callback(runs)
+      callback(latest_per_pipeline(runs))
     end,
     on_error = function(err)
       callback(nil, err)
