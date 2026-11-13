@@ -1350,13 +1350,15 @@ local function pr_of(bufnr)
   return pr
 end
 
--- Pick a merge strategy (the configured one first), then whether to delete the source branch
-local function choose_completion(pr, action, callback)
+-- Pick a merge strategy (the configured one first), then whether to delete the source branch.
+-- `extra`: entries listed after the strategies ({ label, run }), run instead when picked
+local function choose_completion(pr, action, callback, extra)
   local cfg = config.get().prs
   local strategies = vim.list_slice(prs_api.merge_strategies)
   table.sort(strategies, function(a, b)
     return (a.value == cfg.merge_strategy and 0 or 1) < (b.value == cfg.merge_strategy and 0 or 1)
   end)
+  vim.list_extend(strategies, extra or {})
   vim.ui.select(strategies, {
     prompt = action .. " !" .. pr.id .. " with",
     format_item = function(s)
@@ -1365,6 +1367,8 @@ local function choose_completion(pr, action, callback)
   }, function(strategy)
     if not strategy then
       return
+    elseif strategy.run then
+      return strategy.run()
     end
     local branch = short_branch(pr.source_ref)
     local choice = vim.fn.confirm(
@@ -1424,22 +1428,43 @@ function M.complete(bufnr)
     return
   end
   local repo = views[bufnr].ctx.repo
-  choose_completion(pr, "Complete", function(opts)
-    -- Completing needs the current head: fetch it, so a push since the view loaded is not lost
-    prs_api.get(repo, pr.id, function(fresh, err)
-      if not fresh then
-        vim.notify("Workhorse: Failed to complete: " .. (err or "unknown error"), vim.log.levels.ERROR)
-        return
-      end
-      prs_api.complete(repo, fresh, opts, function(ok, err2)
-        if not ok then
-          vim.notify("Workhorse: Failed to complete: " .. (err2 or "unknown error"), vim.log.levels.ERROR)
+  -- Its creator may also abandon it, listed after the merge strategies
+  prs_api.is_creator(pr, function(creator)
+    local extra = creator and { { label = "Abandon the pull request", run = function()
+      M.abandon(bufnr, pr)
+    end } } or nil
+    choose_completion(pr, "Complete", function(opts)
+      -- Completing needs the current head: fetch it, so a push since the view loaded is not lost
+      prs_api.get(repo, pr.id, function(fresh, err)
+        if not fresh then
+          vim.notify("Workhorse: Failed to complete: " .. (err or "unknown error"), vim.log.levels.ERROR)
           return
         end
-        vim.notify("Workhorse: Completing !" .. pr.id, vim.log.levels.INFO)
-        refresh_pr(bufnr)
+        prs_api.complete(repo, fresh, opts, function(ok, err2)
+          if not ok then
+            vim.notify("Workhorse: Failed to complete: " .. (err2 or "unknown error"), vim.log.levels.ERROR)
+            return
+          end
+          vim.notify("Workhorse: Completing !" .. pr.id, vim.log.levels.INFO)
+          refresh_pr(bufnr)
+        end)
       end)
-    end)
+    end, extra)
+  end)
+end
+
+-- Abandon the pull request, after asking (offered by complete to its creator)
+function M.abandon(bufnr, pr)
+  if vim.fn.confirm("Abandon !" .. pr.id .. " " .. pr.title .. "?", "&Yes\n&No", 2) ~= 1 then
+    return
+  end
+  prs_api.abandon(views[bufnr].ctx.repo, pr, function(ok, err)
+    if not ok then
+      vim.notify("Workhorse: Failed to abandon: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      return
+    end
+    vim.notify("Workhorse: Abandoned !" .. pr.id, vim.log.levels.INFO)
+    refresh_pr(bufnr)
   end)
 end
 

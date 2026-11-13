@@ -75,6 +75,7 @@ local function map_pr(repo, p)
     status = p.status,
     is_draft = p.isDraft == true,
     created_by = display_name(p.createdBy),
+    created_by_id = type(p.createdBy) == "table" and p.createdBy.id or nil,
     creation_date = p.creationDate,
     closed_date = p.closedDate,
     source_ref = p.sourceRefName,
@@ -519,6 +520,21 @@ function M.complete(repo, pr, opts, callback)
     lastMergeSourceCommit = { commitId = pr.last_merge_source_commit },
     completionOptions = completion_options(opts),
   }, callback)
+end
+
+-- Abandon a pull request (only its creator may: see is_creator)
+function M.abandon(repo, pr, callback)
+  update(repo, pr.id, { status = "abandoned" }, callback)
+end
+
+-- callback(true) when the user the PAT belongs to created `pr`; false when not (or unknown)
+function M.is_creator(pr, callback)
+  if not pr.created_by_id then
+    return callback(false)
+  end
+  M.me(function(me)
+    callback(me ~= nil and me:lower() == pr.created_by_id:lower())
+  end)
 end
 
 -- Let the pull request complete by itself once its policies pass (opts as in complete)
