@@ -2,6 +2,24 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [5d93724] - 2026-11-13
+
+### Added
+- Pipeline screen with Runs │ Settings │ Variables tabs in the winbar (`<Tab>`/`<S-Tab>`, `g1`–`g3`, clickable); `:Workhorse pipelines settings [id]` and `:Workhorse pipelines variables [id]`
+- Settings tab: the "New pipeline" form's fields as "Key: value" lines, completed and diffed against the definition (`[was X]`), saved after a confirmation
+- Variables tab: pipeline variables as `Name (secret, settable): value` lines (secrets empty: empty keeps them)
+- `api/builds.lua`: `get_definition_full`, `update_definition`
+- `builds/definition_fields.lua` and `ui/variable_lines.lua`, shared with the new pipeline form and the library Variables section
+
+### Changed
+- The new pipeline form and the library Variables section use the shared field and variable line modules
+
+## [bdbd9b8] - 2026-11-13
+
+### Added
+- Completing a pull request lists "Abandon the pull request" after the merge strategies when the user is its creator; it asks before abandoning
+- `api/pullrequests.lua`: `abandon`, `is_creator`; the pull request carries `created_by_id`
+
 ## [5d8c077] - 2026-11-12
 
 ### Added
