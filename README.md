@@ -15,7 +15,7 @@ A NeoVim plugin for editing Azure DevOps work items using an oil.nvim-style buff
 - **Work item details** - Edit the board column, tags and description of a work item, attach and remove files, read its discussion and add comments to it, in a buffer on the right
 - **Tag-based coloring** - Color work item titles based on type and tags
 - **Cursor follows the work item** - Opening another query or refreshing keeps the cursor on the same work item
-- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones and create YAML pipelines
+- **Pipeline builds** - Browse pipeline runs, stages, jobs, steps and logs, with auto-refresh while a run is in progress; run new builds (with their parameters), cancel running ones, create YAML pipelines and edit their settings and variables (secrets included)
 - **Pull requests** - Browse the pull requests of any repository, create them (also pushing the branch, linking a work item and setting auto-complete in one form), read their description and comments, review delta-style diffs, vote, complete them or set auto-complete
 - **Repositories** - Create, rename and delete the project's repositories from an editable list, and edit their permissions (Security) and branch policies (required reviewers, builds, linked work items...) as text, with every value completed
 - **Libraries** - The project's variable groups as an editable list, each one's variables (secrets included), the pipelines allowed to use it and its security (Reader, User or Administrator roles) edited as text
@@ -293,6 +293,8 @@ In this mode:
 | `:Workhorse builds permit` | Permit the pipeline to use the resources the run of the current build buffer waits for (see "Permitting a waiting build") |
 | `:Workhorse pipelines new` | Create a YAML pipeline from a file of an Azure Repos Git repository |
 | `:Workhorse builds here` | Pipelines of the repository of the working directory (see "Repository cache") |
+| `:Workhorse pipelines settings [id]` | The Settings tab of a pipeline (default: the pipeline of the current build buffer; see "Settings and Variables of a pipeline") |
+| `:Workhorse pipelines variables [id]` | The Variables tab of a pipeline, secrets included (default: the pipeline of the current build buffer) |
 | `:Workhorse pipelines list` | All the pipelines as an editable tree of folders (All tab): move, rename, create and delete them; and those that ran most recently (Recent tab) |
 | `:Workhorse PRs` | Open Telescope picker to select a repository (of any project) and browse its pull requests |
 | `:Workhorse PRs here` | Pull requests of the repository of the working directory |
@@ -836,6 +838,55 @@ fetched together in one request. A status is refreshed every 5 seconds while its
 progress and every minute once it has finished (`pipelines.status_running_interval` /
 `status_idle_interval`); set `pipelines.status = false` to turn it off.
 
+### Settings and Variables of a pipeline
+
+The runs list is the first of three tabs of a pipeline, shown in the window bar like those of a
+pull request: **Runs**, **Settings** and **Variables**. `<Tab>`/`<S-Tab>` (normal mode) cycle
+them, `g1` `g2` `g3` jump to one, and clicking a tab opens it. Each tab is its own buffer, so
+pending edits are kept when you switch tabs. `:Workhorse pipelines settings` and `:Workhorse
+pipelines variables` open a tab directly.
+
+Settings and Variables are editable, like the sections of the repository screen. Their title is
+the pipeline's name, and `<CR>` on it (or `-` anywhere) goes back to the runs:
+
+```
+MyApp-CI                                      \Infra · pipelines/ci.yml · Infra
+──────────────────────────────── ◇ ────────────────────────────────
+Name: MyApp-CI
+Folder: \Infra                                \ is the root
+Repository: Infra
+Branch: release                               [was main]
+YAML file: pipelines/ci.yml                   files of Infra@release
+Queue: Default                                agent queue for jobs without a pool, empty for none
+```
+
+- **Settings** shows the fields of the "New pipeline" form (see "Creating a pipeline") with
+  the pipeline's current values, completed in the same way: folders, repositories, branches,
+  YAML files and agent queues. A changed value shows what it was. A deleted line keeps that
+  setting as it is, and a name cannot be emptied. Changing the repository puts its default
+  branch on the Branch line unless you typed another branch. The repository of a pipeline built
+  from another source (GitHub...) and the YAML file of a classic pipeline cannot be changed
+  here; `gw` opens the pipeline on the web.
+- **Variables** shows one `name: value` line per pipeline variable, sorted by name. Markers
+  after the name set its flags: `(secret)` makes it a secret, and `(settable)` lets it be set at
+  queue time (the "Run new build" form offers it). Both go in one parenthesis,
+  `(secret, settable)`, and typing `(` after a name offers them. Secrets show empty, because
+  the server never sends their values: an empty value keeps the secret, a typed one replaces it.
+  A new line adds a variable and a deleted line removes it. Line breaks of a value show as `\n`.
+
+```
+ApiUrl: https://example.com
+Environment (settable): dev
+Password (secret):                            ••••••  type a value to replace it
+```
+
+`<leader><leader>` lists the tab's changes, then saves them. The definition has no partial
+update, so it is read again and put back whole with only those changes. `<leader>R` reloads the
+tab, asking first when it has unsaved changes. Renaming or moving a pipeline here also updates
+its runs list, the repository cache and `:Workhorse resume-build`. `gw`/`gb` open the pipeline
+in the browser and `<M-/>` searches the pipelines. In insert mode, `<Tab>`/`<S-Tab>` move
+through the completion menu or to the next value.
+
 ### Running a build again
 
 Once a run completes, its run tree and log headers replace the `Live watching enabled/disabled`
@@ -1058,7 +1109,9 @@ stay through the auto-refresh and tab switches; anything typed elsewhere in the 
 on the next change. `<leader>R` and `q` ask before discarding pending edits.
 
 Completing and setting auto-complete ask for the merge strategy (`prs.merge_strategy` first) in a
-fuzzy picker, then whether to delete the source branch. A draft cannot be completed.
+fuzzy picker, then whether to delete the source branch. A draft cannot be completed. When you
+created the pull request, completing also lists "Abandon the pull request" after the merge
+strategies: picked, it asks first, then abandons it.
 
 | Key | Action |
 |-----|--------|
@@ -1068,7 +1121,7 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 | `]f` / `[f` | Next / previous file diff |
 | `<M-/>` | Fuzzy search of the changed files (pull request), of the repositories (list) |
 | `<leader>wv` | Vote (approve, approve with suggestions, reset, wait for author, reject) |
-| `<leader>wc` | Complete the pull request |
+| `<leader>wc` | Complete the pull request (or abandon it, when you created it) |
 | `<leader>wa` | Set auto-complete, or cancel it when already set |
 | `<leader>wy` | Copy the URL of the pull request to the `0` and `+` registers |
 | `<leader>wk` | Check out the source branch (only in a clone of the pull request's repository) |

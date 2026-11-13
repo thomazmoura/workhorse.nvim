@@ -1,5 +1,5 @@
 -- blink.cmp source for the build forms ("Run new build", "New pipeline") and the editable
--- repository and library screens and the pull request Overview (see ui/choices.lua): the choices of a field (a branch, a parameter with
+-- repository, library and pipeline screens and the pull request Overview (see ui/choices.lua): the choices of a field (a branch, a parameter with
 -- allowed values...). The form asks for them on every keystroke, matched against the whole
 -- value typed so far (blink.cmp alone would match only its last word, e.g. "C" of "DMZ C"), and
 -- only this source runs on those fields, so buffer words and snippets stay out.
@@ -7,7 +7,8 @@ local M = {}
 
 local ID = "workhorse_run"
 -- Filetypes of the buffers completed by ui/choices.lua
-local FILETYPES = { "workhorse-run", "workhorse-repo", "workhorse-workitem", "workhorse-library", "workhorse-pr" }
+local FILETYPES = { "workhorse-run", "workhorse-repo", "workhorse-workitem", "workhorse-library", "workhorse-pr",
+  "workhorse-pipeline" }
 
 local Source = {}
 Source.__index = Source

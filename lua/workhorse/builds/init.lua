@@ -962,6 +962,10 @@ local function set_keymaps(bufnr)
   if views[bufnr].kind == "stages" then
     set_fold_keymaps(bufnr, opts)
   end
+  -- The runs list is the Runs tab of the pipeline's screen (Settings and Variables next to it)
+  if views[bufnr].kind == "runs" then
+    require("workhorse.pipeline_screen.tabs").setup_buffer(bufnr)
+  end
 end
 
 local function setup_buffer(bufnr)
@@ -1539,6 +1543,38 @@ function M.permit(bufnr)
       end)
     end
   end)
+end
+
+--- Context of the runs list `bufnr` ({ definition_id, definition_name, ... }), nil for any other
+--- buffer
+function M.runs_of(bufnr)
+  local state = views[bufnr or vim.api.nvim_get_current_buf()]
+  return state and state.kind == "runs" and state.ctx or nil
+end
+
+--- Pipeline of the build view `bufnr` (runs list, run tree or log): its id and name, nil for any
+--- other buffer
+function M.definition_of(bufnr)
+  local state = views[bufnr or vim.api.nvim_get_current_buf()]
+  local ctx = state and state.ctx
+  if not ctx then
+    return nil
+  end
+  local id = ctx.definition_id or (ctx.run and ctx.run.definition_id)
+  return id, ctx.definition_name or (ctx.run and ctx.run.definition_name)
+end
+
+--- The pipeline `definition_id` was renamed: its runs list (when open) shows the new name
+function M.set_definition_name(definition_id, name)
+  local bufnr = buffers_by_key["runs:" .. definition_id]
+  local state = bufnr and views[bufnr]
+  if not state then
+    return
+  end
+  state.ctx.definition_name = name
+  if state.ctx.runs and vim.api.nvim_buf_is_valid(bufnr) then
+    render_runs(bufnr)
+  end
 end
 
 function M.is_build_buffer(bufnr)

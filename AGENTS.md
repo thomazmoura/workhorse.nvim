@@ -64,6 +64,14 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `security.lua` - Roles (Reader, User, Administrator) per user and group (securityroles role assignments)
 - API: `api/libraries.lua`
 
+**Pipeline screen** (`lua/workhorse/pipeline_screen/`; the runs list of `builds/init.lua` is its first tab)
+- `tabs.lua` - Runs │ Settings │ Variables tabs of one pipeline in the winbar, one buffer each (`<Tab>`/`<S-Tab>` normal mode, `g1`–`g3`, clickable)
+- `init.lua` - Editable tab buffers (pipeline name as title, `<CR>` back to the runs, rule, pinned title, `list_confirm` save); one definition table per pipeline shared by both tabs
+- `settings.lua` - The "New pipeline" form's fields as "Key: value" lines, completed and diffed against the definition (`[was X]`)
+- `variables.lua` - Pipeline variables as `Name (secret, settable): value` lines (secrets empty: empty keeps them)
+- Shared: `builds/definition_fields.lua` (fields, choices, hints and values of the form and the Settings tab), `ui/variable_lines.lua` (variable lines of the library Variables section and the Variables tab)
+- API: `api/builds.lua` `get_definition_full`, `update_definition` (GET then PUT; `changes` may be a function changing the JSON)
+
 **Work item details** (`lua/workhorse/buffer/details.lua`, `<CR>` on a work item)
 - A popup (float); one hidden buffer per work item keeps its edits after the popup closes, `<leader><leader>`/`<C-CR>` send the pending changes of all of them in one confirmation (`<CR>` sends and closes the popup), and refreshing a query with pending details asks first (`details.pending` / `details.discard`)
 - Column, Tags, Description, Attachments, Discussion Comment and Discussion History sections in one editable buffer
@@ -113,6 +121,7 @@ repository and identity caches are locksmith caches of the `workhorse` namespace
 - `:Workhorse repos here` - Screen of the repository of the working directory (also `<leader>wg`)
 - `:Workhorse identities refresh` - Update the identity cache
 - `:Workhorse libraries` - Libraries (variable groups) screen (also `<leader>wl`)
+- `:Workhorse pipelines settings [id]` / `:Workhorse pipelines variables [id]` - Settings / Variables tab of a pipeline
 
 ## Development Notes
 

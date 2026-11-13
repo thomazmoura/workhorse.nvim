@@ -372,10 +372,51 @@ function M.create_definition(opts, callback)
   })
 end
 
--- Rename and/or move a definition. changes: { name, path = "\\..." }; callback({ id, name,
--- path }) or callback(nil, err). Definitions have no PATCH: the whole definition is read and
--- put back (with its revision) with only those fields changed. It is kept as decoded, without
--- strip_nulls, so the nulls, empty objects and arrays go back as they came
+-- A definition with everything its Settings and Variables tabs edit: callback({ id, name, path,
+-- revision, repository = { id, name, type, default_branch }, yaml_file (nil for classic
+-- pipelines), queue = { id, name } or nil, variables = { [name] = { value, secret, settable } } })
+-- or callback(nil, err). A secret's value is never sent by the server (nil)
+function M.get_definition_full(definition_id, callback)
+  client.get(project_path("definitions/" .. definition_id .. "?api-version=7.1"), {
+    silent = true,
+    on_success = function(data)
+      data = strip_nulls(type(data) == "table" and data or {})
+      local repo = type(data.repository) == "table" and strip_nulls(data.repository) or {}
+      local process = type(data.process) == "table" and strip_nulls(data.process) or {}
+      local queue = type(data.queue) == "table" and strip_nulls(data.queue) or nil
+      local variables = {}
+      for name, v in pairs(type(data.variables) == "table" and data.variables or {}) do
+        if type(v) == "table" then
+          strip_nulls(v)
+          variables[name] = {
+            value = type(v.value) == "string" and v.value or (not v.isSecret and "" or nil),
+            secret = v.isSecret == true,
+            settable = v.allowOverride == true,
+          }
+        end
+      end
+      callback({
+        id = data.id,
+        name = data.name,
+        path = type(data.path) == "string" and data.path or "\\",
+        revision = data.revision,
+        repository = { id = repo.id, name = repo.name, type = repo.type, default_branch = repo.defaultBranch },
+        yaml_file = process.type == 2 and type(process.yamlFilename) == "string" and process.yamlFilename or nil,
+        queue = queue and queue.id and { id = queue.id, name = queue.name } or nil,
+        variables = variables,
+      })
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Change a definition. `changes`: { name, path = "\\..." } (rename and/or move), or a function
+-- changing the definition as the server sent it (its JSON fields, e.g. data.variables) in place;
+-- callback({ id, name, path }) or callback(nil, err). Definitions have no PATCH: the whole
+-- definition is read and put back (with its revision) with only those fields changed. It is kept
+-- as decoded, without strip_nulls, so the nulls, empty objects and arrays go back as they came
 function M.update_definition(definition_id, changes, callback)
   local path = project_path("definitions/" .. definition_id .. "?api-version=7.1")
   client.get(path, {
@@ -385,8 +426,12 @@ function M.update_definition(definition_id, changes, callback)
         callback(nil, "empty definition")
         return
       end
-      data.name = changes.name or data.name
-      data.path = changes.path or data.path
+      if type(changes) == "function" then
+        changes(data)
+      else
+        data.name = changes.name or data.name
+        data.path = changes.path or data.path
+      end
       client.request({
         path = path,
         method = "PUT",

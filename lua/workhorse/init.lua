@@ -182,6 +182,30 @@ function M.new_pipeline()
   require("workhorse.builds").new_pipeline()
 end
 
+-- Open the Settings or Variables tab (`tab`) of a pipeline: `definition_id`, by default the
+-- pipeline of the current build or pipeline buffer
+function M.pipeline_tab(tab, definition_id)
+  if not check_config() then
+    return
+  end
+  local name
+  if not definition_id then
+    local tabs = require("workhorse.pipeline_screen.tabs")
+    local _, id, tab_name = tabs.tab_of(vim.api.nvim_get_current_buf())
+    if id then
+      definition_id, name = id, tab_name
+    else
+      definition_id, name = require("workhorse.builds").definition_of()
+    end
+  end
+  if not definition_id then
+    vim.notify("Workhorse: Not in a pipeline buffer (use :Workhorse pipelines " .. tab .. " <id>)",
+      vim.log.levels.WARN)
+    return
+  end
+  require("workhorse.pipeline_screen").open(definition_id, name, tab)
+end
+
 -- Open the pipelines list (pipeline definitions as an editable tree of folders)
 function M.list_pipelines()
   if not check_config() then
@@ -347,10 +371,11 @@ function M.refresh(opts)
   local repo_tabs = package.loaded["workhorse.repos_screen.repo"]
   local libraries = package.loaded["workhorse.libraries_screen"]
   local library = package.loaded["workhorse.libraries_screen.library"]
+  local pipeline_screen = package.loaded["workhorse.pipeline_screen"]
   if require("workhorse.builds").refresh() or require("workhorse.pipelines").refresh()
     or require("workhorse.prs").refresh() or require("workhorse.repos_screen").refresh()
     or (repo_tabs and repo_tabs.refresh()) or (libraries and libraries.refresh())
-    or (library and library.refresh()) then
+    or (library and library.refresh()) or (pipeline_screen and pipeline_screen.refresh()) then
     return
   end
   -- Their own reload: the work item of a details buffer, the parameters of a "Run new build" form
@@ -513,6 +538,11 @@ function M.apply()
   local pipelines = require("workhorse.pipelines")
   if pipelines.is_pipelines_buffer() then
     pipelines.save()
+    return
+  end
+  local pipeline_screen = package.loaded["workhorse.pipeline_screen"]
+  if pipeline_screen and pipeline_screen.info() then
+    pipeline_screen.save()
     return
   end
   local buf_module, bufnr = get_buffer_module()

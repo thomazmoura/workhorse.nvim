@@ -29,6 +29,8 @@ vim.api.nvim_create_user_command("Workhorse", function(opts)
     require("workhorse").new_pipeline()
   elseif cmd == "pipelines" and args[2] == "list" then
     require("workhorse").list_pipelines()
+  elseif cmd == "pipelines" and (args[2] == "settings" or args[2] == "variables") then
+    require("workhorse").pipeline_tab(args[2], args[3] and tonumber(args[3]))
   elseif cmd == "builds" then
     if args[2] then
       require("workhorse").open_builds(args[2])
@@ -79,6 +81,8 @@ Workhorse commands:
   :Workhorse builds permit - Permit the pipeline to use the resources its waiting run needs
   :Workhorse pipelines new - Create a YAML pipeline
   :Workhorse pipelines list - Recent pipelines, and all of them as a tree of folders
+  :Workhorse pipelines settings [id] - Settings of a pipeline (default: the current one)
+  :Workhorse pipelines variables [id] - Variables of a pipeline (default: the current one)
   :Workhorse PRs         - Browse the pull requests of a repository (picker)
   :Workhorse PRs here    - Pull requests of the repository of the working directory
   :Workhorse PRs resume  - Reopen the pull requests of the last repository
@@ -128,7 +132,7 @@ end, {
     if #parts == 3 and parts[2] == "pipelines" then
       return vim.tbl_filter(function(item)
         return item:find(arg_lead, 1, true) == 1
-      end, { "list", "new" })
+      end, { "list", "new", "settings", "variables" })
     end
     return {}
   end,
