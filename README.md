@@ -833,7 +833,7 @@ it survives `<leader>wR` and, with a cache key, new sessions.
 
 #### Main pipeline of a repository
 
-In the pipeline pickers, `<C-CR>` (insert or normal mode) makes the selected pipeline the main
+In the pipeline pickers, `<M-CR>` (insert or normal mode) makes the selected pipeline the main
 one of its repository, or no longer main when it already is. The main pipeline has a `★` prefix,
 and in the picker of `<leader>wb` it is listed first, so it is the one selected when the picker opens.
 The picker stays open and is redrawn. Each repository has at most one main pipeline. Like the hidden
@@ -1396,7 +1396,7 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 
 | Key | Action |
 |-----|--------|
-| `<leader>wb` | Pipelines of this repository: its runs when it has one, a picker of them when more (the `★` main one first; `<C-CR>` stars one) |
+| `<leader>wb` | Pipelines of this repository: its runs when it has one, a picker of them when more (the `★` main one first; `<M-CR>` stars one) |
 | `<leader>wB` | Pipelines screen (`:Workhorse pipelines list`) |
 | `<leader>w<M-b>` | Picker of every pipeline (`:Workhorse builds`), whatever the repository |
 | `<leader>w<C-b>` | Reopen the last opened pipeline |

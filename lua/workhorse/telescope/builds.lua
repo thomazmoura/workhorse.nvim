@@ -4,7 +4,7 @@ local M = {}
 -- cache (workhorse.repos), or from opts.definitions when given (e.g. those of one repository),
 -- without the hidden ones; opts.prompt_title replaces the title, opts.on_select(definition) what
 -- picking one does (default: open its runs). The main pipeline of each repository has a star
--- (listed first when opts.definitions is given, so <leader>wb preselects it); <C-CR> makes the
+-- (listed first when opts.definitions is given, so <leader>wb preselects it); <M-CR> makes the
 -- selected pipeline the main one of its repository, or no longer main when it already is
 function M.pick(opts)
   opts = opts or {}
@@ -106,8 +106,8 @@ function M.pick(opts)
               or ("Workhorse: " .. def.name .. " is no longer the main pipeline of its repository"))
           end)
         end
-        map("i", "<C-CR>", toggle_main)
-        map("n", "<C-CR>", toggle_main)
+        map("i", "<M-CR>", toggle_main)
+        map("n", "<M-CR>", toggle_main)
         return true
       end,
     }):find()
