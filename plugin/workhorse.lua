@@ -245,6 +245,10 @@ vim.keymap.set("n", "<leader>wB", function()
   require("workhorse").list_pipelines()
 end, { silent = true, desc = "Workhorse: List pipelines" })
 
+vim.keymap.set("n", "<leader>w<M-b>", function()
+  require("workhorse").pick_build()
+end, { silent = true, desc = "Workhorse: Pick a pipeline (all pipelines)" })
+
 vim.keymap.set("n", "<leader>w<C-b>", function()
   require("workhorse").resume_build()
 end, { silent = true, desc = "Workhorse: Resume last pipeline" })

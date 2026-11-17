@@ -949,7 +949,7 @@ Global keymaps (set by default): `<leader>wb` opens the pipelines of the reposit
 pipeline selected first; the picker of every
 pipeline when the repository is not known), `<leader>wB` opens the pipelines screen
 (`:Workhorse pipelines list`) and `<leader>w<C-b>` reopens the last opened pipeline
-(`:Workhorse builds resume`). See "Repository cache" for the rest.
+(`:Workhorse builds resume`); `<leader>w<M-b>` jumps straight to the picker of every pipeline. See "Repository cache" for the rest.
 
 ## Pull Requests
 
@@ -1398,6 +1398,7 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 |-----|--------|
 | `<leader>wb` | Pipelines of this repository: its runs when it has one, a picker of them when more (the `★` main one first; `<C-CR>` stars one) |
 | `<leader>wB` | Pipelines screen (`:Workhorse pipelines list`) |
+| `<leader>w<M-b>` | Picker of every pipeline (`:Workhorse builds`), whatever the repository |
 | `<leader>w<C-b>` | Reopen the last opened pipeline |
 | `<leader>wp` | Pull requests of this repository |
 | `<leader>wP` | Pull requests of any repository (picker) |
