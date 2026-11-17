@@ -2,6 +2,21 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [2b70d96] - 2026-11-17
+
+### Added
+- Main pipeline of a repository: `<C-CR>` in the pipeline pickers stars (or unstars) the selected pipeline; the `<leader>wb` picker lists the `★` main pipeline first, so it is preselected
+- `repos.lua`: `main` in the repository cache (kept across updates, dropped with its pipeline), `main_of`, `set_main`
+
+## [62e2191] - 2026-11-17
+
+### Added
+- The run header shows the title of the commit the run built on a line under the run info
+- `api/builds.lua`: `commit_title`, `fetch_commit_titles` (titles from the CI trigger, else the Azure Repos Git commits, kept for the session)
+
+### Changed
+- Run lines in the runs list never wrap: the stage pips take priority and the title is cut to fit, re-trimmed on resize (the text area width is used, without the number column)
+
 ## [5d93724] - 2026-11-13
 
 ### Added
