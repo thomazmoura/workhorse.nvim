@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [9bda5bb] - 2026-11-17
+
+### Changed
+- The main pipeline of a repository is starred with `<M-CR>` in the pipeline pickers (`<C-CR>` is taken by terminals such as Ghostty)
+
 ## [41ae65f] - 2026-11-17
 
 ### Added
