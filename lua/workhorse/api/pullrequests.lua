@@ -84,8 +84,10 @@ local function map_pr(repo, p)
     auto_complete_set_by = display_name(p.autoCompleteSetBy),
     reviewers = reviewers,
     last_merge_source_commit = commit_id(p.lastMergeSourceCommit),
-    -- Once completed: the commit the merge left on the target branch
+    -- Once completed: the commit the merge left on the target branch (while active: the preview
+    -- merge commit), and the target branch commit it was merged into
     last_merge_commit = commit_id(p.lastMergeCommit),
+    last_merge_target_commit = commit_id(p.lastMergeTargetCommit),
     completion_options = {
       merge_strategy = options.mergeStrategy,
       delete_source_branch = options.deleteSourceBranch,
@@ -550,6 +552,63 @@ end
 -- Set how the pull request completes (opts as in complete) without setting auto-complete
 function M.set_completion_options(repo, pr, opts, callback)
   update(repo, pr.id, { completionOptions = completion_options(opts) }, callback)
+end
+
+-- Restart the merge of an active pull request ("Restart merge" on the web): Azure DevOps merges
+-- the source branch into the target again (a new preview merge commit), so a pull request whose
+-- conflicts were fixed, or whose changes the target branch already has, shows it. The new merge
+-- status comes later (mergeStatus "queued" until then): callback(pr) or (nil, err)
+function M.restart_merge(repo, pr, callback)
+  update(repo, pr.id, { mergeStatus = "queued" }, callback)
+end
+
+-- Tree of each commit, by commit id (commits never change, so the session keeps them)
+local commit_trees = {}
+
+-- Tree id of a commit: callback(tree_id) or (nil, err)
+function M.commit_tree(repo, sha, callback)
+  if commit_trees[sha] then
+    return vim.schedule(function()
+      callback(commit_trees[sha])
+    end)
+  end
+  client.get(repo_path(repo, "commits/" .. sha .. "?api-version=7.1"), {
+    silent = true,
+    on_success = function(data)
+      local tree = type(data) == "table" and data.treeId or nil
+      commit_trees[sha] = tree
+      callback(tree, not tree and "no tree" or nil)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
+-- Whether the merge of an active pull request changes nothing: its preview merge commit has the
+-- tree of the target commit it was merged into (the target branch already has every change).
+-- callback(true|false), or (nil) when unknown (no successful merge, or a request failed)
+function M.merge_is_empty(repo, pr, callback)
+  local merge, target = pr.last_merge_commit, pr.last_merge_target_commit
+  if pr.merge_status ~= "succeeded" or not merge or not target then
+    return vim.schedule(function()
+      callback(nil)
+    end)
+  end
+  local trees, pending = {}, 2
+  for key, sha in pairs({ merge = merge, target = target }) do
+    M.commit_tree(repo, sha, function(tree)
+      trees[key] = tree or false
+      pending = pending - 1
+      if pending == 0 then
+        if trees.merge and trees.target then
+          callback(trees.merge == trees.target)
+        else
+          callback(nil)
+        end
+      end
+    end)
+  end
 end
 
 function M.cancel_auto_complete(repo, pr, callback)

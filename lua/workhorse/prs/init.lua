@@ -124,12 +124,13 @@ local function current_item(bufnr)
 end
 
 -- Pull request line: status, id, title (trimmed to fit), author and branches; the reviewers'
--- votes and the date go on the right
+-- votes and the date go on the right: one icon per reviewer who voted, and an empty circle for
+-- each required reviewer who has not (yet; a required reviewer who declined is left out)
 local function pr_line(view, pr, width)
   local icon, hl = prs_api.status_icon(pr)
   local virt = {}
   for _, r in ipairs(pr.reviewers) do
-    if r.vote ~= 0 then
+    if r.vote ~= 0 or (r.required and not r.declined) then
       local _, vote_icon, vote_hl = prs_api.vote_display(r.vote)
       table.insert(virt, { vote_icon .. " ", vote_hl })
     end
@@ -321,6 +322,8 @@ local fetchers = {
 }
 
 local rerender
+-- Checks whether the merge changes nothing (defined with the rendering)
+local detect_empty_merge
 
 local function builds_running(runs, checks)
   for _, run in ipairs(runs or {}) do
@@ -781,8 +784,18 @@ local function add_pr_header(view, ctx, width)
       { "  " .. (pr.created_by or ""), "WorkhorseBuildAuthor" },
     }
     render.add_line(view, segments, nil, { { builds_api.format_date(pr.creation_date), "WorkhorseBuildDate" } })
-    if pr.status == "active" and pr.merge_status == "conflicts" then
-      render.add_line(view, { { "  Merge conflicts: resolve them before completing", "WorkhorseBuildFailed" } })
+    if pr.status == "active" then
+      local restart = { { "<leader>wM restart merge", "WorkhorseRunHint" } }
+      if ctx.merge_restarting or pr.merge_status == "queued" then
+        render.add_line(view, { { "  Merging…", "WorkhorseBuildRunning" } })
+      elseif pr.merge_status == "conflicts" then
+        render.add_line(view, { { "  Merge conflicts: resolve them before completing", "WorkhorseBuildFailed" } },
+          nil, restart)
+      elseif pr.merge_status == "failure" or pr.merge_status == "rejectedByPolicy" then
+        render.add_line(view, { { "  The merge failed", "WorkhorseBuildFailed" } }, nil, restart)
+      elseif ctx.empty_merge and ctx.empty_merge.sha == pr.last_merge_commit and ctx.empty_merge.empty then
+        render.add_line(view, { { "  No changes: the target branch already has them all", "WorkhorseBuildWarning" } })
+      end
     end
     if pr.auto_complete_set_by then
       render.add_line(view, { { "  Auto-complete set by " .. pr.auto_complete_set_by, "WorkhorsePRApproved" } })
@@ -994,6 +1007,8 @@ local function render_status(view, ctx)
     local auto = pr.auto_complete_set_by and "  Cancel auto-complete" or "  Set auto-complete…"
     render.add_line(view, { { auto, "WorkhorseBuildRetry" } }, { kind = "nav", target = "auto_complete" },
       { { "<leader>wa", "WorkhorseRunHint" } })
+    render.add_line(view, { { "  Restart merge", "WorkhorseBuildRetry" } }, { kind = "nav", target = "restart_merge" },
+      { { "<leader>wM", "WorkhorseRunHint" } })
   end
   render.add_line(view, { { "  Copy URL", "WorkhorseBuildMeta" } }, { kind = "nav", target = "copy_url" },
     { { "<leader>wy", "WorkhorseRunHint" } })
@@ -1151,12 +1166,35 @@ end
 
 -- Returns true when the cursor was moved to a comment thread's line. opts.join: a render right
 -- after an edit, joined to its undo block (see render.apply)
+-- Whether the merge of the active pull request changes nothing (the target branch already has
+-- every change): checked once per merge commit, the header redrawn when it does
+function detect_empty_merge(bufnr)
+  local ctx = views[bufnr].ctx
+  local pr = ctx.data.pr
+  if not pr or pr.status ~= "active" or pr.merge_status ~= "succeeded" or not pr.last_merge_commit
+    or (ctx.empty_merge and ctx.empty_merge.sha == pr.last_merge_commit) then
+    return
+  end
+  local sha = pr.last_merge_commit
+  ctx.empty_merge = { sha = sha }
+  prs_api.merge_is_empty(ctx.repo, pr, function(empty)
+    if not views[bufnr] or not ctx.empty_merge or ctx.empty_merge.sha ~= sha then
+      return
+    end
+    ctx.empty_merge.empty = empty
+    if empty then
+      rerender(bufnr)
+    end
+  end)
+end
+
 local function render_pr(bufnr, focus, opts)
   local jumped = false
   local state = views[bufnr]
   local ctx = state.ctx
   local width = view_width(bufnr)
   local view = render.new_view()
+  detect_empty_merge(bufnr)
   add_pr_header(view, ctx, width)
   if ctx.tab == "overview" then
     -- Status, then Updates and Commits, each shown as soon as its own data is there
@@ -1497,6 +1535,94 @@ function M.auto_complete(bufnr)
   end
   choose_completion(pr, "Auto-complete", function(opts)
     prs_api.set_auto_complete(repo, pr, opts, done("set auto-complete"))
+  end)
+end
+
+-- Seconds between the checks of the merge status after restarting a merge, and how many
+local MERGE_POLL_MS, MERGE_POLL_TRIES = 2000, 30
+
+-- Report the merge status of a merge just restarted
+local function report_merge(bufnr, pr)
+  local function say(msg, level)
+    vim.notify("Workhorse: !" .. pr.id .. ": " .. msg, level or vim.log.levels.INFO)
+  end
+  if pr.merge_status == "conflicts" then
+    return say("the merge still has conflicts", vim.log.levels.WARN)
+  elseif pr.merge_status ~= "succeeded" then
+    return say("the merge " .. (pr.merge_status == "queued" and "is still queued" or "failed (" .. tostring(pr.merge_status) .. ")"),
+      vim.log.levels.WARN)
+  end
+  if not views[bufnr] then
+    return
+  end
+  prs_api.merge_is_empty(views[bufnr].ctx.repo, pr, function(empty)
+    if empty then
+      say("merged without conflicts, and the target branch already has every change: nothing left to merge",
+        vim.log.levels.WARN)
+    else
+      say("merged without conflicts")
+    end
+  end)
+end
+
+-- Restart the merge of the pull request ("Restart merge" on the web), then follow its status
+-- until Azure DevOps settles it: conflicts fixed, or changes the target branch already has
+-- (the header says "No changes"), show up
+function M.restart_merge(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local pr = pr_of(bufnr)
+  if not pr then
+    return
+  end
+  if pr.status ~= "active" then
+    vim.notify("Workhorse: !" .. pr.id .. " is not active", vim.log.levels.INFO)
+    return
+  end
+  local ctx = views[bufnr].ctx
+  if ctx.merge_restarting then
+    vim.notify("Workhorse: The merge of !" .. pr.id .. " is already restarting", vim.log.levels.INFO)
+    return
+  end
+  local repo = ctx.repo
+  ctx.merge_restarting = true
+  ctx.empty_merge = nil
+  rerender(bufnr)
+  local function stop()
+    ctx.merge_restarting = nil
+    if views[bufnr] then
+      refresh_pr(bufnr)
+      rerender(bufnr)
+    end
+  end
+  prs_api.restart_merge(repo, pr, function(ok, err)
+    if not ok then
+      vim.notify("Workhorse: Failed to restart the merge: " .. (err or "unknown error"), vim.log.levels.ERROR)
+      return stop()
+    end
+    vim.notify("Workhorse: Restarting the merge of !" .. pr.id, vim.log.levels.INFO)
+    local tries = 0
+    local function poll()
+      if not views[bufnr] then
+        return
+      end
+      tries = tries + 1
+      prs_api.get(repo, pr.id, function(fresh)
+        if not views[bufnr] then
+          return
+        end
+        local settled = fresh and fresh.merge_status and fresh.merge_status ~= "queued"
+          and fresh.merge_status ~= "notSet"
+        if settled or tries >= MERGE_POLL_TRIES then
+          stop()
+          if fresh then
+            report_merge(bufnr, fresh)
+          end
+          return
+        end
+        vim.defer_fn(poll, MERGE_POLL_MS)
+      end, { silent = true })
+    end
+    vim.defer_fn(poll, MERGE_POLL_MS)
   end)
 end
 
@@ -2021,6 +2147,8 @@ local function select_item(bufnr)
       M.complete(bufnr)
     elseif item.target == "auto_complete" then
       M.auto_complete(bufnr)
+    elseif item.target == "restart_merge" then
+      M.restart_merge(bufnr)
     elseif item.target == "copy_url" then
       M.copy_url(bufnr)
     elseif item.target == "checkout" then
@@ -2142,6 +2270,9 @@ local function set_keymaps(bufnr, kind)
   end)
   map("<leader>wa", function()
     M.auto_complete(bufnr)
+  end)
+  map("<leader>wM", function()
+    M.restart_merge(bufnr)
   end)
   map("<leader>wy", function()
     M.copy_url(bufnr)

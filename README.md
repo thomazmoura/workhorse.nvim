@@ -238,7 +238,7 @@ require("workhorse").setup({
     max_diff_bytes = 1000000,     -- larger files are not diffed
     max_highlight_lines = 5000,   -- larger files are diffed without syntax colors
     refresh_interval = 15000,     -- auto-refresh (ms) of an open pull request; 0 turns it off
-    merge_strategy = "squash",    -- offered first: "squash", "noFastForward", "rebase" or "rebaseMerge"
+    merge_strategy = "noFastForward", -- offered first: "noFastForward", "squash", "rebase" or "rebaseMerge"
     delete_source_branch = true,  -- default answer when completing
     transition_work_items = false,
     work_items_query = nil,       -- saved query (id) completing the Work Items section; nil: the last query opened
@@ -973,8 +973,9 @@ Completed (18)
   ↓ Load 20 more
 ```
 
-The reviewers' votes show as icons next to the date. `<CR>` on `Load 20 more` (or `<leader>wm`)
-loads the next page. `:Workhorse PRs resume` (or `<leader>w<C-p>`) skips the picker and reopens the
+The reviewers' votes show as icons next to the date: a check (approved), a warning (waiting for
+author) or a circled X (rejected), and an empty circle for each required reviewer who has not voted yet.
+`<CR>` on `Load 20 more` (or `<leader>wm`) loads the next page. `:Workhorse PRs resume` (or `<leader>w<C-p>`) skips the picker and reopens the
 last repository.
 
 `<CR>` on a pull request opens it. It has two tabs, shown in the window bar (click them, cycle
@@ -1045,7 +1046,11 @@ fetched in the background (`prs.max_concurrent` at a time) and each diff appears
 From the pull request list, `<leader>wn` opens the "New pull request" form, like the web's: the
 source and target branches (completed from the repository's; the target starts as its default
 branch, the source as the current branch in a clone of the repository), a title (empty: the last
-commit message of the source branch) and an optional work item to link.
+commit message of the source branch), an optional work item to link, `Auto-complete: yes` (`no`
+creates it without auto-complete) and the `Merge strategy` (completed: `noFastForward`, `squash`,
+`rebase` or `rebaseMerge`; `prs.merge_strategy` by default, Merge (no fast-forward)). Auto-complete
+completes the pull request once its policies pass, with that strategy, deleting the source branch
+when `prs.delete_source_branch` is set; without it, the strategy is still saved as how it completes.
 
 `<leader>wN`, only in a clone of the repository (the list header shows it then), runs the flow of
 the `Criar-PullRequest.ps1` script in a form that only needs a title and a work item:
@@ -1058,7 +1063,7 @@ Source branch: feature/login            pushed to origin first
 Target branch: main                     default branch
 Push: yes
 Auto-complete: yes
-Merge strategy: squash
+Merge strategy: noFastForward
 Delete source branch: yes
 Approve: no
 ```
@@ -1127,6 +1132,15 @@ fuzzy picker, then whether to delete the source branch. A draft cannot be comple
 created the pull request, completing also lists "Abandon the pull request" after the merge
 strategies: picked, it asks first, then abandons it.
 
+"Restart merge" (`<leader>wM`, active pull requests) asks Azure DevOps to merge the source branch
+into the target again, as the web's "Restart merge" does. The header shows `Merging…` until the new
+merge status is known (checked every 2 seconds, for up to a minute), then a notification says how
+it went: still conflicting, merged, or merged with nothing left to merge. A pull request whose
+merge changes nothing (the merge commit has the same tree as the target branch commit: every
+change is already there) shows `No changes: the target branch already has them all` under its
+title, whether the merge was restarted or not. A pull request with conflicts (or a failed merge)
+shows the `<leader>wM` hint next to them.
+
 | Key | Action |
 |-----|--------|
 | `<CR>` / `<Space>` | Open the pull request / follow the line (action, check, build, file, comment) |
@@ -1137,11 +1151,12 @@ strategies: picked, it asks first, then abandons it.
 | `<leader>wv` | Vote (approve, approve with suggestions, reset, wait for author, reject) |
 | `<leader>wc` | Complete the pull request (or abandon it, when you created it) |
 | `<leader>wa` | Set auto-complete, or cancel it when already set |
+| `<leader>wM` | Restart the merge (after fixing conflicts, or to find out the target branch already has the changes) |
 | `<leader>wy` | Copy the URL of the pull request to the `0` and `+` registers |
 | `<leader>wk` | Check out the source branch (only in a clone of the pull request's repository) |
 | `<leader>wq` | Re-queue the build check under the cursor, or every expired, failed or not started one |
 | `<leader>wm` | Load 20 more pull requests (list) |
-| `<leader>wn` | New pull request: source and target branches, title, optional work item (list) |
+| `<leader>wn` | New pull request: source and target branches, title, optional work item, auto-complete (yes by default), merge strategy (no fast-forward by default) (list) |
 | `<leader>wN` | New pull request the `Criar-PullRequest.ps1` way: push, link a work item, auto-complete (list, in a clone of the repository) |
 | `-` / `<BS>` | Back to the pull request list |
 | `gw` | Open the pull request, commit or file under the cursor in the browser |
