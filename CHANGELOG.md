@@ -2,6 +2,25 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [112af04] - 2026-11-17
+
+### Added
+- The "New pull request" form (`<leader>wn`) has `Auto-complete` (yes by default) and `Merge strategy` fields; the pull request is created with auto-complete set and the chosen strategy (the source branch is deleted per `prs.delete_source_branch`)
+
+### Changed
+- The default `prs.merge_strategy` is `noFastForward` (Merge (no fast-forward)) instead of `squash`
+
+## [aaa6654] - 2026-11-17
+
+### Added
+- Restart merge of an active pull request (`<leader>wM`, an Actions line): asks Azure DevOps to merge again, shows `Merging…` and reports the new merge status
+- A pull request whose merge changes nothing (the target branch already has every change) shows "No changes: the target branch already has them all" in its header
+- `api/pullrequests.lua`: `restart_merge`, `commit_tree`, `merge_is_empty`; the pull request carries `last_merge_target_commit`
+
+### Changed
+- The pull request list shows an empty circle for each required reviewer who has not voted yet (optional reviewers only show their vote)
+- Pull requests with conflicts or a failed merge show the `<leader>wM` hint
+
 ## [9bda5bb] - 2026-11-17
 
 ### Changed
