@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [41ae65f] - 2026-11-17
+
+### Added
+- `<leader>w<M-b>` opens the picker of every pipeline (`:Workhorse builds`)
+
 ## [2b70d96] - 2026-11-17
 
 ### Added
