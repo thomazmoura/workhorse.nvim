@@ -4,7 +4,9 @@
 --
 --   simple (<leader>wn)  like the web's "New pull request": source and target branches
 --                        (completed from the repository's), a title (by default the last commit
---                        message of the source branch) and an optional work item to link
+--                        message of the source branch), an optional work item to link,
+--                        auto-complete (yes by default, prs.delete_source_branch) and the merge
+--                        strategy (prs.merge_strategy by default: Merge (no fast-forward))
 --   script (<leader>wN)  the flow of Criar-PullRequest.ps1, in a clone of the repository: push the
 --                        source branch (the current one) with --set-upstream, create the pull
 --                        request linked to a work item (its title by default), set how it
@@ -43,7 +45,7 @@ local KEYS = {
 
 -- Fields of each mode, in order
 local ORDER = {
-  simple = { "source", "target", "title", "work_item" },
+  simple = { "source", "target", "title", "work_item", "auto_complete", "merge_strategy" },
   script = { "title", "work_item", "source", "target", "push", "auto_complete", "merge_strategy", "delete_source",
     "approve" },
 }
@@ -300,7 +302,12 @@ local function field_hints(form, parsed)
     hints.push = { hint("git push --set-upstream " .. form.remote .. " " .. (source ~= "" and source or "<branch>")) }
   end
   if bool(parsed.auto_complete) then
-    hints.auto_complete = { hint("completes once the policies pass") }
+    local text = "completes once the policies pass"
+    if form.mode ~= "script" and config.get().prs.delete_source_branch then
+      -- The simple form has no field for deleting the source branch: the configured value
+      text = text .. ", deleting the source branch"
+    end
+    hints.auto_complete = { hint(text) }
   end
   if bool(parsed.approve) then
     hints.approve = { hint("votes Approve") }
@@ -361,7 +368,7 @@ local function collect(form, parsed)
       end
     end
   end
-  if script then
+  if parsed.lnums.merge_strategy then
     local s = strategy(parsed.merge_strategy)
     result.merge_strategy = s and s.value
     if not s then
@@ -624,6 +631,10 @@ local function summary(form, opts)
     if opts.approve then
       table.insert(lines, "Approve it")
     end
+  else
+    local delete = config.get().prs.delete_source_branch
+    table.insert(lines, ("%s with %s%s"):format(opts.auto_complete and "Auto-complete" or "Complete",
+      opts.merge_strategy, delete and (", deleting " .. opts.source) or ""))
   end
   return table.concat(lines, "\n")
 end
@@ -703,16 +714,26 @@ function M.submit(bufnr)
     end)
   end
   local function completion(pr)
-    if form.mode ~= "script" then
-      return finish(pr)
+    local cfg = config.get().prs
+    local set, completion_opts
+    if form.mode == "script" then
+      set = opts.auto_complete and prs_api.set_auto_complete or prs_api.set_completion_options
+      completion_opts = {
+        merge_strategy = opts.merge_strategy,
+        delete_source_branch = opts.delete_source,
+        transition_work_items = cfg.transition_work_items,
+        merge_commit_message = ("PR %d: %s"):format(pr.id, opts.title),
+      }
+    else
+      -- The simple form deletes the source branch as configured
+      set = opts.auto_complete and prs_api.set_auto_complete or prs_api.set_completion_options
+      completion_opts = {
+        merge_strategy = opts.merge_strategy,
+        delete_source_branch = cfg.delete_source_branch,
+        transition_work_items = cfg.transition_work_items,
+      }
     end
-    local set = opts.auto_complete and prs_api.set_auto_complete or prs_api.set_completion_options
-    set(repo, pr, {
-      merge_strategy = opts.merge_strategy,
-      delete_source_branch = opts.delete_source,
-      transition_work_items = config.get().prs.transition_work_items,
-      merge_commit_message = ("PR %d: %s"):format(pr.id, opts.title),
-    }, function(updated, err)
+    set(repo, pr, completion_opts, function(updated, err)
       if not updated then
         table.insert(warnings, (opts.auto_complete and "setting auto-complete" or "setting the completion options")
           .. " failed: " .. (err or "unknown error"))
@@ -779,7 +800,7 @@ function M.open(repo, opts)
     target = default_branch or "",
     push = "yes",
     auto_complete = "yes",
-    merge_strategy = cfg.merge_strategy or "squash",
+    merge_strategy = cfg.merge_strategy or "noFastForward",
     delete_source = "yes",
     approve = "no",
   }

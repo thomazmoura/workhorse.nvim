@@ -157,7 +157,7 @@ local defaults = {
     max_highlight_lines = 5000, -- larger files are diffed without syntax colors
     refresh_interval = 15000, -- auto-refresh (ms) of an open pull request while shown; 0 turns it off
     -- Completing (or setting auto-complete on) a pull request
-    merge_strategy = "squash", -- "squash", "noFastForward", "rebase" or "rebaseMerge" (offered first)
+    merge_strategy = "noFastForward", -- "noFastForward", "squash", "rebase" or "rebaseMerge" (offered first)
     delete_source_branch = true,
     transition_work_items = false,
     -- Saved query (id) whose work items complete the Work Items section of a pull request; nil
