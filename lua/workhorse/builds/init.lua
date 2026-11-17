@@ -99,7 +99,12 @@ end
 -- Remembered on the view so a resize only re-renders when the width really changed.
 local function view_width(bufnr)
   local win = windows_of(bufnr)[1]
-  local width = win and vim.api.nvim_win_get_width(win) or vim.o.columns
+  local width = vim.o.columns
+  if win then
+    -- The text area: without the number column, should the window show one
+    local info = vim.fn.getwininfo(win)[1]
+    width = vim.api.nvim_win_get_width(win) - (info and info.textoff or 0)
+  end
   if views[bufnr] then
     views[bufnr].width = width
   end
@@ -331,12 +336,25 @@ local function run_line(state, run_id)
   end
 end
 
+-- Redraws the current view from the data it holds (defined with the resize handling)
+local rerender
+
+-- Fetch the commit titles `runs` miss, then redraw the view with them
+local function load_commit_titles(bufnr, runs)
+  builds_api.fetch_commit_titles(runs, function()
+    if views[bufnr] and vim.api.nvim_buf_is_valid(bufnr) then
+      rerender(bufnr)
+    end
+  end)
+end
+
 -- Render the runs list from ctx.runs and restore the stage pips already known
 local function render_runs(bufnr)
   local state = views[bufnr]
   local ctx = state.ctx
   local name = ctx.definition_name or ("Pipeline " .. ctx.definition_id)
-  apply_view(bufnr, render.render_runs(name, ctx.runs, view_width(bufnr)))
+  apply_view(bufnr, render.render_runs(name, ctx.runs, view_width(bufnr), ctx.pips))
+  load_commit_titles(bufnr, ctx.runs)
   for run_id, chunks in pairs(ctx.pips) do
     local lnum = run_line(state, run_id)
     if lnum then
@@ -369,7 +387,7 @@ local function load_pips(bufnr)
           ctx.pips[run.id] = render.stage_pips(records)
           local lnum = run_line(state, run.id)
           if lnum then
-            render.set_pips(bufnr, lnum, ctx.pips[run.id])
+            render.set_run_pips(bufnr, lnum, run, state.width or view_width(bufnr), ctx.pips[run.id])
           end
         end
         next_request()
@@ -461,6 +479,7 @@ end
 local function render_tree(bufnr)
   local ctx = views[bufnr].ctx
   apply_view(bufnr, render.render_stages(ctx.run, ctx.records, view_width(bufnr), ctx.expanded, live))
+  load_commit_titles(bufnr, { ctx.run })
 end
 
 -- Expand every ancestor of the record about to be focused, so it is visible
@@ -511,6 +530,7 @@ local function render_header(bufnr)
   state.items = header.items
   -- The header may have changed height (e.g. the Cancel line went away)
   update_pinned(bufnr, header)
+  load_commit_titles(bufnr, { ctx.run })
 end
 
 -- A finished step's log keeps polling only until the run itself completes, so
@@ -1041,7 +1061,7 @@ end
 
 -- Redraw a view from the data it already holds (no request), so trimmed titles
 -- and the separator follow the new width
-local function rerender(bufnr)
+function rerender(bufnr)
   local state = views[bufnr]
   if not state.items then
     return -- still loading; the first render will use the current width

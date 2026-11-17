@@ -60,6 +60,78 @@ end
 
 M.map_run = map_run
 
+-- Commit titles ---------------------------------------------------------------
+
+-- First line of the message of each commit, by commit id ("" when it could not be fetched).
+-- Commits never change, so the session keeps them.
+local commit_titles = {}
+-- Callbacks waiting for the commits being fetched, by commit id: { [callback] = true }
+local commit_waiters = {}
+
+local function first_line(text)
+  return vim.trim((type(text) == "string" and text or ""):match("^[^\r\n]*"))
+end
+
+-- Title (first line of the message) of the commit a run built, nil while unknown: the CI
+-- trigger's message, else the commit fetched by fetch_commit_titles
+function M.commit_title(run)
+  local title = run.message and first_line(run.message) or ""
+  if title == "" and run.source_version then
+    title = commit_titles[run.source_version] or ""
+  end
+  return title ~= "" and title or nil
+end
+
+-- Fetch the commit titles `runs` miss, one request per Azure Repos Git repository;
+-- callback() once some arrived (never when there was nothing to fetch)
+function M.fetch_commit_titles(runs, callback)
+  local by_repo = {}
+  for _, run in ipairs(runs or {}) do
+    local sha = run.source_version
+    if sha and run.repository_id and commit_titles[sha] == nil and not M.commit_title(run) then
+      if commit_waiters[sha] then
+        commit_waiters[sha][callback] = true
+      else
+        commit_waiters[sha] = { [callback] = true }
+        by_repo[run.repository_id] = by_repo[run.repository_id] or {}
+        table.insert(by_repo[run.repository_id], sha)
+      end
+    end
+  end
+  for repo, ids in pairs(by_repo) do
+    local function settle(titles)
+      local callbacks = {}
+      for _, sha in ipairs(ids) do
+        -- A commit the server did not return is not asked for again
+        commit_titles[sha] = titles[sha] or ""
+        for cb in pairs(commit_waiters[sha] or {}) do
+          callbacks[cb] = true
+        end
+        commit_waiters[sha] = nil
+      end
+      for cb in pairs(callbacks) do
+        cb()
+      end
+    end
+    client.post("/" .. config.get().project .. "/_apis/git/repositories/" .. repo .. "/commitsbatch?api-version=7.1",
+      { ids = ids, ["$top"] = #ids }, {
+        silent = true,
+        on_success = function(data)
+          local titles = {}
+          for _, c in ipairs(data and type(data.value) == "table" and data.value or {}) do
+            if type(c) == "table" and type(c.commitId) == "string" then
+              titles[c.commitId] = first_line(c.comment)
+            end
+          end
+          settle(titles)
+        end,
+        on_error = function()
+          settle({})
+        end,
+      })
+  end
+end
+
 -- List build (pipeline) definitions of the project
 function M.list_definitions(callback)
   client.get(project_path("definitions?queryOrder=definitionNameAscending&api-version=7.1"), {

@@ -109,29 +109,51 @@ function M.truncate(text, max)
 end
 local truncate = M.truncate
 
--- Run line: status, branch (date), author and title; the title is trimmed to fit `width`
-local function run_segments(run, level, width)
+-- Display width of virtual text chunks
+local function chunks_width(chunks)
+  local width = 0
+  for _, chunk in ipairs(chunks) do
+    width = width + vim.fn.strdisplaywidth(chunk[1])
+  end
+  return width
+end
+
+-- Title of a run: the title of the commit it built (builds_api.commit_title), else its number
+local function run_title(run)
+  return builds_api.commit_title(run) or ("#" .. (run.build_number or run.id))
+end
+
+-- Run info: status, branch (date) and author
+local function run_info(run, level)
   local icon, hl = builds_api.status_icon(run.status, run.result)
-  local segments = {
+  return {
     { indent(level) },
     { icon, hl },
     { " " .. short_branch(run.source_branch), "WorkhorseBuildBranch" },
     { " (" .. builds_api.format_date(run.queue_time or run.start_time) .. ")", "WorkhorseBuildDate" },
     { "  " .. (run.requested_for or ""), "WorkhorseBuildAuthor" },
-    { "  " },
   }
-  local used = 0
-  for _, seg in ipairs(segments) do
-    used = used + vim.fn.strdisplaywidth(seg[1])
+end
+
+-- Line of a run in the runs list: its info, then as much of its title as fits before the stage
+-- pips (`pips`, right-aligned; RIGHT_RESERVE columns are kept for them while unknown). The pips
+-- win: the line never wraps, the title is cut or left out instead
+local function run_list_segments(run, width, pips)
+  local segments = run_info(run, 1)
+  local reserve = pips and (chunks_width(pips) + 1) or RIGHT_RESERVE
+  local room = width - chunks_width(segments) - 2 - reserve
+  local title = truncate(run_title(run), room)
+  if title ~= "" then
+    table.insert(segments, { "  " .. title, "WorkhorseBuildMessage" })
   end
-  local title = (run.message or ""):gsub("\n.*", "")
-  if title == "" then
-    title = "#" .. (run.build_number or run.id)
-  end
-  -- Never trim the title away entirely; in narrow windows the line overflows instead
-  local room = math.max(width - used - RIGHT_RESERVE, MIN_TITLE_WIDTH)
-  table.insert(segments, { truncate(title, room), "WorkhorseBuildMessage" })
   return segments
+end
+
+-- Title line of the run header, under the run info: aligned with the branch, cut to fit `width`
+local function run_title_segments(run, width)
+  local icon = builds_api.status_icon(run.status, run.result)
+  local pad = indent(1) .. string.rep(" ", vim.fn.strdisplaywidth(icon) + 1)
+  return { { pad }, { truncate(run_title(run), width - #pad), "WorkhorseBuildMessage" } }
 end
 
 -- Stage/job/step line at a tree level
@@ -169,7 +191,8 @@ local function add_header(view, definition_name, run, path, width, live, rerun, 
   local title = definition_name
   add_line(view, { { title, "WorkhorseBuildHeader" } }, { kind = "nav", target = "runs" })
   if run then
-    add_line(view, run_segments(run, 1, width), { kind = "nav", target = "stages", run = run }, duration_virt(run))
+    add_line(view, run_info(run, 1), { kind = "nav", target = "stages", run = run }, duration_virt(run))
+    add_line(view, run_title_segments(run, width), { kind = "nav", target = "stages", run = run })
   end
   for i, record in ipairs(path or {}) do
     add_line(view, record_segments(record, i + 1, width), { kind = "nav", target = path_targets[i], record = record },
@@ -212,12 +235,13 @@ local function definition_of(run)
   return run.definition_name or ("Pipeline " .. (run.definition_id or "?"))
 end
 
-function M.render_runs(definition_name, runs, width)
+-- `pips`: the stage pips known so far, by run id
+function M.render_runs(definition_name, runs, width, pips)
   local view = new_view()
   add_header(view, definition_name, nil, nil, width)
   add_separator(view, width)
   for _, run in ipairs(runs) do
-    add_line(view, run_segments(run, 1, width), { kind = "run", run = run })
+    add_line(view, run_list_segments(run, width, pips and pips[run.id]), { kind = "run", run = run })
   end
   if #runs == 0 then
     add_line(view, { { indent(1) .. "No runs found", "WorkhorseBuildMeta" } })
@@ -420,6 +444,19 @@ function M.set_pips(bufnr, lnum, chunks)
   end
   vim.api.nvim_buf_clear_namespace(bufnr, pips_ns, lnum - 1, lnum)
   vim.api.nvim_buf_set_extmark(bufnr, pips_ns, lnum - 1, 0, { virt_text = chunks, virt_text_pos = "right_align" })
+end
+
+-- Redraw the line of a run in the runs list with its stage pips, its title cut to leave them room
+function M.set_run_pips(bufnr, lnum, run, width, chunks)
+  if not vim.api.nvim_buf_is_valid(bufnr) or lnum > vim.api.nvim_buf_line_count(bufnr) then
+    return
+  end
+  local view = new_view()
+  add_line(view, run_list_segments(run, width, chunks), { kind = "run", run = run })
+  if vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1] ~= view.lines[1] then
+    M.replace(bufnr, view, lnum - 1, lnum)
+  end
+  M.set_pips(bufnr, lnum, chunks)
 end
 
 return M

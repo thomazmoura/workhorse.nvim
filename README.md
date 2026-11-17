@@ -587,10 +587,15 @@ Build windows hide the sign and fold columns to leave more room for the content.
 
 The header lines are links: `<CR>` on the pipeline name opens the runs list, and on the run,
 stage or job line it opens the run tree with that line expanded into view and the cursor on it.
+Below the run line (result, branch, queue date, author and duration), a third line shows the
+title of the commit the run built (the first line of its message), trimmed to fit the window.
 
-- **Runs**: one line per run with its result, branch, queue date, author and title (the commit
-  message, trimmed to fit the window and re-trimmed when the window is resized). The per-stage icons on the right are filled in as each
-  run's timeline arrives.
+- **Runs**: one line per run with its result, branch, queue date, author and title (the title of
+  the commit it built, else its build number). The line never wraps: the per-stage icons on the
+  right, filled in as each run's timeline arrives, take priority, and the title shows as much as
+  fits before them (or nothing), re-trimmed when the window is resized. Commit titles come from
+  the CI trigger, else from the Azure Repos Git commits (one request per repository, kept for the
+  session).
 - **Run tree**: stages > jobs > steps, all loaded at once and collapsed to the stage level.
   `<CR>` or `<Space>` on a stage or job expands or collapses the level below (`▸` collapsed,
   `▾` expanded). On a step it opens the log. Steps that have not started yet are dimmed.
@@ -826,6 +831,14 @@ Hiding keeps your pending edits; showing or hiding them all asks first when ther
 redraws the list). The hidden list is kept in the repository cache (see "Repository cache"), so
 it survives `<leader>wR` and, with a cache key, new sessions.
 
+#### Main pipeline of a repository
+
+In the pipeline pickers, `<C-CR>` (insert or normal mode) makes the selected pipeline the main
+one of its repository, or no longer main when it already is. The main pipeline has a `★` prefix,
+and in the picker of `<leader>wb` it is listed first, so it is the one selected when the picker opens.
+The picker stays open and is redrawn. Each repository has at most one main pipeline. Like the hidden
+pipelines, it is kept in the repository cache, so it survives `<leader>wR` and new sessions.
+
 Folders fold like the work item tree: every folder starts folded, showing how many pipelines
 they hold (`Infra/  ⋯ 3 pipelines`). `<CR>` or `<Space>` on a folder folds or unfolds it, and the
 usual fold commands (`zo`, `zc`, `za`, `zR`, `zM`...) work too. Folded lines are still edited and
@@ -932,7 +945,8 @@ Permit CQ to use it in this and future runs?
 **Pipeline Resources (Use and manage)** scope (or full access).
 
 Global keymaps (set by default): `<leader>wb` opens the pipelines of the repository Neovim is in
-(`:Workhorse builds here`: its runs when it has one, a picker of them when more; the picker of every
+(`:Workhorse builds here`: its runs when it has one, a picker of them when more, its `★` main
+pipeline selected first; the picker of every
 pipeline when the repository is not known), `<leader>wB` opens the pipelines screen
 (`:Workhorse pipelines list`) and `<leader>w<C-b>` reopens the last opened pipeline
 (`:Workhorse builds resume`). See "Repository cache" for the rest.
@@ -1382,7 +1396,7 @@ wins. HTTPS and SSH remotes both match, with or without the user name.
 
 | Key | Action |
 |-----|--------|
-| `<leader>wb` | Pipelines of this repository: its runs when it has one, a picker of them when more |
+| `<leader>wb` | Pipelines of this repository: its runs when it has one, a picker of them when more (the `★` main one first; `<C-CR>` stars one) |
 | `<leader>wB` | Pipelines screen (`:Workhorse pipelines list`) |
 | `<leader>w<C-b>` | Reopen the last opened pipeline |
 | `<leader>wp` | Pull requests of this repository |
