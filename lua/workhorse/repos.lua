@@ -2,8 +2,8 @@
 -- of the configured project (with the repository each one builds). It backs the repository and
 -- pipeline pickers, and finds the repository of Neovim's working directory from its git remotes.
 -- It also keeps the pipelines hidden from the pickers (hidden in the All tab of the pipelines
--- screen). Kept in memory, and also on disk in the locksmith.nvim store (see store.lua), so a
--- new session reads it without querying Azure DevOps. M.update replaces it, keeping the hidden pipelines.
+-- screen) and the main pipeline of each repository (starred in the pipeline picker, listed first). Kept in memory, and also on disk in the locksmith.nvim store (see store.lua), so a
+-- new session reads it without querying Azure DevOps. M.update replaces it, keeping the hidden and main pipelines.
 local M = {}
 
 local async = require("workhorse.async")
@@ -13,7 +13,7 @@ local store = require("workhorse.store")
 local CACHE_NAME = "repos"
 
 -- { server_url, project, fetched_at, repos = { repo }, definitions = { { id, name, path,
--- repository_id } }, hidden = { definition id } }
+-- repository_id } }, hidden = { definition id }, main = { [repository id] = definition id } }
 local data = nil
 -- Callbacks of the load or update in flight
 local waiting = nil
@@ -65,6 +65,13 @@ local function fetch(retry_key, previous)
         table.insert(hidden, id)
       end
     end
+    -- And the main pipelines too
+    local main = {}
+    for repo_id, id in pairs(previous and previous.main or {}) do
+      if exists[id] then
+        main[repo_id] = id
+      end
+    end
     data = {
       server_url = cfg.server_url,
       project = cfg.project,
@@ -72,6 +79,7 @@ local function fetch(retry_key, previous)
       repos = repos,
       definitions = definitions,
       hidden = hidden,
+      main = main,
     }
     store.save(CACHE_NAME, data, function(saved, err)
       if err then
@@ -172,6 +180,37 @@ function M.visible(cache, definitions)
   end, definitions or cache.definitions)
 end
 
+--- Id of the main pipeline of the repository `repository_id` (starred in the picker), or nil
+function M.main_of(cache, repository_id)
+  return repository_id and cache and cache.main and cache.main[repository_id] or nil
+end
+
+--- Make `definition` the main pipeline of its repository (or, when `main` is false, no longer its
+--- main pipeline), and save the cache
+---@param callback function|nil Callback(cache, error): cache nil when the cache failed
+function M.set_main(definition, main, callback)
+  callback = callback or function() end
+  M.get(function(cache, err)
+    if not cache then
+      callback(nil, err)
+      return
+    end
+    local repo_id = definition.repository_id
+    cache.main = cache.main or {}
+    if main then
+      cache.main[repo_id] = definition.id
+    elseif cache.main[repo_id] == definition.id then
+      cache.main[repo_id] = nil
+    end
+    store.save(CACHE_NAME, cache, function(_, save_err)
+      if save_err then
+        notify("Could not save the repository cache: " .. save_err, vim.log.levels.WARN)
+      end
+      callback(cache)
+    end)
+  end)
+end
+
 --- Hide the pipelines `ids` from the pickers (or show them again when `hidden` is false), and save
 --- the cache
 ---@param callback function|nil Callback(hidden_set, error): hidden_set nil when the cache failed
@@ -200,7 +239,7 @@ end
 --- Bring the cached pipelines up to date with `definitions` ({ id, name, path, repository_id }),
 --- as a screen just listed them: the new ones added, the renamed or moved ones changed. With
 --- `complete` (every pipeline of the project), the cached ones missing from it are dropped (and no
---- longer hidden). The cache is saved only when it changed
+--- longer hidden nor main). The cache is saved only when it changed
 ---@param definitions table[]
 ---@param complete boolean|nil
 function M.learn_definitions(definitions, complete)
@@ -256,6 +295,12 @@ function M.learn_definitions(definitions, complete)
     cache.hidden = vim.tbl_filter(function(id)
       return exists[id] == true
     end, cache.hidden or {})
+    -- And the main pipelines too
+    for repo_id, id in pairs(cache.main or {}) do
+      if not exists[id] then
+        cache.main[repo_id] = nil
+      end
+    end
     store.save(CACHE_NAME, cache, function(_, err)
       if err then
         notify("Could not save the repository cache: " .. err, vim.log.levels.WARN)

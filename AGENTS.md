@@ -70,6 +70,7 @@ Workhorse.nvim is an Azure DevOps work item editor for Neovim inspired by oil.nv
 - `settings.lua` - The "New pipeline" form's fields as "Key: value" lines, completed and diffed against the definition (`[was X]`)
 - `variables.lua` - Pipeline variables as `Name (secret, settable): value` lines (secrets empty: empty keeps them)
 - Shared: `builds/definition_fields.lua` (fields, choices, hints and values of the form and the Settings tab), `ui/variable_lines.lua` (variable lines of the library Variables section and the Variables tab)
+- Main pipeline of a repository: `repos.lua` `main` (`{ [repository id] = definition id }`, kept like `hidden`; `main_of`, `set_main`), starred and listed first in `telescope/builds.lua` (`<C-CR>` toggles it, the `<leader>wb` picker preselects it)
 - API: `api/builds.lua` `get_definition_full`, `update_definition` (GET then PUT; `changes` may be a function changing the JSON)
 
 **Work item details** (`lua/workhorse/buffer/details.lua`, `<CR>` on a work item)
