@@ -2,6 +2,16 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [e34087b] - 2026-11-19
+
+### Added
+- The pull request list shows status slots loaded after the list through a rate-limited queue (`prs.max_concurrent`) with a progress indicator: active pull requests show the required work item, required builds and required reviewers; completed ones show the builds of their merge commit
+- Slots show spinners until each pull request's checks land, using the blocking policies of the target branch (one request per branch)
+- Opening a pull request updates its slots in the list with the checks it fetched
+
+### Changed
+- `prs.max_concurrent` also limits the parallel requests of the list's status slots
+
 ## [112af04] - 2026-11-17
 
 ### Added
