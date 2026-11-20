@@ -2,6 +2,11 @@
 
 All notable changes to workhorse.nvim are documented in this file.
 
+## [ea74fa1] - 2026-11-19
+
+### Added
+- The run tree of a run that failed before starting (a broken pipeline definition, e.g. an invalid YAML expression) shows an "Errors" section with the validation errors of the run, as the web summary does, each message wrapped to the window
+
 ## [e34087b] - 2026-11-19
 
 ### Added
