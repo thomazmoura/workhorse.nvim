@@ -29,6 +29,20 @@ local function decode_variables(parameters)
   return ok and type(decoded) == "table" and strip_nulls(decoded) or {}
 end
 
+-- Errors and warnings found validating the run before it started (a broken YAML file, an
+-- unknown template expression...): such a run fails with no stages, and the web UI shows them
+-- in its Errors section. { { type = "error"|"warning", message } }
+local function validation_issues(results)
+  local issues = {}
+  for _, v in ipairs(type(results) == "table" and results or {}) do
+    if type(v) == "table" and (v.result == "error" or v.result == "warning")
+      and type(v.message) == "string" and v.message ~= "" then
+      table.insert(issues, { type = v.result, message = v.message })
+    end
+  end
+  return issues
+end
+
 local function map_run(b)
   strip_nulls(b)
   local trigger = b.triggerInfo or {}
@@ -55,6 +69,7 @@ local function map_run(b)
     -- Values the run was queued with (to queue it again): YAML runtime parameters and variables
     template_parameters = type(b.templateParameters) == "table" and strip_nulls(b.templateParameters) or {},
     variables = decode_variables(b.parameters),
+    issues = validation_issues(b.validationResults),
   }
 end
 
@@ -730,6 +745,34 @@ function M.stages(records)
     stages = M.children(records, nil, "Phase")
   end
   return stages
+end
+
+-- Issues to show above the run tree: the run's validation errors and, when the run has no
+-- stages to show them under, the issues of its timeline records. Errors first, duplicates dropped.
+function M.run_issues(run, records)
+  local list, seen = {}, {}
+  local function add(issue_type, message)
+    if (issue_type == "error" or issue_type == "warning") and type(message) == "string"
+      and message ~= "" and not seen[message] then
+      seen[message] = true
+      table.insert(list, { type = issue_type, message = message })
+    end
+  end
+  for _, issue in ipairs(run.issues or {}) do
+    add(issue.type, issue.message)
+  end
+  if #M.stages(records) == 0 then
+    for _, record in ipairs(records) do
+      for _, issue in ipairs(type(record.issues) == "table" and record.issues or {}) do
+        if type(issue) == "table" then
+          add(issue.type, issue.message)
+        end
+      end
+    end
+  end
+  -- Errors first, each kind in its original order (table.sort is not stable)
+  local sorted = vim.tbl_filter(function(i) return i.type == "error" end, list)
+  return vim.list_extend(sorted, vim.tbl_filter(function(i) return i.type ~= "error" end, list))
 end
 
 -- Whether a stage can be rerun on its own: a finished YAML stage (classic pipelines only have

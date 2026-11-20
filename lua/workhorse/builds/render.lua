@@ -257,6 +257,47 @@ local function tree_segments(record, level, children_count, expanded, name_hl)
   return { { indent(level) }, { marker, "WorkhorseBuildMeta" }, { icon, hl }, { " " .. record.name, name_hl } }
 end
 
+-- Split `text` into lines of at most `max` display columns, breaking between words (a word
+-- longer than a line, such as a URL, gets a line of its own)
+local function wrap(text, max)
+  local lines, current = {}, ""
+  for word in text:gmatch("%S+") do
+    local candidate = current == "" and word or (current .. " " .. word)
+    if current ~= "" and vim.fn.strdisplaywidth(candidate) > max then
+      table.insert(lines, current)
+      current = word
+    else
+      current = candidate
+    end
+  end
+  if current ~= "" then
+    table.insert(lines, current)
+  end
+  return lines
+end
+
+-- "Errors" section of a run (like the summary on the web): its validation errors, e.g. the
+-- broken YAML that kept a run from starting, each message wrapped under its icon
+local function add_issues(view, issues, width)
+  local errors = #vim.tbl_filter(function(i) return i.type == "error" end, issues)
+  local title = errors > 0 and "Errors" or "Warnings"
+  add_line(view, { { indent(1) .. title, "WorkhorseBuildTitle" }, { " " .. #issues, "WorkhorseBuildMeta" } })
+  for _, issue in ipairs(issues) do
+    local icon, hl = builds_api.status_icon("completed", issue.type == "error" and "failed" or "succeededWithIssues")
+    local lead = indent(2) .. icon .. " "
+    local pad = indent(2) .. string.rep(" ", vim.fn.strdisplaywidth(icon) + 1)
+    local text_hl = issue.type == "error" and "WorkhorseLogError" or "WorkhorseLogWarning"
+    local max = math.max(width - vim.fn.strdisplaywidth(lead) - 1, MIN_TITLE_WIDTH)
+    for i, line in ipairs(wrap(issue.message, max)) do
+      if i == 1 then
+        add_line(view, { { indent(2) }, { icon, hl }, { " " }, { line, text_hl } })
+      else
+        add_line(view, { { pad }, { line, text_hl } })
+      end
+    end
+  end
+end
+
 -- Run tree: stages > jobs > steps. `expanded` is a set of record ids whose
 -- children are shown; everything starts collapsed to the stage level.
 function M.render_stages(run, records, width, expanded, live)
@@ -271,7 +312,15 @@ function M.render_stages(run, records, width, expanded, live)
   add_header(view, definition_of(run), run, nil, width, live, #builds_api.rerunnable_stages(records) > 0,
     next(waiting) ~= nil)
   add_separator(view, width)
-  for _, stage in ipairs(builds_api.stages(records)) do
+  local stages = builds_api.stages(records)
+  local issues = builds_api.run_issues(run, records)
+  if #issues > 0 then
+    add_issues(view, issues, width)
+    if #stages > 0 then
+      add_line(view, { { "" } })
+    end
+  end
+  for _, stage in ipairs(stages) do
     local jobs = builds_api.jobs_of_stage(records, stage)
     local stage_open = expanded[stage.id]
     local virt = duration_virt(stage)

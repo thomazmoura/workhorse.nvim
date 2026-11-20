@@ -578,6 +578,18 @@ the run tree:
       ▸  Build and test                                                              5m 51s
 ```
 
+A run that failed before it started has no stages: a broken pipeline definition (an invalid
+YAML file, an unknown expression function) is only reported by the server's validation of the
+run. The run tree then shows those errors under the header, like the Errors section of the run's
+summary on the web, each message wrapped to the window:
+
+```
+──────────────────────────────────────────── ◇ ─────────────────────────────────────────────
+  Errors 1
+     /azure-pipelines.yaml (Line: 43, Col: 5): Unrecognized value: 'trim'. Located at
+      position 4 within expression: ne(trim(server), ''). For more help, refer to …
+```
+
 In the log view the header goes down to the step. In every view the header stays visible while
 you scroll: once its lines leave the window, a copy of it is pinned over the top of the window
 (like nvim-treesitter-context), with the same line numbers the buffer shows, and the cursor never
