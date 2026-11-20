@@ -233,7 +233,7 @@ require("workhorse").setup({
   prs = {
     top = 20,                     -- pull requests loaded per page of the list
     default_tab = "overview",     -- "overview" or "changes"
-    max_concurrent = 4,           -- parallel file requests when computing the diffs
+    max_concurrent = 4,           -- parallel requests: diff files, and the status slots of the list
     diff_context = 3,             -- unchanged lines shown around each change
     max_diff_bytes = 1000000,     -- larger files are not diffed
     max_highlight_lines = 5000,   -- larger files are diffed without syntax colors
@@ -973,8 +973,23 @@ Completed (18)
   ↓ Load 20 more
 ```
 
-The reviewers' votes show as icons next to the date: a check (approved), a warning (waiting for
-author) or a circled X (rejected), and an empty circle for each required reviewer who has not voted yet.
+Each pull request shows status slots next to the date, loaded after the list (a queue of
+`prs.max_concurrent` requests at a time, with a progress indicator until it is done):
+
+- **Active** - one slot per requirement, in this order:
+  - **Work item** (when a branch policy requires one): empty circle until a work item is linked, then a check
+  - **Required builds** (blocking build policies): empty circle (not started), play (running, or queued
+    and waiting), warning (expired: re-queue it), circled X (failed) or check (succeeded)
+  - **Required reviewers**: empty circle (no vote yet), warning (waiting for author), circled X
+    (rejected) or check (approved)
+
+  The reviewers come with the list. The work item and build slots come from the checks of each
+  pull request; until those land, they show as spinners, from the policies of the target branch
+  (one request per branch). Opening a pull request updates its slots with the checks it fetches.
+- **Completed** - the status of the builds its merge started (runs of the target branch on the
+  merge commit, the latest per pipeline), if there are any.
+
+`<leader>R` fetches the list and its slots again.
 `<CR>` on `Load 20 more` (or `<leader>wm`) loads the next page. `:Workhorse PRs resume` (or `<leader>w<C-p>`) skips the picker and reopens the
 last repository.
 

@@ -784,6 +784,35 @@ function M.checks(repo, id, callback, opts)
   })
 end
 
+-- What the branch policies of `target_ref` require of the pull requests into it (enabled,
+-- blocking policies applying to the branch): callback({ work_items = boolean, builds = number })
+-- or (nil, err). One request per target branch: the pull request list shows these as loading
+-- slots until the checks of each pull request land
+function M.required_policies(repo, target_ref, callback)
+  client.get("/" .. repo.project.id .. "/_apis/git/policy/configurations?repositoryId=" .. repo.id
+    .. "&refName=" .. url_encode(target_ref) .. "&api-version=7.1", {
+    silent = true,
+    on_success = function(data)
+      local required = { work_items = false, builds = 0 }
+      for _, c in ipairs(data and data.value or {}) do
+        strip_nulls(c)
+        local kind = type(c.type) == "table" and CHECK_KINDS[c.type.id]
+        if c.isEnabled == true and c.isBlocking == true and c.isDeleted ~= true then
+          if kind == "work_items" then
+            required.work_items = true
+          elseif kind == "build" then
+            required.builds = required.builds + 1
+          end
+        end
+      end
+      callback(required)
+    end,
+    on_error = function(err)
+      callback(nil, err)
+    end,
+  })
+end
+
 -- Queue a check again (an expired or failed build policy queues a new build): callback(true) or
 -- (nil, err)
 function M.requeue_check(repo, evaluation_id, callback)

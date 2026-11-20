@@ -10,6 +10,7 @@ local pinned = require("workhorse.ui.pinned")
 local choices = require("workhorse.ui.choices")
 local reviewers = require("workhorse.prs.reviewers")
 local work_items = require("workhorse.prs.work_items")
+local list_status = require("workhorse.prs.list_status")
 
 local uv = vim.uv or vim.loop
 -- Status of the builds on the Overview tab, drawn apart so the elapsed time ticks without re-rendering
@@ -123,18 +124,12 @@ local function current_item(bufnr)
   return state.items and state.items[vim.api.nvim_win_get_cursor(0)[1]]
 end
 
--- Pull request line: status, id, title (trimmed to fit), author and branches; the reviewers'
--- votes and the date go on the right: one icon per reviewer who voted, and an empty circle for
--- each required reviewer who has not (yet; a required reviewer who declined is left out)
-local function pr_line(view, pr, width)
+-- Pull request line: status, id, title (trimmed to fit), author and branches; its status slots
+-- (see prs/list_status.lua: required work item, builds and reviewers of an active one, merge
+-- builds of a completed one) and the date go on the right
+local function pr_line(view, ctx, pr, width)
   local icon, hl = prs_api.status_icon(pr)
-  local virt = {}
-  for _, r in ipairs(pr.reviewers) do
-    if r.vote ~= 0 or (r.required and not r.declined) then
-      local _, vote_icon, vote_hl = prs_api.vote_display(r.vote)
-      table.insert(virt, { vote_icon .. " ", vote_hl })
-    end
-  end
+  local virt = list_status.slots(ctx, pr)
   local date = builds_api.format_date(pr.status == "active" and pr.creation_date or (pr.closed_date or pr.creation_date))
   table.insert(virt, { date, "WorkhorseBuildDate" })
 
@@ -196,7 +191,7 @@ local function render_list(bufnr, focus)
       any = true
       render.add_line(view, { { section.label .. " (" .. #prs .. ")", "WorkhorseRunSection" } })
       for _, pr in ipairs(prs) do
-        pr_line(view, pr, width)
+        pr_line(view, ctx, pr, width)
       end
       if #prs == 0 then
         render.add_line(view, { { "  None", "WorkhorseBuildMeta" } })
@@ -266,6 +261,12 @@ local function load_list(bufnr, reload)
     end
     ctx.exhausted = #page < count
     render_list(bufnr, focus)
+    -- The status slots of the pull requests, then (a reload fetches them all again)
+    list_status.load(ctx, reload and ctx.prs or page, function()
+      if views[bufnr] and views[bufnr].ctx == ctx and vim.api.nvim_buf_is_valid(bufnr) then
+        render_list(bufnr)
+      end
+    end, { reload = reload })
   end)
 end
 
@@ -280,6 +281,30 @@ local function update_list_entry(repo, pr)
     if listed.id == pr.id then
       state.ctx.prs[i] = pr
       if vim.api.nvim_buf_is_valid(bufnr) and #windows_of(bufnr) > 0 then
+        render_list(bufnr)
+      end
+      -- Its slots, when its status changed (completed: its merge builds)
+      list_status.load(state.ctx, { pr }, function()
+        if views[bufnr] == state and vim.api.nvim_buf_is_valid(bufnr) then
+          render_list(bufnr)
+        end
+      end)
+      return
+    end
+  end
+end
+
+-- Checks fetched by the screen of a pull request: its slots in the list, if open and active there
+local function update_list_checks(repo, id, checks)
+  local bufnr = buffers_by_key["prs:" .. repo.id]
+  local state = bufnr and views[bufnr]
+  if not state then
+    return
+  end
+  for _, listed in ipairs(state.ctx.prs) do
+    if listed.id == id then
+      if listed.status == "active" and list_status.set_checks(state.ctx, id, checks)
+        and vim.api.nvim_buf_is_valid(bufnr) and #windows_of(bufnr) > 0 then
         render_list(bufnr)
       end
       return
@@ -438,6 +463,7 @@ local function fetch_checks(bufnr)
     if checks then
       changed = ctx.errors.checks ~= nil or not vim.deep_equal(checks, ctx.data.checks)
       ctx.data.checks, ctx.errors.checks = checks, nil
+      update_list_checks(ctx.repo, ctx.id, checks)
     elseif not ctx.data.checks then
       changed = ctx.errors.checks == nil
       ctx.errors.checks = err or "unknown error"
@@ -2379,6 +2405,9 @@ local function open_buffer(key, name, kind, ctx)
       if state and state.builds_timer then
         state.builds_timer:stop()
         state.builds_timer:close()
+      end
+      if state and state.kind == "list" then
+        list_status.stop(state.ctx)
       end
       if state then
         buffers_by_key[state.key] = nil
